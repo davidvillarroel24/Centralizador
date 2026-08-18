@@ -1,0 +1,53 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Centralizador{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'web/dashboard.css' %}">
+    <link rel="stylesheet" href="{% static 'web/sidebar.css' %}">
+    <link rel="stylesheet"
+      href="https://cdn.datatables.net/2.3.2/css/dataTables.dataTables.min.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">Centralizador</div>
+        <nav>
+          <ul>
+            <li><a href="{% url 'resumen' %}">🏠 Resumen</a></li>
+            <li><a href="{% url 'materias' %}">📚 Materias</a></li>
+            <li><a href="{% url 'docentes' %}">👨‍🏫 Docentes</a></li>
+            <li><a href="{% url 'estudiantes' %}">👨‍🎓 Estudiantes</a></li>
+            <li><a href="{% url 'alertas' %}">⚠️ Alertas</a></li>
+            <li><a href="{% url 'predicciones' %}">📈 Predicciones</a></li>
+            <li><a href="{% url 'reportes' %}">📄 Reportes</a></li>
+            <li><a href="{% url 'dashboard' %}">🏠 Extraccion</a></li>
+            <li><a href="{% url 'configuracion' %}">⚙️ Configuración</a></li>
+            {% if user.is_authenticated %}
+              <li><a href="{% url 'logout' %}">🔒 Cerrar sesión</a></li>
+            {% else %}
+              <li><a href="{% url 'login' %}">🔑 Iniciar sesión</a></li>
+              <li><a href="{% url 'register' %}">🧾 Registrarse</a></li>
+            {% endif %}
+          </ul>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <h1>{% block header %}Panel{% endblock %}</h1>
+        </header>
+
+        <section class="content">
+          {% block content %}{% endblock %}
+        </section>
+      </main>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <script src="https://cdn.datatables.net/2.3.2/js/dataTables.min.js"></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

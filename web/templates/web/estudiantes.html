@@ -1,0 +1,51 @@
+{% extends 'web/base.html' %}
+{% block title %}Estudiantes - Centralizador{% endblock %}
+{% block header %}Estudiantes{% endblock %}
+{% block content %}
+    <table id="tblEstudiantes" class="display">
+        <thead>
+            <tr>
+                <th>ID Moodle</th>
+                <th>Nombre</th>
+                <th>Correo</th>
+                <th>Gestiones</th>
+                <th>Materias</th>
+                <th>Entregas</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for e in estudiantes %}
+            <tr>
+
+                <td>{{ e.moodle_id }}</td>
+
+                <td>{{ e.nombre }}</td>
+
+                <td>{{ e.correo }}</td>
+
+                <td>
+                    {% for gestion, cantidad in e.gestiones.items %}
+                        {{ gestion }} ({{ cantidad }})
+                        {% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
+
+                <td>{{ e.total_materias }}</td>
+                <td>{{ e.total_entregas }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}
+
+    {% block scripts %}
+    <script>
+    $(document).ready(function () {
+        $('#tblEstudiantes').DataTable({
+            pageLength: 25,
+            order: [[2, 'desc']]
+        });
+    });
+</script>
+{% endblock %}

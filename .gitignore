@@ -1,0 +1,27 @@
+# Entorno / secretos
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Base de datos local
+db.sqlite3
+
+# Estaticos generados (se regeneran en el build de Render)
+/staticfiles/
+
+# Datos scrapeados (contienen informacion real de estudiantes/docentes)
+data/raw/*.json
+notas*.xlsx
+notas1*.xlsx
+notas2*.xlsx
+debug.html
+
+# Carpetas fuera del alcance del repo de la app
+/Versioines Demo/
+/Proyecto de grado/
+
+# Editor / SO
+.vscode/
+*.swp
+Thumbs.db

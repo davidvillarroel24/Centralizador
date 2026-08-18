@@ -1,0 +1,46 @@
+{% extends 'web/base.html' %}
+{% block title %}Docentes - Centralizador{% endblock %}
+{% block header %}Docentes monitoreados{% endblock %}
+{% block content %}
+
+    <table id="tblDocentes" class="display">
+        <thead>
+            <tr>
+                <th>ID Moodle</th>
+                <th>Docente</th>
+                <th>Gestiones</th>
+                <th>Materias</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for p in docentes %}
+            <tr>
+                <td>{{ p.moodle_id }}</td>
+
+                <td>{{ p.nombre }}</td>
+
+                <td>
+                    {% for gestion, cantidad in p.gestiones.items %}
+                        {{ gestion }} ({{ cantidad }}){% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
+
+                <td>{{ p.total_materias }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% endblock %}
+
+    {% block scripts %}
+    <script>
+    $(document).ready(function () {
+        $('#tblDocentes').DataTable({
+            pageLength: 25,
+            order: [[2, 'desc']]
+        });
+    });
+</script>
+{% endblock %}

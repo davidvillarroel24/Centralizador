@@ -1,0 +1,52 @@
+{% extends 'web/base.html' %}
+{% block title %}Recuperar sesión - Centralizador{% endblock %}
+{% block header %}Recuperar sesión MoodleSession{% endblock %}
+{% block content %}
+  <div style="max-width:600px; margin:20px auto;">
+    {% if error_msg %}
+      <div style="background:#fff3cd; border:1px solid #ffc107; padding:12px; border-radius:4px; margin-bottom:20px; color:#856404;">
+        <strong>⚠️ Error:</strong> {{ error_msg }}
+      </div>
+    {% endif %}
+
+    {% if message %}
+      <div style="background:#d4edda; border:1px solid #28a745; padding:12px; border-radius:4px; margin-bottom:20px; color:#155724;">
+        ✓ {{ message }}
+      </div>
+    {% endif %}
+
+    <p>Si la extracción falló por sesión expirada, pega aquí el valor de la cookie <strong>MoodleSession</strong> desde el navegador.</p>
+
+    <h3>Pasos para obtener tu cookie:</h3>
+    <ol>
+      <li>Abre el navegador y entra a <strong>Moodle</strong> (cualquier curso donde estés inscrito).</li>
+      <li>Abre <strong>Herramientas de Desarrollador</strong> (F12 o Ctrl+Shift+I).</li>
+      <li>Ve a <strong>Application</strong> (o <strong>Storage</strong> en Firefox).</li>
+      <li>En el panel izquierdo, haz clic en <strong>Cookies</strong> y selecciona tu sitio Moodle.</li>
+      <li>Busca la cookie llamada <strong>MoodleSession</strong> (o similar).</li>
+      <li>Copia su valor completo y pégalo en el campo de abajo.</li>
+    </ol>
+
+    <form method="post">
+      {% csrf_token %}
+      <div style="margin-bottom:15px;">
+        <label for="moodle_cookie"><strong>Valor de MoodleSession:</strong></label><br>
+        <textarea id="moodle_cookie" name="moodle_cookie" rows="4" cols="80" placeholder="Pega aquí el valor del cookie..." style="width:100%; font-family:monospace; padding:8px; border:1px solid #ccc; border-radius:4px;"></textarea>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button type="submit" style="padding:8px 16px; background:#007bff; color:white; border:none; border-radius:4px; cursor:pointer;">Guardar y continuar</button>
+        <a href="/web/" style="padding:8px 16px; background:#6c757d; color:white; text-decoration:none; border-radius:4px; display:inline-block;">Cancelar</a>
+      </div>
+    </form>
+
+    {% if message and not error_msg %}
+      <div style="margin-top:20px; padding:12px; background:#e7f3ff; border:1px solid #2196F3; border-radius:4px;">
+        <p><strong>¿Quieres continuar?</strong></p>
+        <ul>
+          <li><a href="/web/dashboard/">Volver al panel de extracción</a></li>
+          <li><a href="/web/resumen/">Ver resumen de monitoreo</a></li>
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

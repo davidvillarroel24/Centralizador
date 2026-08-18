@@ -1,0 +1,87 @@
+{% extends 'web/base.html' %}
+{% block title %}Alertas - Centralizador{% endblock %}
+{% block header %}Alertas académicas{% endblock %}
+{% block content %}
+  <h3>Materias sin actividades</h3>
+  <table id="tblMateriasSinActividades" class="display">
+      <thead>
+          <tr>
+              <th>ID</th>
+              <th>Materia</th>
+          </tr>
+      </thead>
+
+      <tbody>
+          {% for m in alertas_detalle.materias_sin_actividades %}
+          <tr>
+              <td>{{ m.id }}</td>
+              <td>{{ m.nombre }}</td>
+          </tr>
+          {% empty %}
+          {% endfor %}
+      </tbody>
+  </table>
+
+  <h3>Tareas sin fecha de cierre</h3>
+
+  <table id="tblTareasSinCierre" class="display">
+      <thead>
+          <tr>
+              <th>ID Moodle</th>
+              <th>Tarea</th>
+          </tr>
+      </thead>
+
+      <tbody>
+          {% for t in alertas_detalle.tareas_sin_cierre %}
+          <tr>
+              <td>{{ t.moodle_id }}</td>
+              <td>{{ t.titulo }}</td>
+          </tr>
+          {% empty %}
+          {% endfor %}
+      </tbody>
+  </table>
+
+  <h3>Estudiantes con posible sobrecarga</h3>
+
+  <table id="tblSobrecarga" class="display">
+      <thead>
+          <tr>
+              <th>Estudiante</th>
+              <th>Pendientes</th>
+          </tr>
+      </thead>
+
+      <tbody>
+          {% for s in alertas_detalle.estudiantes_sobrecarga %}
+          <tr>
+              <td>{{ s.estudiante__nombre }}</td>
+              <td>{{ s.pendientes }}</td>
+          </tr>
+          {% empty %}
+          {% endfor %}
+      </tbody>
+  </table>
+
+{% endblock %}
+{% block scripts %}
+<script>
+$(document).ready(function () {
+
+    $('#tblMateriasSinActividades').DataTable({
+        pageLength: 10
+    });
+
+    $('#tblTareasSinCierre').DataTable({
+        pageLength: 10
+    });
+
+    $('#tblSobrecarga').DataTable({
+        pageLength: 10,
+        order: [[1, 'desc']]
+    });
+
+});
+</script>
+{% endblock %}

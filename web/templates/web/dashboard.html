@@ -1,0 +1,95 @@
+{% extends 'web/base.html' %}
+{% block title %}Dashboard - Centralizador{% endblock %}
+{% block header %}Dashboard de extracción{% endblock %}
+{% block content %}
+    <div class="page-shell">
+        <div class="hero">
+            <div>
+                <p class="eyebrow">Centralizador</p>
+                <h1>Dashboard de extracción</h1>
+            </div>
+            <div class="status-card">
+                <p class="status-label">Cookie / SESSKEY</p>
+                <p class="status-value">{{ sesskey|default:'No capturado' }}</p>
+                <p class="status-label">Cursos cargados</p>
+                <p class="status-value">{{ course_count }}</p>
+            </div>
+        </div>
+
+        <form method="post" class="dashboard-form">
+            {% csrf_token %}
+            <input type="hidden" name="role" value="{{ role }}" />
+
+            <section class="actions-panel">
+                <div class="panel">
+                    <h2>Acciones</h2>
+                    <div class="selection-summary">
+                        <span>Seleccionados:</span>
+                        <strong>{{ selected_count }}</strong>
+                    </div>
+                    <div class="actions-grid">
+                        <button type="submit" name="action" value="normalizado" class="btn btn-primary">Normalizar</button>
+                        <button type="submit" name="action" value="asignacion" class="btn btn-secondary">Asignar tareas</button>
+                        <button type="submit" name="action" value="estudiantes" class="btn btn-secondary">Extraer estudiantes</button>
+                        <button type="submit" name="action" value="transformar" class="btn btn-primary">Generar Excel</button>
+                    </div>
+                    <div class="note">Selecciona cursos y haz clic en una acción.</div>
+                </div>
+
+                <div class="panel role-panel">
+                    <h2>Filtro</h2>
+                    <div class="role-grid">
+                        <a href="?role=all" class="role-pill{% if role == 'all' %} active{% endif %}">Todos</a>
+                        <a href="?role=estudiante" class="role-pill{% if role == 'estudiante' %} active{% endif %}">Estudiante</a>
+                        <a href="?role=docente" class="role-pill{% if role == 'docente' %} active{% endif %}">Docente</a>
+                    </div>
+                </div>
+            </section>
+
+            {% if action_result or error %}
+            <section class="result-panel">
+                <h2>Resultado</h2>
+                {% if error %}
+                    <div class="message card error">Error: {{ error }}</div>
+                {% endif %}
+                {% if action_result %}
+                    <div class="message card success">
+                        <strong>{{ action_result.title }}</strong>
+                        <p>{{ action_result.detail }}</p>
+                        {% if action_result.count is not None %}
+                            <p>Total: {{ action_result.count }}</p>
+                        {% endif %}
+                        {% if action_result.errors is not none %}
+                            <p>Errores: {{ action_result.errors }}</p>
+                        {% endif %}
+                        {% if action_result.warning %}
+                            <p class="warning">{{ action_result.warning }}</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </section>
+            {% endif %}
+
+            <section class="courses-panel">
+                <div class="panel">
+                    <h2>Cursos disponibles</h2>
+                    <div class="courses-grid">
+                        {% for course in courses %}
+                            <article class="course-card{% if course.id|stringformat:'s' in selected_ids %} selected{% endif %}">
+                                <label class="course-checkbox">
+                                    <input type="checkbox" name="courses" value="{{ course.id }}" {% if course.id|stringformat:'s' in selected_ids %}checked{% endif %}>
+                                    <span class="course-checkbox-label">{{ course.asignatura }}</span>
+                                </label>
+                                <div class="course-meta">ID: {{ course.id }}</div>
+                                <a class="course-link" href="{{ course.url }}" target="_blank">Abrir</a>
+                            </article>
+                        {% empty %}
+                            <div class="empty-state">No se encontraron cursos. Asegúrate de tener <code>data/raw/cursos.json</code>.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
+        </form>
+    </div>
+{% endblock %}
+

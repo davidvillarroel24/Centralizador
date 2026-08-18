@@ -1,0 +1,52 @@
+{% extends 'web/base.html' %}
+{% block title %}Materias - Centralizador{% endblock %}
+{% block header %}Materias monitoreadas{% endblock %}
+{% block content %}
+    <table id="tblMaterias" class="display">
+        <thead>
+            <tr>
+                <th>Gestión</th>
+                <th>Sigla</th>
+                <th>Materia</th>
+                <th>Carrera</th>
+                <th>Nivel</th>
+                <th>Grupo</th>
+                <th>Turno</th>
+                <th>Docente(s)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in materias %}
+            <tr>
+                <td>{{ m.gestion }}</td>
+                <td>{{ m.sigla }}</td>
+                <td>{{ m.nombre }}</td>
+                <td>{{ m.carrera.nombre }}</td>
+                <td>
+                    {% if m.nivel %}
+                        {{ m.nivel.nombre }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>{{ m.grupo }}</td>
+                <td>{{ m.turno }}</td>
+                <td>
+                    {% for p in m.profesores.all %}
+                        {{ p.nombre }}{% if not forloop.last %}, {% endif %}
+                    {% empty %}
+                        Sin asignar
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+new DataTable('#tblMaterias');
+</script>
+{% endblock %}

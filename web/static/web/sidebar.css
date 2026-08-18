@@ -1,0 +1,26 @@
+/* Sidebar styles for base layout */
+.app-shell{
+  display:flex;
+  min-height:100vh;
+}
+.sidebar{
+  width:220px;
+  background:#0b0b0b;
+  color:#fff;
+  padding:20px;
+  border-right:1px solid rgba(255,128,0,0.06);
+}
+.sidebar .brand{
+  font-weight:800;
+  color:#ffb473;
+  margin-bottom:18px;
+}
+.sidebar nav ul{ list-style:none; padding:0; margin:0; }
+.sidebar nav li{ margin:8px 0; }
+.sidebar nav a{ color:#fff; text-decoration:none; display:block; padding:8px 10px; border-radius:8px; }
+.sidebar nav a:hover{ background:rgba(255,178,90,0.06); }
+.main-content{ flex:1; padding:18px 28px; background:#060606; color:#fff; }
+.topbar{ margin-bottom:12px; }
+.kpi-grid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+.kpi-card{ background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; text-align:center; }
+.list{ padding-left:16px; }

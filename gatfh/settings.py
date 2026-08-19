@@ -173,3 +173,23 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+
+# Con DEBUG=False, Django por defecto solo manda los errores 500 por mail_admins
+# (sin ADMINS configurado, se pierden). Esto los imprime al log de Render siempre,
+# sin necesidad de exponer la pagina de debug en produccion.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}

@@ -16,6 +16,9 @@ notas*.xlsx
 notas1*.xlsx
 notas2*.xlsx
 debug.html
+data_dump.json
+dumpdata_errors.log
+MIGRACION_DATOS_RENDER.md
 
 # Carpetas fuera del alcance del repo de la app
 /Versioines Demo/

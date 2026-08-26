@@ -160,3 +160,23 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+
+# Con DEBUG=False, Django no imprime tracebacks de errores 500 a consola por defecto
+# (solo intenta enviar un email a ADMINS, que no esta configurado). Esto hace que
+# esos errores queden visibles en los logs de Render sin necesidad de activar DEBUG.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}

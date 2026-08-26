@@ -49,6 +49,19 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+# Hardening que solo aplica en producción (DEBUG=False). Render termina TLS en su
+# proxy y reenvia por HTTP internamente, por eso SECURE_PROXY_SSL_HEADER es
+# obligatorio: sin el, SECURE_SSL_REDIRECT entra en loop de redirects infinito.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # Arranca bajo (1 dia) a proposito: HSTS lo cachea el navegador y es dificil de
+    # revertir si algo sale mal. Subir el valor una vez confirmado que HTTPS anda bien.
+    SECURE_HSTS_SECONDS = 60 * 60 * 24
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+
 
 # Application definition
 
@@ -161,9 +174,9 @@ STORAGES = {
     },
 }
 
-# Con DEBUG=False, Django no imprime tracebacks de errores 500 a consola por defecto
-# (solo intenta enviar un email a ADMINS, que no esta configurado). Esto hace que
-# esos errores queden visibles en los logs de Render sin necesidad de activar DEBUG.
+# Con DEBUG=False, Django por defecto solo manda los errores 500 por mail_admins
+# (sin ADMINS configurado, se pierden). Esto los imprime al log de Render siempre,
+# sin necesidad de exponer la pagina de debug en produccion.
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

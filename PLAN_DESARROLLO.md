@@ -28,6 +28,13 @@ migrar el esquema ni la arquitectura de concurrencia cuando se sume el segundo u
   `services/imports/profesores.py::importar_profesores()` — la tabla `Profesor` queda vacía
   tras una importación limpia. Hay que sumarlo al comando antes de poder probar el matching de
   roles por materia.
+- [x] **Paso 3 (Render prep)**: `requirements.txt`, `Procfile`, `.python-version`, settings de
+  producción (SSL/HSTS/cookies seguras condicionadas a `DEBUG=False`) y `collectstatic` ya
+  probados localmente. Falta la parte operativa: crear el servicio en Render, generar
+  `SECRET_KEY` real y cargar variables de entorno ahí (ver sección 1 para el detalle).
+- [ ] Reproducido en PC nueva (2026-08-18): reinstalación de Postgres 18, recreación de
+  `venv` + `requirements.txt`, DB `centralizador` migrada y repoblada desde `data/raw/*.json`
+  (mismos conteos que antes: 16 materias, 12 estudiantes, 669 tareas, 288 entregas).
 
 ---
 
@@ -49,22 +56,39 @@ migrar el esquema ni la arquitectura de concurrencia cuando se sume el segundo u
 
 ## 1. Despliegue en Render
 
-### Gaps encontrados (ninguno resuelto aún)
-- No hay `requirements.txt`, `Procfile`/`render.yaml`, ni `runtime.txt`.
-- `gatfh/settings.py`: `SECRET_KEY` hardcodeado, `DEBUG = True`, `ALLOWED_HOSTS = []`, sin
-  `STATIC_ROOT` ni whitenoise para servir estáticos en producción.
-- Falta `CSRF_TRUSTED_ORIGINS` para el dominio `*.onrender.com`.
-- **Crítico**: `gatfh/config.py` tiene hardcodeados la URL real del Moodle institucional y un
-  valor real de cookie `MoodleSession`. Debe moverse a variables de entorno antes de que el
-  proyecto tenga un repo git (independientemente de que `git init` se haga al final).
+### Estado (actualizado 2026-08-18, paso 3 ejecutado)
+- [x] `requirements.txt` con todo lo necesario (incluye `gunicorn`, `whitenoise`,
+  `psycopg2-binary`, `dj-database-url`).
+- [x] `Procfile` (`web: gunicorn gatfh.wsgi --log-file -` + `release: python manage.py migrate`).
+- [x] `settings.py` lee `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` desde
+  variables de entorno, con defaults seguros para dev local.
+- [x] `STATIC_ROOT` + whitenoise (`CompressedManifestStaticFilesStorage`) — probado con
+  `collectstatic` (130 archivos, sin errores).
+- [x] `gatfh/config.py` ya no tiene secretos hardcodeados (URL/cookie de Moodle vienen de env).
+- [x] Hardening de producción agregado en `settings.py`, activo solo si `DEBUG=False`:
+  `SECURE_PROXY_SSL_HEADER` (imprescindible en Render, que termina TLS en su proxy — sin esto
+  `SECURE_SSL_REDIRECT` entra en loop infinito), `SECURE_SSL_REDIRECT`,
+  `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS` (1 día, a propósito bajo
+  porque el navegador cachea HSTS y es difícil de revertir). Verificado con
+  `manage.py check --deploy`.
+- [x] `.python-version` con `3.14.3` — **corrección**: `runtime.txt` ya NO es soportado por
+  Render (confirmado en su doc actual); usa `.python-version` o la variable de entorno
+  `PYTHON_VERSION`. El default de Render subió a 3.14.3 el 2026-02-11, que además ya cumple el
+  `Requires-Python >=3.12` de Django 6.0.5.
 
-### A implementar
-- `requirements.txt`: `django`, `requests`, `aiohttp`, `beautifulsoup4`, `openpyxl`,
-  `python-dateutil`, `gunicorn`, `whitenoise`, `psycopg2-binary`, `dj-database-url`.
-- `settings.py` leyendo `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS` desde variables de entorno
-  (con defaults seguros de desarrollo local si no están definidas).
-- `STATICFILES_STORAGE` con whitenoise + `STATIC_ROOT`.
-- `Procfile`: `web: gunicorn gatfh.wsgi`.
+### Pendiente (son pasos operativos en el dashboard de Render, no cambios de código)
+- Generar un `DJANGO_SECRET_KEY` real (`django.core.management.utils.get_random_secret_key()`)
+  y cargarlo como variable de entorno en Render — el warning `security.W009` de
+  `check --deploy` persiste localmente porque el `.env` sigue con el valor default inseguro (a
+  propósito, ya que no se debe generar y commitear un secreto real).
+- Definir en Render: `DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`
+  con el dominio real `*.onrender.com` una vez creado el servicio, y `DATABASE_URL` apuntando a
+  la Postgres administrada de Render (crear esa base, ver sección 2).
+- No se activó `SECURE_HSTS_PRELOAD` (`security.W021` sigue apareciendo a propósito) — implica
+  enviar el dominio a la lista de precarga de los navegadores, algo lento de revertir; evaluarlo
+  recién cuando el dominio final esté estable.
+- Crear el servicio en Render y probar un deploy real (todo lo de arriba es preparación local,
+  no verificado aún contra la plataforma).
 
 ---
 

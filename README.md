@@ -1,653 +1,233 @@
-# Centralizador Académico - Plataforma de Monitoreo Docente
+# Centralizador Académico
 
-## 📋 Resumen Ejecutivo
+Plataforma de monitoreo docente construida en **Django 6 + Postgres**. Transforma datos
+extraídos de Moodle (materias, tareas, estudiantes, entregas) en indicadores, alertas y
+reportes para el seguimiento académico.
 
-**Centralizador Académico** es una plataforma de monitoreo y analytics para docentes construida en **Django + Bootstrap + Chart.js**, diseñada para transformar datos de Moodle en inteligencia académica. Permite supervisar indicadores de desempeño, detectar alertas, y apoyo para la toma de decisiones en tiempo real.
+Proyecto de grado — TECBA 2026.
 
-**Estado**: ✅ MVP Completado (ver tabla de tareas más abajo)
-
----
-
-## 🎯 Objetivos Logrados
-
-### ✅ Completado (Fase 1)
-
-| Módulo | Tarea | Estado |
-|--------|-------|--------|
-| **Arquitectura** | Menú lateral responsivo (8 módulos) | ✅ |
-| **Resumen** | Dashboard KPI (8 indicadores) | ✅ |
-| **Resumen** | Gráficos Chart.js (Doughnut + Bar) | ✅ |
-| **Resumen** | Alertas críticas integradas | ✅ |
-| **Materias** | Lista de materias desde DB | ✅ |
-| **Docentes** | Lista de docentes desde DB | ✅ |
-| **Estudiantes** | Lista de estudiantes desde DB | ✅ |
-| **Alertas** | Reglas: sin actividades, sin cierre, sobrecarga | ✅ |
-| **Extracción** | Recuperación manual de cookie MoodleSession | ✅ |
-| **Extracción** | UI con instrucciones visuales paso a paso | ✅ |
-| **Extracción** | Almacenamiento en sesión (seguro/temporal) | ✅ |
-| **Parseo** | Soporte múltiples formatos de fecha + dateutil | ✅ |
-| **Importación** | Comando: `python manage.py import_json_to_db` (tareas) | ✅ |
-| **Importación** | Comando: `python manage.py import_estudiantes_to_db` | ✅ |
-| **Importación** | Comando: `python manage.py import_all_data` | ✅ |
-| **Predicciones** | Estructura placeholder para ML | ✅ |
-| **Reportes** | Plantilla placeholder + filtros UI | ✅ |
-| **Configuración** | Panel placeholder con parámetros | ✅ |
-
-### 🔄 Parcialmente Completado (Mejoras Futuras)
-
-| Módulo | Tarea | Estado | Notas |
-|--------|-------|--------|-------|
-| **Materias** | Estado de cumplimiento (%) | ⏳ | Requiere cálculo de tareas completadas |
-| **Materias** | Fechas de parciales + semáforo | ⏳ | Depende de migración `config_tareas.json` |
-| **Docentes** | Indicadores de cumplimiento real | ⏳ | Requiere agregación por profesor |
-| **Estudiantes** | Análisis semanal de carga | ⏳ | Requiere agrupar entregas por fecha |
-| **Predicciones** | ML: Riesgo de retraso/sobrecarga | ⏳ | Estructura lista, pendiente algorítmica |
-| **Reportes** | Filtros funcionales + Excel dinámico | ⏳ | Integración con `exportarjson.py` |
-| **Configuración** | Gestión de categorías/parciales en UI | ⏳ | Requiere endpoints CRUD |
-
-### ❌ No Iniciado
-
-- **Auto-retry automático** de extracción (solo manual + reintentar explícitamente)
-- **Websockets/tiempo real** para actualizaciones en vivo
+> **Este archivo es el único punto de verdad sobre el estado del proyecto.**
+> El roadmap vive en [`PLAN_DESARROLLO.md`](PLAN_DESARROLLO.md).
+> Los documentos anteriores (`PROYECTO_COMPLETADO.md`, `TAREAS_COMPLETADAS.md`,
+> `QUICKSTART.md`) fueron escritos en junio 2026, quedaron desactualizados y se movieron a
+> [`archivo/`](archivo/). No usarlos como referencia.
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+## 1. Estado real (2026-08-30)
 
-```
-Centralizador Académico
-│
-├── 📦 Módulo Web (Django)
-│   ├── URLs (web/urls.py)
-│   │   ├── / → dashboard (extracción)
-│   │   ├── /resumen/ → KPIs + gráficos
-│   │   ├── /materias/ → listado
-│   │   ├── /docentes/ → listado
-│   │   ├── /estudiantes/ → listado
-│   │   ├── /alertas/ → reglas críticas
-│   │   ├── /session-cookie/ → recuperación manual
-│   │   ├── /predicciones/ → ML placeholder
-│   │   ├── /reportes/ → filtros + Excel
-│   │   └── /configuracion/ → parámetros
-│   │
-│   ├── Vistas (web/views.py)
-│   │   ├── dashboard() → extracción + UI selección
-│   │   ├── resumen() → KPIs + chart data JSON
-│   │   ├── materias_view() → Materia.objects.all()
-│   │   ├── docentes_view() → Profesor.objects.all()
-│   │   ├── estudiantes_view() → Estudiante.objects.all()
-│   │   ├── alertas_view() → reglas de alertas
-│   │   ├── cookie_recovery_view() → sesión cookie
-│   │   ├── predicciones_view() → placeholder
-│   │   ├── reportes_view() → placeholder
-│   │   └── configuracion_view() → placeholder
-│   │
-│   ├── Templates (web/templates/web/)
-│   │   ├── base.html (sidebar + layout responsivo)
-│   │   ├── resumen.html (KPI cards + Chart.js)
-│   │   ├── alertas.html (lista de alertas)
-│   │   ├── session_recovery.html (instrucciones cookie)
-│   │   ├── [materias|docentes|estudiantes].html (listados)
-│   │   └── [predicciones|reportes|configuracion].html (placeholders)
-│   │
-│   └── Estáticos (web/static/web/)
-│       └── sidebar.css (grid + card styling)
-│
-├── 🗄️ Modelos de Base de Datos (data/models.py)
-│   ├── Profesor (moodle_id, nombre, URL)
-│   ├── Facultad (nombre)
-│   ├── Carrera (facultad, nombre)
-│   ├── Nivel (nombre)
-│   ├── Materia (gestion, grupo, sigla, nombre, moodle_*, carrera, nivel, profesores)
-│   ├── Unidad (materia, nombre)
-│   ├── Tarea (unidad, moodle_id, titulo, tipo, apertura, cierre, url)
-│   ├── Estudiante (moodle_userid, nombre, email)
-│   ├── Entrega (tarea, estudiante, estado, calificacion, ultimas_mods, comentarios)
-│   └── ArchivoTarea (tarea, nombre, url, fecha)
-│
-├── 🔄 Servicios de Importación (services/data_utils/)
-│   ├── import_to_db.py → Tareas JSON → DB
-│   ├── import_estudiantes_to_db.py → Estudiantes/Entregas JSON → DB
-│   └── Management Commands
-│       ├── python manage.py import_json_to_db
-│       ├── python manage.py import_estudiantes_to_db
-│       └── python manage.py import_all_data
-│
-├── 🕷️ Scrapers Moodle (scraping/scrapers/)
-│   ├── session.py → MoodleSession (gestión de sesskey + cookies)
-│   ├── tareas.py → extrae tareas async
-│   ├── calificaciones.py → extrae entregas + calificaciones
-│   ├── profesores.py → lista de docentes
-│   ├── normalizacion.py → normaliza estructura
-│   ├── asignartareas.py → asignación de parciales
-│   └── detalles[profesores].py → detalles por docente
-│
-├── 📊 Extracción y Transformación (services/extraccion/)
-│   ├── scrap.py → orquestador async
-│   ├── trasformar.py → genera Excel
-│   └── session.py → gestión de sesión
-│
-└── ⚙️ Configuración Global (gatfh/)
-    ├── settings.py → apps, middleware, DB
-    ├── config.py → rutas JSON, SESSKEY Moodle
-    ├── config_tareas.json → rangos parciales
-    └── config_runtime.json → parámetros runtime
-```
+Lo que la Fase 1 dejó **realmente** funcionando, verificado contra el código —
+no contra los documentos de junio, que inflaban el avance.
+
+| Módulo | Estado | Detalle |
+|---|---|---|
+| Routing + sidebar (8 módulos) | ✅ Funciona | `web/urls.py`, `web/templates/web/base.html` |
+| Autenticación | ⚠️ Incompleta | Vistas `login`/`register`/`logout` existen; `register` exige que el usuario coincida con un `Profesor.nombre`. **`login_required` está importado pero no se aplica a ninguna vista — todas las páginas son públicas.** |
+| Resumen (KPIs + Chart.js) | ⚠️ Frágil | Renderiza, pero el cálculo está envuelto en `except: pass` (una BD vacía muestra ceros indistinguibles de "sin alertas"); N+1 (~4000 queries medidos); "actividades" cuenta solo tareas cuyo título contiene `"Examen"`/`"tek"`, no todas |
+| Materias / Docentes / Estudiantes | ⚠️ Listado básico | Consultas con algunas anotaciones; quedan `print()` de depuración en el código |
+| Alertas | ⚠️ Parcial | 3 reglas efectivas (el README de junio decía 5): materias sin actividades, tareas sin cierre, sobrecarga >8 pendientes. "Sobrecarga" tiene **dos definiciones incompatibles** en `web/views.py` (≥3 el mismo día para el KPI, >8 pendientes para alertas) |
+| Extracción (`/extraccion/`) | ⚠️ Con bugs | POST dispara `normalizado`/`asignacion`/`estudiantes`/`transformar`. `MoodleSession()` lee `config.COOKIES` (del `.env`), **no** `request.session['MoodleSession']` → el flujo de "recuperar cookie" desde la web no llega al scraper |
+| Recuperación de cookie | ⚠️ Rota parcialmente | Guarda `request.session['MoodleSession']` + un `make_password()` de la cookie en `Profesor.moodle_session_hash` que **nadie lee**. El redirect apunta a `/web/session-cookie/` pero la ruta real es `/session-cookie/` → 404 |
+| Predicciones / Reportes / Configuración | ⛔ Placeholder | Solo renderizan un mensaje fijo |
+| Importadores | ⚠️ Duplicados | Ver §4. Existen dos subsistemas (`services/data_utils/` y `services/imports/`) que escriben las mismas tablas con semánticas distintas |
+| Base de datos | ✅ Postgres | `DATABASE_URL` vía `dj-database-url`, fallback a SQLite. Migraciones `0001`–`0010` |
+| Preparación de deploy | ✅ Local, ⛔ sin probar | `Procfile`, `requirements.txt`, `.python-version`, `whitenoise`, hardening de producción condicionado a `DEBUG=False`. Nunca se desplegó en ninguna plataforma |
+
+**Fase 2 (multiusuario): 0 % en código.** Lo hecho hasta ahora es infraestructura
+(lectura de `.env`, Postgres, preparación para hosting).
 
 ---
 
-## 📊 Indicadores KPI (Módulo Resumen)
+## 2. Stack y estructura
 
-**Vista**: `/web/resumen/`
+- **Python 3.14** · **Django 6.0.5** · **PostgreSQL** (SQLite como fallback local)
+- `aiohttp` + `beautifulsoup4` para el scraping · `requests` para la sesión
+- `pandas` + `openpyxl` para exportar Excel · `Chart.js` (CDN) en el front
 
-### Tarjetas de Indicadores
 ```
-┌─────────────────────────────────────────────────┐
-│ 📚 Materias:        12  │ 👨‍🏫 Docentes:        8   │
-│ 👨‍🎓 Estudiantes:    245  │ 📋 Actividades:    1234 │
-│ ⏳ Pendientes:      45   │ ⚠️ Retraso:         3   │
-│ 🔴 Sobrecarga:       2   │ 🔄 Última sync:    5m  │
-└─────────────────────────────────────────────────┘
+gatfh/            Configuración Django (settings, urls, config.py, wsgi)
+data/             Modelos: Profesor, Facultad, Carrera, Nivel, Materia, Unidad,
+                  Tarea, Estudiante, Entrega, ArchivoTarea  + migraciones
+web/              Vistas, templates, estáticos (el front completo)
+scraping/scrapers/ Scrapers de Moodle (session, tareas, calificaciones, profesores,
+                  carreras, detallesprofesores, normalización, asignartareas)
+services/
+  imports/        Importadores JSON→DB por entidad (8 comandos importar_*)  ← canónico (§3, decisión 2)
+  data_utils/     Importadores antiguos (a eliminar — §3, decisión 2)
+  extraccion/     Wrappers finos sobre los scrapers
+  management/commands/  Comandos de extracción (extraer_*) e importación
+  utils/          run_scraping, timing
+data/raw/         Staging JSON de la extracción (gitignoreado — datos reales de personas)
 ```
 
-### Fuentes de Datos
-- **Materias**: `SELECT COUNT(*) FROM data_materia`
-- **Docentes**: `SELECT COUNT(*) FROM data_profesor`
-- **Estudiantes**: `SELECT COUNT(*) FROM data_estudiante`
-- **Actividades**: `SELECT COUNT(*) FROM data_tarea`
-- **Pendientes**: `SELECT COUNT(*) FROM data_entrega WHERE calificacion IS NULL OR calificacion = ''`
-- **Retraso**: Detección de fechas pasadas en `tarea.cierre` (parseo robusto múltiples formatos)
-- **Sobrecarga**: Estudiantes con >8 entregas pendientes
-- **Última Sync**: `MAX(mtime)` de archivos JSON
-
-### Gráficos
-1. **Doughnut (Actividades)**
-   - Labels: `['Pendientes', 'Calificadas']`
-   - Data: `[pendientes_count, (total - pendientes)]`
-   - Colores: Rosa + Azul
-
-2. **Bar (Tareas por Materia)**
-   - Top 8 materias por cantidad de tareas
-   - Ordenado descendente
-   - Color: Teal
+Carpetas fuera del alcance del repo (gitignoreadas): `Versioines Demo/` (versión demo
+previa `moodle_app_async`, de donde sale el flujo de comandos `importar_*`),
+`Proyecto de grado/` (documento de tesis).
 
 ---
 
-## 🚨 Sistema de Alertas
+## 3. Puesta en marcha local
 
-**Vista**: `/web/alertas/`
-
-### Reglas Implementadas
-
-| Alerta | Condición | Severidad |
-|--------|-----------|-----------|
-| Materias sin actividades | `Materia.tareas.count() == 0` | ⚠️ Media |
-| Tareas sin fecha de cierre | `Tarea.cierre IS NULL` | ⚠️ Media |
-| Parciales no configurados | `config_tareas.rangos_parciales` vacío | ⚠️ Media |
-| Sobrecarga de estudiantes | Estudiante con >8 entregas pendientes | 🔴 Alta |
-| Retrasos detectados | `Tarea.cierre < HOY` | 🔴 Alta |
-
-### Ejemplo de Respuesta API (JSON)
-```json
-{
-  "materias_sin_actividades": [
-    {"id": 5, "nombre": "Cálculo I"},
-    {"id": 12, "nombre": "Física"}
-  ],
-  "tareas_sin_cierre": [
-    {"moodle_id": 1842, "titulo": "Avance de Clase"}
-  ],
-  "estudiantes_sobrecarga": [
-    {"estudiante__nombre": "Alex Mamani", "pendientes": 12}
-  ]
-}
-```
-
----
-
-## 🔐 Recuperación de Sesión Moodle
-
-### Flujo (Sin Auto-Retry)
-
-```
-Usuario intenta extraer
-         ↓
-¿Cookie válida?
-  ├─ NO → Error capturado
-  │       ↓
-  │       Redirige a /web/session-cookie/?error=...
-  │       ↓
-  │       UI muestra instrucciones paso a paso
-  │       ├─ Abre Moodle en navegador
-  │       ├─ F12 → Application → Cookies
-  │       ├─ Busca "MoodleSession"
-  │       ├─ Copia valor
-  │       ├─ Pega en textarea
-  │       └─ Click "Guardar y continuar"
-  │       ↓
-  │       `request.session['MoodleSession'] = valor`
-  │       ↓
-  │       Usuario vuelve manualmente a /web/dashboard/
-  │       ↓
-  │       Reintenta acción con nueva sesión
-  │
-  └─ SÍ → Procede normalmente
-```
-
-### Código de Integración
-
-```python
-# En web/views.py
-def handle_session_error(request, error_msg, next_url='/web/'):
-    """Redirige con parámetros de error y URL de retorno."""
-    params = urlencode({'error': error_msg, 'next': next_url})
-    return redirect(f'/web/session-cookie/?{params}')
-
-# En dashboard()
-except Exception as exc:
-    error_str = str(exc)
-    if any(word in error_str.lower() for word in ['cookie', 'sesión', 'session']):
-        return handle_session_error(request, error_str, next_url=request.path)
-```
-
----
-
-## 📈 Flujo de Importación de Datos
-
-### Step 1: Extracción desde Moodle
-```
-scraping/scrapers/tareas.py (async, Semaphore(5))
-  └─ Genera data/raw/tareas.json
-     └─ Genera data/raw/estudiantes.json
-        └─ Genera data/raw/calificacion.json
-```
-
-### Step 2: Importación a Base de Datos
-```bash
-python manage.py import_all_data
-  ├─ import_tareas_from_json()
-  │  └─ Crea Materia, Unidad, Tarea desde tareas.json
-  │
-  └─ import_estudiantes_from_json()
-     └─ Crea Estudiante, Entrega desde estudiantes.json
-```
-
-### Step 3: Validación de Datos
-- **Tareas**: Únicas por `moodle_id`
-- **Estudiantes**: Únicas por `moodle_userid` y `email`
-- **Entregas**: Unique constraint `(tarea, estudiante)`
-- **Parseo de fechas**: `try_parse_date()` soporta:
-  - ISO: `2025-04-11T15:30:00`
-  - ES: `11/04/2025`, `11-04-2025`
-  - Texto: `"viernes, 11 de abril de 2025, 00:00"`
-  - Fallback: `dateutil.parser.parse()`
-
----
-
-## 🔧 Setup e Instalación
-
-### Requisitos Previos
-- Python 3.9+
-- Django 6.0+
-- SQLite3 (o PostgreSQL)
-- pip
-
-### 1. Instalación de Dependencias
-```bash
-cd "c:\Users\BRSolid\Desktop\Tecba 2026\Taller\Centralizador"
-
-# Crear entorno virtual
+```powershell
 python -m venv venv
 .\venv\Scripts\activate
+pip install -r requirements.txt
 
-# Instalar dependencias
-pip install django requests aiohttp beautifulsoup4 openpyxl dateutil
-```
+copy .env.example .env    # completar DJANGO_SECRET_KEY, MOODLE_BASE_URL, etc.
 
-### 2. Configuración de Base de Datos
-```bash
-python manage.py makemigrations
 python manage.py migrate
+# Importar datos desde data/raw/*.json (ver nota sobre importadores en §4):
+python manage.py importar_facultades
+python manage.py importar_carreras
+python manage.py importar_niveles
+python manage.py importar_materias
+python manage.py importar_profesores
+python manage.py importar_tareas
+python manage.py importar_detalles_tareas
+python manage.py importar_estudiantes
+
+python manage.py runserver   # http://localhost:8000/
 ```
 
-### 3. Importar Datos Iniciales
-```bash
-# Desde archivos JSON existentes
-python manage.py import_all_data
-
-# O paso a paso
-python manage.py import_json_to_db
-python manage.py import_estudiantes_to_db
-```
-
-### 4. Iniciar Servidor
-```bash
-python manage.py runserver
-# Accede a http://localhost:8000/web/
-```
+`.env` nunca se commitea. Si `DATABASE_URL` no está definida, el proyecto usa SQLite
+automáticamente.
 
 ---
 
-## 📋 Módulos Detallados
+## 4. Flujo de datos
 
-### 1️⃣ RESUMEN (Dashboard Ejecutivo)
-**URL**: `/web/resumen/`
+```
+[Moodle]
+  │  scraping (scraping/scrapers/*, cookie MoodleSession)
+  ▼
+[data/raw/*.json]   ← staging de auditoría; permite reimportar sin volver a scrapear
+  │  comandos importar_* (services/imports/)
+  ▼
+[Postgres: Materia, Unidad, Tarea, Estudiante, Entrega, ...]
+  │  queries + cálculo de KPIs / alertas
+  ▼
+[web/ : dashboard, resumen, listados, alertas]
+```
 
-✅ **Implementado**:
-- 8 tarjetas KPI con conteos desde DB
-- 2 gráficos Chart.js (Doughnut + Bar)
-- Parseo robusto de fechas
-- Alertas resumidas en tarjeta
-
-⏳ **Mejoras futuras**:
-- Gráficos interactivos (filtrar por carrera/docente)
-- Sparklines de tendencias
-- Notificaciones push
+**Importador canónico:** `services/imports/` (comandos `importar_*`). El subsistema
+`services/data_utils/` (usado hoy por el dashboard web y por `import_all_data`) crea una
+Facultad/Carrera ficticia llamada `"Importadas"` y deja campos en NULL; **se elimina** en
+Fase 2 (decisión 2). El dashboard debe migrarse a `services/imports/` antes de borrarlo.
 
 ---
 
-### 2️⃣ MATERIAS
-**URL**: `/web/materias/`
+## 5. Decisiones de diseño — Fase 2
 
-✅ **Implementado**:
-- Lista paginable de materias desde `Materia.objects.all()`
-- Datos: ID, nombre, sigla, gestion, carrera, nivel
+Tomadas el 2026-08-30 tras la auditoría (§6). Reemplazan lo que decía
+`PLAN_DESARROLLO.md` donde haya conflicto; ese archivo se re-ordena en base a esto.
 
-⏳ **Pendiente**:
-- Columna "Avance %" (tareas completadas / total)
-- Semáforo (🟢 >70%, 🟡 40-70%, 🔴 <40%)
-- Fechas de parciales desde `config_tareas.json`
-- Hacer fila clickeable para ver detalles
+### D1 — Identidad: se mantienen 3 tablas separadas
+`User` / `Profesor` / `Estudiante` siguen siendo tablas independientes. **No** se crea una
+identidad canónica. Se unifica la regla de "¿qué Profesor soy yo?" comparando por
+`moodle_userid` (que ya existe como `Profesor.moodle_id`), no por nombre.
 
----
+### D1b — La cookie de Moodle nunca se persiste
+`MoodleSession` **solo vive en la memoria del navegador del usuario**. No se guarda en la
+BD, ni en `request.session`, ni en archivo. El modelo:
 
-### 3️⃣ DOCENTES
-**URL**: `/web/docentes/`
+- Una **extensión de navegador de instalación local** (descargable desde la propia página
+  del Centralizador, **no publicada en tiendas**) mantiene la cookie.
+- La envía con cada request de extracción on-demand.
+- El servidor la usa en memoria solo durante ese job y la descarta.
 
-✅ **Implementado**:
-- Lista de docentes desde `Profesor.objects.all()`
+Esto **elimina** del plan original: `CredencialMoodleMixin`, cifrado Fernet y todo
+almacenamiento de credenciales. El fix del bug de sesión pasa a ser:
+`MoodleSession(cookie=...)` recibe la cookie como parámetro del request.
 
-⏳ **Pendiente**:
-- Agregar columnas: "Materias", "Tareas registradas", "Pendientes", "% Cumplimiento"
-- Hacer clickeable para ver detalle por docente
-- Gráfico de carga por profesor
+### D2 — Importador canónico: `services/imports/`
+Se **borra** `services/data_utils/`. Se adopta el flujo de 8 comandos `importar_*`
+(ya probado en `Versioines Demo/moodle_app_async/`). Pendiente: arreglar
+`services/imports/estudiantes.py` (importa `ArchivoEntrega`, modelo inexistente → crash),
+migrar el dashboard web, y normalizar las materias ya cargadas bajo la Facultad `"Importadas"`.
 
----
+### D3 — Extracción on-demand + hosting real
+La extracción se dispara **a demanda desde el navegador**, no por cron. Como Render corta
+los requests a ~100 s, **se abandona Render** y se mueve todo a hosting/servidor real con
+Postgres administrado ahí. La elección concreta de hosting está en análisis (§8).
 
-### 4️⃣ ESTUDIANTES
-**URL**: `/web/estudiantes/`
-
-✅ **Implementado**:
-- Lista de estudiantes desde `Estudiante.objects.all()`
-
-⏳ **Pendiente**:
-- Columna "Carga académica" (entregas pendientes)
-- Columna "Riesgo de sobrecarga" (indicador visual)
-- Filtro por materia/carrera
-- Link a detalle de entregas pendientes
+### D4 — El rol "gestor" entra al alcance
+Se implementa el paso 5 completo del plan: tabla `GestorMateria` + verificación de acceso
+real contra Moodle antes de scrapear cada materia del alcance del gestor.
 
 ---
 
-### 5️⃣ ALERTAS
-**URL**: `/web/alertas/`
+## 6. Problemas conocidos — auditoría Homúnculo (2026-08-30)
 
-✅ **Implementado**:
-- Reglas: materias sin actividades, tareas sin cierre, sobrecarga estudiantil
-- Listados detallados con IDs y nombres
+Hallazgos verificados sobre el código actual. Detalle completo en el historial de la
+revisión; resumen accionable acá.
 
-⏳ **Pendiente**:
-- Alertas por actividades fuera de cronograma
-- Historial de alertas (timestamp)
-- Exportar alertas a CSV
+### Críticos
 
----
+| # | Problema | Ubicación |
+|---|---|---|
+| C1 | **Secreto en el repo:** `gatfh/config_runtime.json` está trackeado y contiene un `SESSKEY` de Moodle. No está en `.gitignore`. `session.py` lo reescribe en cada scrape | `gatfh/config_runtime.json`, commit `cbe258a` |
+| C2 | **Ninguna vista exige autenticación.** `login_required` importado y nunca aplicado. `/resumen/`, `/materias/`, etc. devuelven 200 anónimo con datos reales; `POST /extraccion/` anónimo dispara scraping. El `role` se toma de `request.GET` | `web/views.py` |
+| C3 | **`data\raw` con backslash literal** rompe en Linux (Render/VPS): produce un directorio llamado `data\raw`. `services/imports/` usa `data/raw/` → dos rutas distintas | `gatfh/config.py:9` + 8 literales en `services/imports/` |
+| C4 | **Cookie vencida = scrape "exitoso" contaminante.** Moodle devuelve 200 con la página de login; el scraper la parsea como si fuera el curso y mete unidades fantasma en la BD sin lanzar excepción | `scraping/scrapers/tareas.py:16-20` |
+| C5 | **Se pierden estudiantes** (solo con stdout UTF-8, o sea en Linux): una fila sin nombre hace `break` en vez de `continue` y descarta al resto de la tabla | `scraping/scrapers/detallesprofesores.py:96-98` |
+| C6 | **Dos subsistemas de importación** escribiendo las mismas tablas con semánticas incompatibles; el que corre primero gana. `services/imports/estudiantes.py:8` importa `ArchivoEntrega` (inexistente) → ese comando no arranca | `services/data_utils/` vs `services/imports/` |
+| C7 | **La sección 4 del plan parte de una premisa falsa:** `procesar_profesor` NO puebla `Materia.profesores` (escribe un JSON que nadie lee). La M2M la puebla `carreras.py` → `linkcarreras.json` | `scraping/scrapers/profesores.py` |
 
-### 6️⃣ PREDICCIONES
-**URL**: `/web/predicciones/`
+### Importantes
 
-✅ **Implementado**:
-- Estructura placeholder
+- `Profesor.moodle_id` **ya es** el `moodle_userid` que el plan proponía agregar — mismo namespace que `Estudiante.moodle_userid`. No agregar un tercer campo.
+- Una persona con doble rol genera dos filas (una en `Profesor`, otra en `Estudiante`) con el mismo número de Moodle, sin constraint que lo detecte.
+- **4 reglas distintas** de "¿qué Profesor soy yo?" en `web/views.py` (`:63-71` con fallback `icontains` que puede dar acceso a materias ajenas, `:85`, `:112`, `:730`).
+- **N+1 en `/resumen/`**: `web/views.py:439` pone `select_related` y `:455` lo pisa; ~4000 queries con 40 materias / 2000 entregas.
+- `except Exception: pass` cubriendo 116 líneas de cálculo de KPIs (`web/views.py:385-501`).
+- Sin `ClientTimeout` en los `aiohttp.ClientSession` (aiohttp aplica 300 s por defecto; 3× el timeout de un proxy típico).
+- `config.SESSKEY` es variable de módulo mutable → con 2+ workers, el sesskey de un usuario se le puede mostrar a otro.
+- `services/imports/estudiantes.py`: emails repetidos de Moodle → `IntegrityError` silencioso (`Estudiante.email` es `unique`); `import_all_data` igual reporta "completada exitosamente".
+- `import_all_data` nunca importa profesores (solo tareas y estudiantes).
+- Documentos de junio (`README` viejo, `PROYECTO_COMPLETADO.md`, `TAREAS_COMPLETADAS.md`) contradicen el código: p. ej. afirmaban "las cookies NUNCA se persisten en DB" (falso) y `actividades = Tarea.objects.count()` (está filtrado).
 
-⏳ **Implementar**:
-- **Riesgo de retraso**: Estudiantes que históricamente entregan tarde
-- **Riesgo de sobrecarga**: Proyección de entregas próximas
-- **Tendencias**: Gráficos de progreso por semana
-- Usar `dateutil` para agrupar entregas por semana/mes
+### Contexto no verificable sin ejecutar
 
-**Algoritmo propuesto**:
-```python
-def predict_overload(student):
-    """Predice riesgo de sobrecarga basado en entregas próximas."""
-    now = datetime.now().date()
-    proximas = Entrega.objects.filter(
-        estudiante=student,
-        tarea__cierre__gte=now,
-        tarea__cierre__lte=now + timedelta(days=7)
-    ).count()
-    
-    if proximas > 3:
-        return {'riesgo': 'ALTO', 'entregas_proximas': proximas}
-    elif proximas > 1:
-        return {'riesgo': 'MEDIO', 'entregas_proximas': proximas}
-    else:
-        return {'riesgo': 'BAJO', 'entregas_proximas': proximas}
-```
+- Nada se probó contra el Moodle real de TECBA ni contra un hosting real.
+- No hay `.env` ni `data/raw/` en disco → los conteos "16 materias / 669 tareas / 288 entregas" del plan no se pudieron confirmar.
+- `collectstatic` en el build del hosting: con `CompressedManifestStaticFilesStorage`, si no corre en el build, todo `{% static %}` lanza 500.
 
 ---
 
-### 7️⃣ REPORTES
-**URL**: `/web/reportes/`
+## 7. Orden de trabajo (borrador, se refina con §8)
 
-✅ **Implementado**:
-- Estructura placeholder
-- Integración con `exportarjson.py` (Excel generado)
+**Bloque 0 — antes de cualquier cosa de Fase 2:**
+1. Sacar `gatfh/config_runtime.json` del repo (`git rm --cached` + `.gitignore`); decidir rotación del sesskey y si el repo sigue público.
+2. Aplicar `login_required` + filtrar materias/docentes/estudiantes por usuario.
+3. `gatfh/config.py:9` → `os.path.join(BASE_DIR, "data", "raw")` + los 8 literales de `services/imports/`.
+4. Arreglar `services/imports/estudiantes.py:8` (`ArchivoEntrega`).
 
-⏳ **Implementar**:
-- Filtros funcionales:
-  - Por Docente: `Profesor.objects.get(id=X).materias.all()`
-  - Por Carrera: `Carrera.objects.get(id=X).materias.all()`
-  - Por Materia: `Materia.objects.get(id=X).tareas.all()`
-  - Por Gestión: `Materia.objects.filter(gestion=YYYY)`
-  - Por Fecha: `Entrega.objects.filter(ultima_mod_entrega__range=[start, end])`
+**Bloque 1 — integridad de datos:**
+5. Validar en `tareas.py` que la respuesta no sea la página de login (C4).
+6. `break` → `continue` en `detallesprofesores.py:98` (C5).
+7. `ClientTimeout` + `return_exceptions=True` en los `ClientSession`/`gather`.
+8. `range(1,13)` dinámico en `tareas.py:73` (verificar primero si alguna materia supera 12 secciones).
+9. Borrar `services/data_utils/`, migrar el dashboard a `services/imports/`, normalizar la Facultad `"Importadas"`.
 
-**Propuesta de modelo**:
-```python
-class ReportFilter:
-    docente_id = None
-    carrera_id = None
-    materia_id = None
-    gestion = None
-    fecha_inicio = None
-    fecha_fin = None
-```
+**Bloque 2 — solo después:** hosting real → extensión de navegador → rol gestor.
 
 ---
 
-### 8️⃣ CONFIGURACIÓN
-**URL**: `/web/configuracion/`
+## 8. Roadmap
 
-✅ **Implementado**:
-- Estructura placeholder
-
-⏳ **Implementar**:
-- **Categorías de tareas**: CRUD para tipos de tarea (Práctica, Quiz, Proyecto)
-- **Fechas de parciales**: UI para editar `config_tareas.json`
-- **Parámetros de análisis**: Thresholds para alertas (e.g., sobrecarga >8)
-- **Reglas de clasificación**: Mapeo Moodle → modelos internos
+El plan de Fase 2 detallado está en [`PLAN_DESARROLLO.md`](PLAN_DESARROLLO.md), **en
+re-ordenamiento** para reflejar las decisiones D1–D4 de §5 (muere la sección 5 de cifrado;
+la extensión de navegador pasa de "fase posterior" a núcleo; se agrega la migración de
+hosting; se evalúa si la cola en Postgres sigue siendo necesaria con extracción on-demand).
 
 ---
 
-## 🔄 Ciclo de Vida de Datos
+## 9. Historial de documentación
 
-```
-[Moodle] 
-   ↓ (scraping async, Semaphore(5))
-[tareas.json, estudiantes.json, calificacion.json]
-   ↓ (python manage.py import_all_data)
-[DB: Materia, Tarea, Estudiante, Entrega]
-   ↓ (queries + cálculos KPI)
-[KPIs en resumen]
-   ↓ (Chart.js + JSON)
-[Visualizaciones en navegador]
-   ↓ (Alertas, análisis, reportes)
-[Decisiones académicas]
-```
-
----
-
-## 🛡️ Consideraciones de Seguridad
-
-### 1. **Manejo de Cookies Moodle**
-- ✅ Se almacenan SOLO en `request.session` (server-side, encriptado)
-- ❌ NUNCA se persisten en DB
-- ❌ NUNCA se loguean en archivos
-- ✅ Se limpian al cerrar sesión
-
-### 2. **CSRF Protection**
-- ✅ Django CSRF middleware activo
-- ✅ Todos los forms incluyen `{% csrf_token %}`
-
-### 3. **Acceso a Datos**
-- ⏳ Falta: Restricción por rol (docente solo ve sus materias)
-- ⏳ Falta: Auditoría de acceso
-
-### 4. **Validación de Entrada**
-- ✅ Parseo de IDs con `int()`
-- ✅ Try/except en importadores
-
----
-
-## 📦 Estructura de Archivos Modificados
-
-```
-web/
-├── urls.py ✅ (8 rutas nuevas)
-├── views.py ✅ (8 vistas + helper functions)
-├── templates/web/
-│   ├── base.html ✅ (layout con sidebar)
-│   ├── resumen.html ✅ (KPIs + Chart.js)
-│   ├── alertas.html ✅ (lista detallada)
-│   ├── session_recovery.html ✅ (cookie recovery UI)
-│   ├── materias.html ✅ (lista)
-│   ├── docentes.html ✅ (lista)
-│   ├── estudiantes.html ✅ (lista)
-│   ├── predicciones.html ✅ (placeholder)
-│   ├── reportes.html ✅ (placeholder)
-│   └── configuracion.html ✅ (placeholder)
-├── static/web/
-│   └── sidebar.css ✅ (grid + KPI cards)
-
-services/
-├── data_utils/
-│   ├── import_to_db.py ✅
-│   └── import_estudiantes_to_db.py ✅
-└── management/commands/
-    ├── import_json_to_db.py ✅
-    ├── import_estudiantes_to_db.py ✅
-    └── import_all_data.py ✅
-```
-
----
-
-## 🧪 Testing
-
-### Verificar Instalación
-```bash
-# Contar registros
-python manage.py shell
->>> from data.models import *
->>> Materia.objects.count()  # Debería ser > 0 después de import
->>> Entrega.objects.count()
-```
-
-### Verificar Vistas
-```bash
-# Acceder a cada módulo
-GET http://localhost:8000/web/resumen/
-GET http://localhost:8000/web/materias/
-GET http://localhost:8000/web/alertas/
-```
-
-### Probar Recuperación de Cookie
-```
-1. Ir a http://localhost:8000/web/session-cookie/
-2. Pegar un valor dummy en textarea
-3. Click "Guardar y continuar"
-4. Verificar session: request.session['MoodleSession'] existe
-```
-
----
-
-## 📞 Support & Troubleshooting
-
-### Error: "ModuleNotFoundError: No module named 'django'"
-```bash
-pip install django
-```
-
-### Error: "No se encuentra tareas.json"
-```bash
-# Ejecutar extracción primero
-python web/dashboard → seleccionar curso → "Normalizar"
-# O cargar datos de respaldo
-cp data/raw/tareas.json gatfh/tareas.json
-```
-
-### Error: "Cookie inválida para Moodle"
-```
-→ /web/session-cookie/?error=La%20sesión%20expiró
-→ Seguir instrucciones visuales
-→ Obtener nueva cookie del navegador
-→ Pegar y guardar
-→ Reintentar extracción manualmente
-```
-
-### Gráficos no aparecen
-```
-✓ Verificar que Chart.js CDN está disponible
-✓ Verificar que context['chart_kpis_json'] tiene datos válidos
-✓ Abrir DevTools → Console para errores JS
-```
-
----
-
-## 📚 Referencias
-
-- [Django Documentation](https://docs.djangoproject.com/)
-- [Chart.js](https://www.chartjs.org/)
-- [Bootstrap 5](https://getbootstrap.com/docs/5.0/)
-- [Moodle Web Services API](https://docs.moodle.org/401/en/Web_services_API)
-
----
-
-## 📝 Notas de Desarrollo
-
-### Próximas Prioritarias
-1. **Metricas por Docente**: Agregar columnas en docentes.html
-2. **Filtros en Reportes**: Implementar form + queryset dinámico
-3. **ML Predicciones**: Usar regresión simple para tendencias
-4. **Tiempo Real**: Considerar Channels + WebSocket para actualizaciones
-
-### Decisiones Arquitectónicas
-- ✅ Uso de ORM Django (vs SQL raw): Seguridad + mantenibilidad
-- ✅ JSON files como staging (vs directo DB): Auditabilidad + reversibilidad
-- ✅ Session-only cookies (vs DB): Seguridad temporal
-- ❌ NO auto-retry: Simplifica debugging, requiere acción explícita
-
-### Deuda Técnica
-- [ ] Tests unitarios en `web/tests.py`
-- [ ] Integración CI/CD
-- [ ] Logging centralizado
-- [ ] Restricción de acceso por rol
-
----
-
-## 👥 Contribuyentes
-
-- **Versión**: 1.0 (MVP)
-- **Fecha**: Junio 2026
-- **Arquitecto**: Senior Django Engineer
-
----
-
-**Última actualización**: 2026-06-14
+| Archivo | Estado |
+|---|---|
+| `README.md` (este) | Punto de verdad del estado |
+| `PLAN_DESARROLLO.md` | Roadmap de Fase 2 (en re-ordenamiento) |
+| `archivo/PROYECTO_COMPLETADO.md` | Archivado — junio 2026, avance inflado |
+| `archivo/TAREAS_COMPLETADAS.md` | Archivado — junio 2026, matriz de requisitos desactualizada |
+| `archivo/QUICKSTART.md` | Archivado — junio 2026, comandos y rutas incorrectos |

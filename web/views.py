@@ -78,6 +78,9 @@ def get_current_profesor(request):
 def register_view(request):
     message = None
     error = None
+    nombres_profesores = list(
+        Profesor.objects.exclude(nombre='').order_by('nombre').values_list('nombre', flat=True)
+    )
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '').strip()
@@ -99,7 +102,7 @@ def register_view(request):
             request.session['MoodleSession'] = cookie_value
             login(request, user)
             return redirect('dashboard')
-    context = {'message': message, 'error': error}
+    context = {'message': message, 'error': error, 'nombres_profesores': nombres_profesores}
     return render(request, 'web/register.html', context)
 
 
@@ -324,6 +327,18 @@ def dashboard(request):
                         extraction_lock.release_lock(job_id)
             elif action == 'transformar':
                 action_result = run_transformar_web(selected_ids)
+            elif action == 'guardar_cookie':
+                # Solo vive en la sesion del navegador (nunca en la base de datos).
+                cookie_value = request.POST.get('moodle_cookie', '').strip()
+                if not cookie_value:
+                    error = 'Pega el valor de la cookie antes de guardar.'
+                else:
+                    request.session['MoodleSession'] = cookie_value
+                    action_result = {
+                        'title': 'Cookie',
+                        'detail': 'Cookie guardada en tu sesión de navegador. No se guarda en la base de datos.',
+                        'count': None,
+                    }
             else:
                 error = 'Acción desconocida.'
         except Exception as exc:
@@ -344,6 +359,7 @@ def dashboard(request):
         'action_result': action_result,
         'error': error,
         'extraccion_en_curso': candado_actual,
+        'cookie_guardada': bool(request.session.get('MoodleSession')),
     }
     return render(request, 'web/dashboard.html', context)
 

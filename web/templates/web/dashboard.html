@@ -35,6 +35,32 @@
             </form>
         {% endif %}
 
+        <section class="panel cookie-panel" style="margin-bottom: 20px;">
+            <h2>Cookie de Moodle</h2>
+            {% if cookie_guardada %}
+                <p class="note">Cookie guardada en tu sesión: <code>••••••••••••••••</code></p>
+                <details>
+                    <summary style="cursor:pointer;color:#f0c75e;">Reemplazar cookie</summary>
+                    <form method="post" style="margin-top:12px;">
+                        {% csrf_token %}
+                        <input type="hidden" name="role" value="{{ role }}" />
+                        <input type="hidden" name="action" value="guardar_cookie" />
+                        <textarea name="moodle_cookie" rows="3" placeholder="Pega aquí el nuevo valor de MoodleSession..." style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;" required></textarea>
+                        <button type="submit" class="btn btn-secondary" style="margin-top:10px;width:auto;padding:10px 16px;">Actualizar cookie</button>
+                    </form>
+                </details>
+            {% else %}
+                <p class="note">Pega aquí tu cookie <code>MoodleSession</code> antes de extraer estudiantes. Se guarda solo en tu sesión de navegador (cookie firmada) y nunca en la base de datos.</p>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="role" value="{{ role }}" />
+                    <input type="hidden" name="action" value="guardar_cookie" />
+                    <textarea name="moodle_cookie" rows="3" placeholder="Pega aquí el valor de MoodleSession..." style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;" required></textarea>
+                    <button type="submit" class="btn btn-primary" style="margin-top:10px;width:auto;padding:10px 16px;">Guardar cookie</button>
+                </form>
+            {% endif %}
+        </section>
+
         <form method="post" class="dashboard-form">
             {% csrf_token %}
             <input type="hidden" name="role" value="{{ role }}" />

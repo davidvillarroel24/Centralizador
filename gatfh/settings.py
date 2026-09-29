@@ -136,6 +136,11 @@ else:
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'resumen'
 
+# La cookie de MoodleSession se guarda en request.session. Con el backend por defecto
+# (db) eso terminaria en la tabla django_session de Postgres; con signed_cookies vive
+# solo en una cookie firmada del navegador del usuario y nunca toca la base de datos.
+SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 

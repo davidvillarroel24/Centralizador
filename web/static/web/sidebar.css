@@ -3,24 +3,73 @@
   display:flex;
   min-height:100vh;
 }
+.app-shell.no-sidebar .main-content{
+  flex:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.app-shell.no-sidebar .topbar{
+  display:none;
+}
 .sidebar{
   width:220px;
   background:#0b0b0b;
   color:#fff;
   padding:20px;
-  border-right:1px solid rgba(0, 144, 255,0.06);
+  border-right:1px solid rgba(155, 91, 246,0.06);
 }
 .sidebar .brand{
   font-weight:800;
-  color:#7ec8ff;
+  color:#f0c75e;
   margin-bottom:18px;
 }
 .sidebar nav ul{ list-style:none; padding:0; margin:0; }
 .sidebar nav li{ margin:8px 0; }
 .sidebar nav a{ color:#fff; text-decoration:none; display:block; padding:8px 10px; border-radius:8px; }
-.sidebar nav a:hover{ background:rgba(100, 170, 255,0.06); }
-.main-content{ flex:1; padding:18px 28px; background:#060606; color:#fff; }
+.sidebar nav a:hover{ background:rgba(240, 199, 94,0.06); }
+.main-content{ flex:1; padding:18px 28px; background:#060606; color:#fff; min-width:0; }
 .topbar{ margin-bottom:12px; }
+.content{ overflow-x:auto; }
 .kpi-grid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
 .kpi-card{ background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; text-align:center; }
 .list{ padding-left:16px; }
+
+/* DataTables genera su propio wrapper; lo dejamos scrollear horizontal en vez de
+   romper el layout de la pagina cuando la tabla es mas ancha que la pantalla. */
+.dataTables_wrapper{
+  width:100%;
+  overflow-x:auto;
+}
+table.dataTable{
+  width:100% !important;
+}
+
+@media (max-width: 900px){
+  .app-shell{
+    flex-direction:column;
+  }
+  .sidebar{
+    width:100%;
+    border-right:none;
+    border-bottom:1px solid rgba(155, 91, 246,0.12);
+    padding:14px 16px;
+  }
+  .sidebar .brand{
+    margin-bottom:10px;
+  }
+  .sidebar nav ul{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .sidebar nav li{ margin:0; }
+  .sidebar nav a{ padding:6px 10px; font-size:0.9rem; }
+  .main-content{ padding:16px; }
+}
+
+@media (max-width: 480px){
+  .kpi-grid{ grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap:8px; }
+  .kpi-card{ padding:12px; font-size:0.9rem; }
+  .main-content{ padding:12px; }
+}

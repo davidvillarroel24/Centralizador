@@ -11,7 +11,8 @@
       href="https://cdn.datatables.net/2.3.2/css/dataTables.dataTables.min.css">
   </head>
   <body>
-    <div class="app-shell">
+    <div class="app-shell{% if not user.is_authenticated %} no-sidebar{% endif %}">
+      {% if user.is_authenticated %}
       <aside class="sidebar">
         <div class="brand">Centralizador</div>
         <nav>
@@ -25,15 +26,11 @@
             <li><a href="{% url 'reportes' %}">📄 Reportes</a></li>
             <li><a href="{% url 'dashboard' %}">🏠 Extraccion</a></li>
             <li><a href="{% url 'configuracion' %}">⚙️ Configuración</a></li>
-            {% if user.is_authenticated %}
-              <li><a href="{% url 'logout' %}">🔒 Cerrar sesión</a></li>
-            {% else %}
-              <li><a href="{% url 'login' %}">🔑 Iniciar sesión</a></li>
-              <li><a href="{% url 'register' %}">🧾 Registrarse</a></li>
-            {% endif %}
+            <li><a href="{% url 'logout' %}">🔒 Cerrar sesión</a></li>
           </ul>
         </nav>
       </aside>
+      {% endif %}
 
       <main class="main-content">
         <header class="topbar">

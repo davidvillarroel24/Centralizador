@@ -6,7 +6,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Carpeta donde se guardan CSV y BD
-DATA_DIR = os.path.join(BASE_DIR, "data\\raw")
+DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
 CONFIG_DIR = os.path.join(BASE_DIR, "gatfh")
 
 # Asegurar que la carpeta exista
@@ -25,8 +25,6 @@ CSV_TAREAS_DOCENTES = os.path.join(DATA_DIR, "tareas_docente.csv")
 CSV_ESTUDIANTES = os.path.join(DATA_DIR, "estudiantes.csv")
 
 # Archivos JSON
-JSON_SESSKEY= os.path.join(CONFIG_DIR, "config_runtime.json")
-
 JSON_CURSOS = os.path.join(DATA_DIR, "cursos.json")
 JSON_TAREAS = os.path.join(DATA_DIR, "tareas.json")
 JSON_DETALLES= os.path.join(DATA_DIR, "detalle.json")
@@ -49,12 +47,11 @@ DB_PATH = os.path.join(DATA_DIR, "moodle_relacional.db")
 # Base URL
 BASE_URL = os.environ.get("MOODLE_BASE_URL", "https://moodle-108854-0.cloudclusters.net")
 
-# Cookie de sesion activa (temporal, hasta que las credenciales se guarden por usuario
-# en la base de datos - ver PLAN_DESARROLLO.md seccion 5). Se lee desde .env, nunca
-# se hardcodea un valor real aqui.
+# Cookie de sesion de Moodle - SOLO como comodidad para scripts/CLI locales de un unico
+# usuario (services/utils/run_scraping.py). Las vistas web nunca deben leer esto: cada
+# request pasa su propio cookie a MoodleSession(cookie=...), tomado de
+# request.session['MoodleSession'] (ver README, decision D1b - la cookie nunca se persiste
+# en DB ni en una variable global compartida entre usuarios).
 COOKIES = {
     "MoodleSession": os.environ.get("MOODLE_SESSION_COOKIE", "")
 }
-
-# Este valor se actualizará dinámicamente
-SESSKEY = None

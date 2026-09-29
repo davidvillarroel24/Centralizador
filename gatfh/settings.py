@@ -132,6 +132,10 @@ else:
     }
 
 
+# Autenticacion: toda vista salvo login/register/logout exige sesion iniciada (C2).
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'resumen'
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 

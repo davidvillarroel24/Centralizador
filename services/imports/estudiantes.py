@@ -1,14 +1,14 @@
 import json
 from pathlib import Path
 
+from gatfh import config
 from data.models import (
     Tarea,
     Estudiante,
     Entrega,
-    ArchivoEntrega
 )
 
-RUTA_JSON = "data/raw/estudiantes.json"
+RUTA_JSON = str(Path(config.DATA_DIR) / "estudiantes.json")
 
 
 def importar_estudiantes():
@@ -87,21 +87,9 @@ def importar_estudiantes():
                 }
             )
 
-            archivos = est.get("archivos", [])
-            urls = est.get("archivosurl", [])
-
-            for nombre, url in zip(archivos, urls):
-
-                ArchivoEntrega.objects.update_or_create(
-
-                    entrega=entrega,
-
-                    nombre=nombre,
-
-                    defaults={
-                        "url": url
-                    }
-                )
+            # Nota: el JSON trae "archivos"/"archivosurl" por entrega, pero no existe un
+            # modelo ArchivoEntrega (solo ArchivoTarea, a nivel de tarea) - se omite el
+            # guardado de adjuntos por estudiante hasta que se defina ese modelo.
 
             total_entregas += 1
 

@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
 
+from gatfh import config
 from data.models import Profesor
 
 
 def importar_profesores():
     # Ruta del JSON
-    ruta = Path("data/raw/linkcarreras.json")
+    ruta = Path(config.DATA_DIR) / "linkcarreras.json"
 
     with open(ruta, "r", encoding="utf-8") as f:
         carreras = json.load(f)

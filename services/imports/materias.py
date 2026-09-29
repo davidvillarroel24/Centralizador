@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 
+from gatfh import config
 from data.models import (
     Carrera,
     Nivel,
@@ -68,7 +69,7 @@ def parsear_materia(texto):
 
 def importar_materias():
 
-    ruta = Path("data/raw/linkcarreras.json")
+    ruta = Path(config.DATA_DIR) / "linkcarreras.json"
 
     with open(ruta, "r", encoding="utf-8") as f:
         datos = json.load(f)

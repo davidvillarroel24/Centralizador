@@ -1,12 +1,15 @@
 import json
 import re
+from pathlib import Path
 
+from gatfh import config
 from data.models import Materia, Unidad, Tarea
 
 
 def importar_tareas():
 
-    with open("data/raw/tareas.json", "r", encoding="utf-8") as file:
+    ruta = Path(config.DATA_DIR) / "tareas.json"
+    with open(ruta, "r", encoding="utf-8") as file:
 
         data = json.load(file)
 

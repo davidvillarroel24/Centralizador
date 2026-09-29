@@ -4,30 +4,24 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 
 semaphore = asyncio.Semaphore(5)
+CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 async def fetch(session, url):
-    
+
     """Descarga HTML con aiohttp"""
     async with semaphore:
         async with session.get(url) as resp:
             return await resp.text()
 
-async def obtener_tareas_docente_async(moodle, tareas):
+async def obtener_tareas_docente_async(moodle, tareas, stop_event=None):
     resultados = []
-    #tareas=tareas[1][tareas[]]
-    #print(tareas)
-    #continuar= input("Detener: ")
     cookies = moodle.session.cookies.get_dict()
-    print(cookies)
 
-    #return
-
-    async with aiohttp.ClientSession(cookies=cookies) as session:
-        #print(session)
-        #return
+    async with aiohttp.ClientSession(cookies=cookies, timeout=CLIENT_TIMEOUT) as session:
         tasks = []
-        #contador=1
         for t in tareas:
+            if stop_event is not None and stop_event.is_set():
+                break
             print("\nAsignatura:", t["asignatura"])
             for t0 in t['tareas']:
                 print("Unidad:", t0["unidad"])
@@ -41,18 +35,20 @@ async def obtener_tareas_docente_async(moodle, tareas):
                                 session,
                                 grading_url,
                                 t0["unidad"],
-                                t1["Titulo"]
+                                t1["Titulo"],
+                                stop_event
                             )
                         )
-            #if contador==1: break
-            #continuar= input("Detener: ")
 
-        data = await asyncio.gather(*tasks)
-        resultados.extend(data)
+        data = await asyncio.gather(*tasks, return_exceptions=True)
+        resultados.extend(item for item in data if not isinstance(item, BaseException))
 
     return resultados
 
-async def procesar_tarea_docente(session, url, unidad, titulo):
+async def procesar_tarea_docente(session, url, unidad, titulo, stop_event=None):
+
+    if stop_event is not None and stop_event.is_set():
+        raise asyncio.CancelledError()
 
     query = urlparse(url).query
 
@@ -94,8 +90,9 @@ async def procesar_tarea_docente(session, url, unidad, titulo):
             #apellido = celdas[2].get_text(strip=True) if len(celdas) > 2 else None
             nombre = celdas[2].get_text(strip=True) if len(celdas) > 2 else None
             if not nombre or not userid:
-                print("⛔ Fin real de datos")
-                break
+                # Fila sin nombre/userid (fila de encabezado, separador, etc.): se omite
+                # esta fila puntual, pero se sigue procesando el resto de la tabla (C5).
+                continue
 
             email = celdas[3].get_text(strip=True) if len(celdas) > 3 else None
             #estado = fila.find("div", class_="submissionstatussubmitted")

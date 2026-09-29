@@ -10,6 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
 from django.shortcuts import render, redirect
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 from urllib.parse import urlencode
 
@@ -22,6 +23,7 @@ from services.data_utils import cargarjson, exportarjson
 from services.data_utils.import_to_db import import_tareas_from_json
 from services.data_utils.import_estudiantes_to_db import import_estudiantes_from_json
 from services.extraccion.trasformar import extraer_transformar
+from services.utils import extraction_lock
 from data.models import Materia, Profesor, Estudiante, Tarea, Entrega
 
 from collections import Counter
@@ -232,7 +234,9 @@ def run_asignacion_web(selected_ids):
     return result
 
 
-def run_estudiantes_web(selected_ids, courses):
+def run_estudiantes_web(selected_ids, courses, cookie, stop_event=None):
+    """Unica accion del dashboard que llama a Moodle de verdad - por eso es la unica que
+    pasa por el candado de extraccion.py (extraction_lock) en la vista `dashboard`."""
     if not selected_ids:
         raise ValueError('Debes seleccionar al menos un curso para extraer estudiantes.')
 
@@ -243,23 +247,33 @@ def run_estudiantes_web(selected_ids, courses):
     if not tareas_seleccionadas:
         raise ValueError('No se encontraron tareas para los cursos seleccionados.')
 
-    moodle = MoodleSession()
+    moodle = MoodleSession(cookie=cookie)
     estudiantes = []
+    detenido = False
 
     for curso in tareas_seleccionadas:
-        curso_estudiantes = asyncio.run(obtener_tareas_docente_async(moodle, [curso]))
+        if stop_event is not None and stop_event.is_set():
+            detenido = True
+            break
+        curso_estudiantes = asyncio.run(
+            obtener_tareas_docente_async(moodle, [curso], stop_event)
+        )
         estudiantes.extend(curso_estudiantes)
 
     exportarjson.save_estudiantes(estudiantes)
 
     import_result = import_estudiantes_from_json()
+    detalle = (
+        f'Extracción de estudiantes completada: {len(estudiantes)} registros guardados en {config.JSON_ESTUDIANTES}. '
+        f'Importación a DB: {import_result}.'
+    )
+    if detenido:
+        detalle = f'Extracción detenida manualmente. Resultados parciales: {detalle}'
     return {
         'title': 'Estudiantes',
-        'detail': (
-            f'Extracción de estudiantes completada: {len(estudiantes)} registros guardados en {config.JSON_ESTUDIANTES}. '
-            f'Importación a DB: {import_result}.'
-        ),
+        'detail': detalle,
         'count': len(estudiantes),
+        'detenido': detenido,
     }
 
 
@@ -272,6 +286,7 @@ def run_transformar_web(selected_ids):
     }
 
 
+@login_required
 @require_http_methods(['GET', 'POST'])
 def dashboard(request):
     role = request.GET.get('role', request.POST.get('role', 'all'))
@@ -291,7 +306,22 @@ def dashboard(request):
             elif action == 'asignacion':
                 action_result = run_asignacion_web(selected_ids)
             elif action == 'estudiantes':
-                action_result = run_estudiantes_web(selected_ids, courses)
+                # Unica accion que llama a Moodle: pasa por el candado global para que no
+                # arranquen dos extracciones de usuarios distintos en paralelo.
+                cookie = request.session.get('MoodleSession')
+                job_id = extraction_lock.try_acquire_lock(request.user.username)
+                if job_id is None:
+                    candado = extraction_lock.current_lock()
+                    error = (
+                        f'Ya hay una extracción en curso (iniciada por {candado.usuario}). '
+                        'Esperá a que termine o cancelala vos mismo si es tuya, e intentá de nuevo.'
+                    )
+                else:
+                    stop_event = extraction_lock.get_stop_event(job_id)
+                    try:
+                        action_result = run_estudiantes_web(selected_ids, courses, cookie, stop_event)
+                    finally:
+                        extraction_lock.release_lock(job_id)
             elif action == 'transformar':
                 action_result = run_transformar_web(selected_ids)
             else:
@@ -304,6 +334,7 @@ def dashboard(request):
             error = error_str
             traceback.print_exc()
 
+    candado_actual = extraction_lock.current_lock()
     context = {
         'courses': courses,
         'course_count': len(courses),
@@ -312,10 +343,20 @@ def dashboard(request):
         'role': role,
         'action_result': action_result,
         'error': error,
-        'sesskey': config.SESSKEY,
+        'extraccion_en_curso': candado_actual,
     }
     return render(request, 'web/dashboard.html', context)
 
+
+@login_required
+@require_http_methods(['POST'])
+def detener_extraccion(request):
+    """Boton de emergencia: marca la extraccion en curso para que se corte apenas termine
+    la seccion que este en vuelo, en vez de esperar a que acabe sola o vencer el timeout."""
+    detenida = extraction_lock.request_stop()
+    return redirect(f"{reverse('dashboard')}?detenido={'1' if detenida else '0'}")
+
+@login_required
 def resumen(request):
     def parse_date_string(fecha_str):
         try:
@@ -583,6 +624,7 @@ def resumen(request):
     return render(request, 'web/resumen.html', context)
 
 
+@login_required
 def materias_view(request):
     materias = Materia.objects.all()[:200]
     materias = Materia.objects.select_related(
@@ -595,6 +637,7 @@ def materias_view(request):
     return render(request, 'web/materias.html', context)
 
 
+@login_required
 def docentes_view(request):
 
     docentes = Profesor.objects.annotate(
@@ -630,6 +673,7 @@ def docentes_view(request):
     )
 
 
+@login_required
 def estudiantes_view(request):
 
     estudiantes = Estudiante.objects.annotate(
@@ -682,6 +726,7 @@ def estudiantes_view(request):
         context
     )
 
+@login_required
 def alertas_view(request):
     # Alertas detalladas: listar materias sin actividades, tareas sin cierre y estudiantes sobrecargados
     detalles = {}
@@ -711,6 +756,7 @@ def alertas_view(request):
     return render(request, 'web/alertas.html', context)
 
 
+@login_required
 def cookie_recovery_view(request):
     """Formulario para pegar el cookie `MoodleSession` en la sesión del navegador (solo server-side, en session).
     Parámetros GET opcionales:
@@ -743,18 +789,21 @@ def cookie_recovery_view(request):
     return render(request, 'web/session_recovery.html', context)
 
 
+@login_required
 def predicciones_view(request):
     # estructura inicial para ML
     context = {'mensaje': 'Predicciones: espacio reservado para ML.'}
     return render(request, 'web/predicciones.html', context)
 
 
+@login_required
 def reportes_view(request):
     # filtros básicos se implementarán en esta página
     context = {'mensaje': 'Reportes: filtros por Docente/Carrera/Materia/Gestión/Fecha.'}
     return render(request, 'web/reportes.html', context)
 
 
+@login_required
 def configuracion_view(request):
     # panel de administración de parámetros (temporal)
     context = {'mensaje': 'Configuración de categorías, parciales y reglas.'}

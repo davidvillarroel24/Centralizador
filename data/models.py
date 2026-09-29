@@ -274,6 +274,24 @@ class Entrega(models.Model):
 
         return f"{self.estudiante} - {self.tarea}"
     
+class TrabajoExtraccion(models.Model):
+    """Fila unica (pk=1) que actua como candado global de extraccion: garantiza que solo
+    haya UNA extraccion en curso a la vez en todo el sistema, sin importar que usuario la
+    dispare. El paralelismo interno de una misma extraccion (asyncio.Semaphore en los
+    scrapers) no se ve afectado por este candado - solo serializa entre usuarios distintos.
+    """
+
+    job_id = models.CharField(max_length=64, blank=True, default='')
+    usuario = models.CharField(max_length=255, blank=True, default='')
+    en_curso = models.BooleanField(default=False)
+    iniciado = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        if self.en_curso:
+            return f"candado ocupado por {self.usuario} (job {self.job_id})"
+        return "candado libre"
+
+
 class ArchivoTarea(models.Model):
 
     tarea = models.ForeignKey(

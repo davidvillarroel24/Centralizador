@@ -3,6 +3,9 @@
 venv/
 __pycache__/
 *.pyc
+gatfh/config_runtime.json
+gatfh/sesskey.json
+gatfh/config_tareas.json
 
 # Base de datos local
 db.sqlite3

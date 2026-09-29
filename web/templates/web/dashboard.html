@@ -9,12 +9,31 @@
                 <h1>Dashboard de extracción</h1>
             </div>
             <div class="status-card">
-                <p class="status-label">Cookie / SESSKEY</p>
-                <p class="status-value">{{ sesskey|default:'No capturado' }}</p>
+                <p class="status-label">Estado de extracción</p>
+                {% if extraccion_en_curso %}
+                    <p class="status-value">En curso (iniciada por {{ extraccion_en_curso.usuario }})</p>
+                {% else %}
+                    <p class="status-value">Libre</p>
+                {% endif %}
                 <p class="status-label">Cursos cargados</p>
                 <p class="status-value">{{ course_count }}</p>
             </div>
         </div>
+
+        {% if request.GET.detenido == '1' %}
+            <div class="message card success">Se pidió detener la extracción en curso.</div>
+        {% elif request.GET.detenido == '0' %}
+            <div class="message card">No había ninguna extracción en curso para detener.</div>
+        {% endif %}
+
+        {% if extraccion_en_curso %}
+            <form method="post" action="{% url 'detener_extraccion' %}" class="dashboard-form" style="margin-bottom: 20px;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-secondary" style="border-color:#d23c3c;color:#ff8080;">
+                    ⏹ Detener extracción en curso
+                </button>
+            </form>
+        {% endif %}
 
         <form method="post" class="dashboard-form">
             {% csrf_token %}

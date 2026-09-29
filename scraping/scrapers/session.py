@@ -1,19 +1,28 @@
 #Encargado de manejar la sesión y autenticación.
-import json
 import requests
 import re
 from gatfh import config
 
-from services.data_utils import exportarjson
-
 class MoodleSession:
-    def __init__(self):
+    def __init__(self, cookie=None):
+        """cookie: valor de la cookie MoodleSession del usuario que dispara la operacion.
+        Nunca se persiste (ni en DB, ni en archivo, ni en variable global) - solo vive en
+        memoria durante esta instancia, que a su vez vive solo durante el request/job que
+        la crea (ver README, decision D1b). Cada instancia tiene su propio dict `cookies`,
+        asi que dos MoodleSession de dos usuarios distintos nunca se pisan entre si.
+
+        Si no se pasa `cookie`, cae al valor de MOODLE_SESSION_COOKIE del .env (solo como
+        comodidad para scripts/CLI locales de un solo usuario) - las vistas web SIEMPRE
+        deben pasar el cookie explicito del usuario logueado, nunca depender de este
+        fallback."""
         self.base_url = config.BASE_URL
-        self.cookies = config.COOKIES
+        cookie = cookie or config.COOKIES.get("MoodleSession", "")
+        self.cookies = {"MoodleSession": cookie}
+        self.sesskey = None
         self.session = requests.Session()
         self.session.cookies.update(self.cookies)
 
-    def get(self,**kwargs):        
+    def get(self,**kwargs):
         # ------------------------------
         # Paso 1: obtener sesskey
         # ------------------------------
@@ -22,47 +31,29 @@ class MoodleSession:
         resp = self.session.get(URL)
         html_text = resp.text
 
+        if "/login/" in str(resp.url):
+            raise Exception("La sesión de Moodle expiró (la cookie ya no es válida).")
+
         # Buscar sesskey dentro de M.cfg
         match = re.search(r'"sesskey":"([a-zA-Z0-9]+)"', html_text)
         if not match:
-            raise Exception("No se pudo extraer el sesskey.")
+            raise Exception("No se pudo extraer el sesskey. Revisa tu cookie de sesión.")
 
         sesskey = match.group(1)
-        config.SESSKEY = sesskey  # 🔥 guardado global
-        self.guardar_sesskey(sesskey)
-
-        if not sesskey:
-            raise Exception("No se pudo extraer el sesskey. Revisa tu cookie de sesión.")
+        # Se guarda solo en esta instancia (self.sesskey), nunca en un archivo/variable
+        # global compartida entre requests de distintos usuarios (antes: config.SESSKEY y
+        # config_runtime.json - ver README, hallazgos C1 y "config.SESSKEY mutable").
+        self.sesskey = sesskey
         print("Sesskey obtenido:", sesskey)
         return sesskey
-    
 
-    def guardar_sesskey(self,sesskey):
-        with open(config.JSON_SESSKEY, "w") as f:
-            json.dump({"SESSKEY": sesskey}, f)
-
-    def cargar_sesskey(self):
-        try:
-            with open(config.JSON_SESSKEY, "r") as f:
-                return json.load(f)["SESSKEY"]
-        except:
-            return None
-                    
     def get_sesskey(self):
-        sesskey = self.cargar_sesskey()
-
-        #if sesskey:
-        #    if self.sesskey_valido(sesskey):
-        #        print("✔ Reutilizando sesskey")
-        #        return sesskey
-        #    else:
-        #        print("⚠ Sesskey expirado")
-
+        if self.sesskey:
+            return self.sesskey
         return self.get()
-    
+
     def sesskey_valido(self, sesskey):
         try:
-
             url = f"{self.base_url}/lib/ajax/service.php?sesskey={sesskey}&info=core_webservice_get_site_info"
 
             resp = self.session.post(url, json=[{
@@ -71,8 +62,7 @@ class MoodleSession:
                 "args": {}
             }])
 
-            result = resp.json()            
-            exportarjson.save_sesskey(result)
+            result = resp.json()
 
             if isinstance(result, list) and result[0].get("error"):
                 errorcode = result[0]["exception"].get("errorcode")
@@ -80,12 +70,12 @@ class MoodleSession:
 
             return True
 
-        except:
+        except Exception:
             return False
-    
+
     def get_courses(self, endpoint):
-        
-        cookies=config.COOKIES['MoodleSession']
+
+        cookies=self.cookies['MoodleSession']
         print("Cookies: ",cookies)
         sesskey = self.get_sesskey()
         print("sesskey: ",sesskey)
@@ -150,7 +140,7 @@ class MoodleSession:
     
     def get_category(self, endpoint, category_id=0, page=0):
         
-        cookies=config.COOKIES['MoodleSession']
+        cookies=self.cookies['MoodleSession']
         #print("Cookies: ",cookies)
         sesskey = self.get_sesskey()
         #print("sesskey: ",sesskey)

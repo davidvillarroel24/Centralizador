@@ -30,14 +30,14 @@ from services.utils.timing import medir_tiempo
 def scraping():
     moodle = MoodleSession()
     moodle.get()
-    
-    print("Scrapping OK",config.SESSKEY)
+
+    print("Scrapping OK", moodle.sesskey)
 
 @medir_tiempo
 def getsession():
     moodle = MoodleSession()
-    config.SESSKEY=moodle.get_sesskey()
-    print("Scrapping OK",config.SESSKEY)
+    sesskey = moodle.get_sesskey()
+    print("Scrapping OK", sesskey)
 
 @medir_tiempo
 def cursos():

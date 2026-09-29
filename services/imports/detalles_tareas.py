@@ -1,15 +1,14 @@
 import json
 from pathlib import Path
 
+from gatfh import config
 from data.models import (
     Tarea,
     ArchivoTarea
 )
 
 
-BASE_DIR = Path(__file__).resolve().parents[3]
-
-RUTA_JSON =  "data/raw/detalle.json"
+RUTA_JSON = str(Path(config.DATA_DIR) / "detalle.json")
 
 
 def importar_detalles_tareas():

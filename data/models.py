@@ -190,10 +190,21 @@ class Tarea(models.Model):
         max_length=1000
     )
 
+    descripcion = models.TextField(
+        null=True,
+        blank=True
+    )
+
+    url_entrega = models.URLField(
+        max_length=1000,
+        null=True,
+        blank=True
+    )
+
     def __str__(self):
 
         return self.titulo
-    
+
 
 class Estudiante(models.Model):
 

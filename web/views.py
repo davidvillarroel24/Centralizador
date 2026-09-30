@@ -15,6 +15,7 @@ from django.views.decorators.http import require_http_methods
 from urllib.parse import urlencode
 
 from gatfh import config
+from scraping.scrapers.tareas import obtener_tareas_async
 from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
 from scraping.scrapers.normalizacion import extraer_tareas_planas
 from scraping.scrapers.asignartareas import auto_asignar_tareas, mostrar_resumen_tareas, generar_config_final
@@ -271,9 +272,53 @@ def run_asignacion_web(selected_ids):
     return result
 
 
+def run_extraer_tareas_web(selected_ids, courses, cookie, stop_event=None):
+    """Primer paso real del pipeline (antes de Normalizar): entra a cada curso seleccionado
+    y trae todas las tareas de todas sus secciones, sin discriminar tipo. Llama a Moodle de
+    verdad, por eso pasa por el candado de extraction_lock en la vista `dashboard`, igual que
+    `run_estudiantes_web`."""
+    if not selected_ids:
+        raise ValueError('Debes seleccionar al menos un curso para extraer sus tareas.')
+
+    cursos_seleccionados = [c for c in courses if c.get('id') in selected_ids]
+    if not cursos_seleccionados:
+        raise ValueError('No se encontraron los cursos seleccionados.')
+
+    moodle = MoodleSession(cookie=cookie)
+
+    # Se conserva lo ya extraido de otros cursos y se reemplaza solo lo de los seleccionados,
+    # para poder correr esta accion curso por curso sin perder el resto del avance.
+    asignaturas_seleccionadas = {c.get('asignatura') for c in cursos_seleccionados}
+    tareas_previas = [
+        t for t in cargarjson.cargar_tareas()
+        if t.get('asignatura') not in asignaturas_seleccionadas
+    ]
+
+    tareas_nuevas = asyncio.run(
+        obtener_tareas_async(moodle, cursos_seleccionados, stop_event)
+    )
+    detenido = stop_event is not None and stop_event.is_set()
+
+    exportarjson.save_tareas(tareas_previas + tareas_nuevas)
+
+    detalle = (
+        f'Extracción de tareas completada: {len(tareas_nuevas)} curso(s) procesados, '
+        f'guardados en {config.JSON_TAREAS}.'
+    )
+    if detenido:
+        detalle = f'Extracción detenida manualmente. Resultados parciales: {detalle}'
+    return {
+        'title': 'Tareas extraídas',
+        'detail': detalle,
+        'count': len(tareas_nuevas),
+        'detenido': detenido,
+    }
+
+
 def run_estudiantes_web(selected_ids, courses, cookie, stop_event=None):
-    """Unica accion del dashboard que llama a Moodle de verdad - por eso es la unica que
-    pasa por el candado de extraccion.py (extraction_lock) en la vista `dashboard`."""
+    """Segundo paso que llama a Moodle de verdad: entra a cada tarea ya extraida por
+    `run_extraer_tareas_web` y trae los datos de entrega/calificacion de los estudiantes.
+    Tambien pasa por el candado de extraction_lock en la vista `dashboard`."""
     if not selected_ids:
         raise ValueError('Debes seleccionar al menos un curso para extraer estudiantes.')
 
@@ -342,9 +387,9 @@ def dashboard(request):
                 action_result = run_normalizado_web(selected_ids, courses)
             elif action == 'asignacion':
                 action_result = run_asignacion_web(selected_ids)
-            elif action == 'estudiantes':
-                # Unica accion que llama a Moodle: pasa por el candado global para que no
-                # arranquen dos extracciones de usuarios distintos en paralelo.
+            elif action in ('extraer_tareas', 'estudiantes'):
+                # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
+                # para que no arranquen dos extracciones de usuarios distintos en paralelo.
                 cookie = request.session.get('MoodleSession')
                 job_id = extraction_lock.try_acquire_lock(request.user.username)
                 if job_id is None:
@@ -356,7 +401,10 @@ def dashboard(request):
                 else:
                     stop_event = extraction_lock.get_stop_event(job_id)
                     try:
-                        action_result = run_estudiantes_web(selected_ids, courses, cookie, stop_event)
+                        if action == 'extraer_tareas':
+                            action_result = run_extraer_tareas_web(selected_ids, courses, cookie, stop_event)
+                        else:
+                            action_result = run_estudiantes_web(selected_ids, courses, cookie, stop_event)
                     finally:
                         extraction_lock.release_lock(job_id)
             elif action == 'transformar':

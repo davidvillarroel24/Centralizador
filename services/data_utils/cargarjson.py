@@ -14,7 +14,7 @@ def cargar_tareas():
         with open(config.JSON_TAREAS, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        print("Tareas cargadas ✔")
+        print("Tareas cargadas")
         return data
 
     except FileNotFoundError:

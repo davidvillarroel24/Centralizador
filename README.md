@@ -14,7 +14,7 @@ Proyecto de grado — TECBA 2026.
 
 ---
 
-## 1. Estado real (actualizado 2026-09-29)
+## 1. Estado real (actualizado 2026-09-30)
 
 Lo que la Fase 1 dejó **realmente** funcionando, verificado contra el código —
 no contra los documentos de junio, que inflaban el avance.
@@ -26,12 +26,13 @@ no contra los documentos de junio, que inflaban el avance.
 | Resumen (KPIs + Chart.js) | ⚠️ Frágil | Renderiza, pero el cálculo está envuelto en `except: pass` (una BD vacía muestra ceros indistinguibles de "sin alertas"); N+1 (~4000 queries medidos); "actividades" cuenta solo tareas cuyo título contiene `"Examen"`/`"tek"`, no todas |
 | Materias / Docentes / Estudiantes | ⚠️ Listado básico | Consultas con algunas anotaciones; quedan `print()` de depuración en el código |
 | Alertas | ⚠️ Parcial | 3 reglas efectivas (el README de junio decía 5): materias sin actividades, tareas sin cierre, sobrecarga >8 pendientes. "Sobrecarga" tiene **dos definiciones incompatibles** en `web/views.py` (≥3 el mismo día para el KPI, >8 pendientes para alertas) |
-| Extracción (`/extraccion/`) | ✅ Candado + botón de emergencia | POST dispara `normalizado`/`asignacion`/`estudiantes`/`transformar`. La acción `estudiantes` (la única que llama a Moodle) ahora pasa el cookie de `request.session['MoodleSession']` a `MoodleSession(cookie=...)` y pasa por un candado global (`services/utils/extraction_lock.py`, `data.TrabajoExtraccion`) que serializa entre usuarios distintos, con timeout de 2 min y botón "Detener extracción" (`POST /extraccion/detener/`). Verificado con un job simulado (sin Moodle real). |
-| Recuperación de cookie | ⚠️ Rota parcialmente | Guarda `request.session['MoodleSession']` + un `make_password()` de la cookie en `Profesor.moodle_session_hash` que **nadie lee**. El redirect apunta a `/web/session-cookie/` pero la ruta real es `/session-cookie/` → 404 |
+| Extracción (`/extraccion/`) | ✅ Pipeline completo + candado | POST dispara 5 acciones en orden: `extraer_tareas` (**nuevo**, ver C8) → `normalizado` → `asignacion` → `estudiantes` → `transformar`. Las dos que llaman a Moodle de verdad (`extraer_tareas`, `estudiantes`) pasan el cookie de `request.session['MoodleSession']` a `MoodleSession(cookie=...)` y por el candado global (`services/utils/extraction_lock.py`, `data.TrabajoExtraccion`) que serializa entre usuarios distintos, con timeout de 2 min y botón "Detener extracción" (`POST /extraccion/detener/`). Verificado con un job simulado (sin Moodle real) — **la extracción real contra Moodle sigue sin probarse**. |
+| Cookie de Moodle | ✅ Nunca toca la BD | Se pega directo en `/extraccion/` (cuadro nuevo, se opaca al guardar). Vive en `request.session`, y `SESSION_ENGINE` se cambió a `signed_cookies` (`gatfh/settings.py`): la sesión completa (incluida la cookie) queda en una cookie firmada del navegador, nunca en `django_session` de Postgres. El flujo viejo (`/session-cookie/`, `session_recovery.html`) sigue existiendo como fallback pero ya no es el camino principal. |
 | Predicciones / Reportes / Configuración | ⛔ Placeholder | Solo renderizan un mensaje fijo |
 | Importadores | ⚠️ Duplicados | Ver §4. Existen dos subsistemas (`services/data_utils/` y `services/imports/`) que escriben las mismas tablas con semánticas distintas |
-| Base de datos | ✅ Postgres | `DATABASE_URL` vía `dj-database-url`, fallback a SQLite. Migraciones `0001`–`0010` |
+| Base de datos | ✅ Postgres | `DATABASE_URL` vía `dj-database-url`, fallback a SQLite. Migraciones `0001`–`0013` (`0012`/`0013` agregan `Profesor.user` y `Tarea.descripcion`/`url_entrega` — hechas fuera de esta auditoría, sin revisar todavía) |
 | Preparación de deploy | ✅ Local, ⛔ sin probar | `Procfile`, `requirements.txt`, `.python-version`, `whitenoise`, hardening de producción condicionado a `DEBUG=False`. Nunca se desplegó en ninguna plataforma |
+| Interfaz (paleta / responsive) | ✅ Hecho | Paleta cambiada de naranja→azul→dorado+violeta ("Protoss"); sidebar oculto antes de login; autocompletado de nombre de docente en `/register/` (`<datalist>`); tablas/gráficos/sidebar responsive (breakpoints en `sidebar.css`/`dashboard.css`). Verificado con Django test client + `manage.py check`, no visualmente en navegador real. |
 
 **Fase 2 (multiusuario): 0 % en código.** Lo hecho hasta ahora es infraestructura
 (lectura de `.env`, Postgres, preparación para hosting).
@@ -172,6 +173,7 @@ revisión; resumen accionable acá.
 | C5 | **Se pierden estudiantes** (solo con stdout UTF-8, o sea en Linux): una fila sin nombre hace `break` en vez de `continue` y descarta al resto de la tabla | `scraping/scrapers/detallesprofesores.py:96-98` | ✅ Cambiado a `continue` |
 | C6 | **Dos subsistemas de importación** escribiendo las mismas tablas con semánticas incompatibles; el que corre primero gana. `services/imports/estudiantes.py:8` importa `ArchivoEntrega` (inexistente) → ese comando no arranca | `services/data_utils/` vs `services/imports/` | ⚠️ Parcial: se arregló el crash de `ArchivoEntrega` (se omite el guardado de adjuntos por estudiante, no existe ese modelo). La eliminación completa de `services/data_utils/` sigue pendiente |
 | C7 | **La sección 4 del plan parte de una premisa falsa:** `procesar_profesor` NO puebla `Materia.profesores` (escribe un JSON que nadie lee). La M2M la puebla `carreras.py` → `linkcarreras.json` | `scraping/scrapers/profesores.py` | ⛔ Sin tocar |
+| C8 | **`Materia.moodle_url` guardaba la URL de la primera tarea de la sección 1 (cualquier recurso al azar), no la URL del curso.** Como `load_courses()` (`web/views.py`) pasó a leer los cursos desde `Materia` en vez de `cursos.json` (necesario: `data/raw/*.json` está gitignoreado y no existe en Render), el scraper de "Extraer tareas" le pedía secciones a un link de tarea en vez de al curso — nunca iba a traer nada. Además faltaba por completo el botón/acción que dispara `obtener_tareas_async` y llena `tareas.json`, que es lo que "Normalizar" necesita para tener datos | `services/data_utils/import_to_db.py`, `web/views.py:load_courses` | ✅ `import_to_db.py` ahora toma la URL real desde `cursos.json` y se autocorrige en cada corrida de "Normalizar" si detecta una `moodle_url` que no es `/course/view.php`. Se agregó la acción `extraer_tareas` (botón "1. Extraer tareas del curso") que faltaba. Los 16 `Materia` de la BD **local** ya se corrigieron a mano; **la BD de Render (`centralizador_db2`) sigue con las URLs viejas, pendiente** |
 
 ### Importantes
 
@@ -185,13 +187,21 @@ revisión; resumen accionable acá.
 - `services/imports/estudiantes.py`: emails repetidos de Moodle → `IntegrityError` silencioso (`Estudiante.email` es `unique`); `import_all_data` igual reporta "completada exitosamente" — sin tocar.
 - `import_all_data` nunca importa profesores (solo tareas y estudiantes) — sin tocar.
 - ✅ `range(1, 13)` hardcodeado en `tareas.py:73` → ahora detecta el número real de secciones leyendo la página del curso (`detectar_num_secciones`), con `12` como piso si no se puede detectar.
-- Documentos de junio (`README` viejo, `PROYECTO_COMPLETADO.md`, `TAREAS_COMPLETADAS.md`) contradicen el código: p. ej. afirmaban "las cookies NUNCA se persisten en DB" (falso) y `actividades = Tarea.objects.count()` (está filtrado).
+- ✅ `print("... ✔")` en `services/data_utils/{cargarjson,exportarjson}.py` rompía con `UnicodeEncodeError` en consolas Windows con codepage `cp1252` (no en Render, que es Linux/UTF-8, pero sí al correr local) — se sacó el carácter.
+- Documentos de junio (`README` viejo, `PROYECTO_COMPLETADO.md`, `TAREAS_COMPLETADAS.md`) contradicen el código: p. ej. afirmaban "las cookies NUNCA se persisten en DB" (falso, corregido ahora con `SESSION_ENGINE = signed_cookies`) y `actividades = Tarea.objects.count()` (está filtrado).
 
 ### Contexto no verificable sin ejecutar
 
 - Nada se probó contra el Moodle real de TECBA ni contra un hosting real.
-- No hay `.env` ni `data/raw/` en disco → los conteos "16 materias / 669 tareas / 288 entregas" del plan no se pudieron confirmar.
 - `collectstatic` en el build del hosting: con `CompressedManifestStaticFilesStorage`, si no corre en el build, todo `{% static %}` lanza 500.
+
+### Puntos a verificar (pendientes de confirmación manual, 2026-09-30)
+
+- [ ] **"Extraer tareas del curso" contra Moodle real** — corregido el bug de C8 y simulado con un stub, pero nunca ejecutado contra el Moodle real de TECBA. Es el primer lugar para mirar si algo falla en la corrida real.
+- [ ] **Aplicar la corrección de `Materia.moodle_url` (C8) en Render** (`centralizador_db2`) — solo se corrigió en la base local; Render sigue con las URLs viejas hasta que se repita la corrección ahí o se vuelva a poblar desde un dump ya corregido.
+- [ ] **Auditar las migraciones `0012_profesor_user` y `0013_tarea_descripcion_tarea_url_entrega`** — agregan `Profesor.user` (OneToOne a `auth.User`) y campos nuevos a `Tarea`; se hicieron fuera de este historial de auditoría y `get_current_profesor`/`register_view` ya dependen de `Profesor.user`, pero no se revisó si rompen algo de lo documentado en §5/§6.
+- [ ] **Confirmar visualmente en navegador** la paleta nueva (dorado + violeta), el sidebar oculto antes de login, el autocompletado de `/register/` y el layout responsive — todo se verificó con `manage.py check` y el test client de Django, no mirando la página real.
+- [ ] **Probar el candado cross-user con una segunda cuenta de docente real** (no simulada) para confirmar el mensaje de "extracción en curso" y que el botón de emergencia la libera.
 
 ---
 
@@ -224,6 +234,18 @@ sesskey de uno se le podía mostrar a otro a mitad de scraping. Resuelto con
 emergencia "Detener extracción" (`POST /extraccion/detener/`), sin tocar hosting ni agregar
 Celery/Redis. `MoodleSession` ahora recibe el cookie por parámetro en vez de leer
 `config.COOKIES` global (D1b).
+
+**Pipeline de extracción incompleto (encontrado al probar el candado en producción, no estaba
+documentado):** faltaba el paso que trae las tareas de cada curso antes de "Normalizar", y el
+campo `Materia.moodle_url` del que dependía ese paso estaba mal poblado desde siempre (ver C8).
+Se agregó la acción `extraer_tareas` (botón "1. Extraer tareas del curso" en `/extraccion/`) y
+se corrigió `import_to_db.py` para que tome la URL real del curso y se autocorrija en cada
+corrida de "Normalizar". Corregido en la BD local; **pendiente en Render**.
+
+**Interfaz (pedido explícito, no estaba en el Bloque 0/1 original):** sidebar oculto antes de
+login, autocompletado de nombre de docente en `/register/`, paleta dorado+violeta, layout
+responsive, y el cuadro para pegar la cookie de Moodle directo en `/extraccion/`
+(`SESSION_ENGINE = signed_cookies`, nunca toca Postgres).
 
 **Bloque 2 — solo después:** hosting real → extensión de navegador → rol gestor.
 

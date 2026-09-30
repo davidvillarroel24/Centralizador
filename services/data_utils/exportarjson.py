@@ -6,7 +6,7 @@ def save_cursos(cursos):
         with open(config.JSON_CURSOS, "w", encoding="utf-8") as f:
             json.dump(cursos, f, indent=4, ensure_ascii=False)
 
-        print("Cursos guardados en JSON ✔")
+        print("Cursos guardados en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
@@ -16,7 +16,7 @@ def save_tareas(tareas):
         with open(config.JSON_TAREAS, "w", encoding="utf-8") as f:
             json.dump(tareas, f, indent=4, ensure_ascii=False)
 
-        print("Tareas guardadas ✔")
+        print("Tareas guardadas")
     except Exception as e:
         raise Exception(f"No se pudo guardar tareas: {e}")
     
@@ -29,7 +29,7 @@ def save_detalles(detalles):
         with open(config.JSON_DETALLES, "w", encoding="utf-8") as f:
             json.dump(detalles, f, indent=4, ensure_ascii=False)
 
-        print(f"Detalles guardados ✔ ({len(detalles)} registros)")
+        print(f"Detalles guardados ({len(detalles)} registros)")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar detalles: {e}")
@@ -43,7 +43,7 @@ def save_calificacion(calificacion):
         with open(config.JSON_CALIFICACION, "w", encoding="utf-8") as f:
             json.dump(calificacion, f, indent=4, ensure_ascii=False)
 
-        print(f"Calificaciones guardados ✔ ({len(calificacion)} registros)")
+        print(f"Calificaciones guardados ({len(calificacion)} registros)")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar calificaciones: {e}")
@@ -57,7 +57,7 @@ def save_profesores(profesores):
         with open(config.JSON_PROFESORES, "w", encoding="utf-8") as f:
             json.dump(profesores, f, indent=4, ensure_ascii=False)
 
-        print(f"Profesores guardados ✔ ({len(profesores)} registros)")
+        print(f"Profesores guardados ({len(profesores)} registros)")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar profesores: {e}")
@@ -71,7 +71,7 @@ def save_estudiantes(estudiantes):
         with open(config.JSON_ESTUDIANTES, "w", encoding="utf-8") as f:
             json.dump(estudiantes, f, indent=4, ensure_ascii=False)
 
-        print(f"Estudiantes guardados ✔ ({len(estudiantes)} registros)")
+        print(f"Estudiantes guardados ({len(estudiantes)} registros)")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar estudiantes: {e}")
@@ -81,7 +81,7 @@ def save_sesskey(sesskey):
         with open(config.JSON_AJAX, "w", encoding="utf-8") as f:
             json.dump(sesskey, f, indent=4, ensure_ascii=False)
 
-        print("Ajax guardado en JSON ✔")
+        print("Ajax guardado en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
@@ -91,7 +91,7 @@ def save_normalizacion(sesskey):
         with open(config.JSON_NORMALIZACION, "w", encoding="utf-8") as f:
             json.dump(sesskey, f, indent=4, ensure_ascii=False)
 
-        print("Normalizacion guardado en JSON ✔")
+        print("Normalizacion guardado en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
@@ -101,7 +101,7 @@ def save_asignacion(sesskey):
         with open(config.JSON_ASIGNACION, "w", encoding="utf-8") as f:
             json.dump(sesskey, f, indent=4, ensure_ascii=False)
 
-        print("Asignacion de tareas guardado en JSON ✔")
+        print("Asignacion de tareas guardado en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
@@ -111,7 +111,7 @@ def save_notas_est(sesskey):
         with open(config.JSON_NOTAS_EST, "w", encoding="utf-8") as f:
             json.dump(sesskey, f, indent=4, ensure_ascii=False)
 
-        print("Notas de tareas guardado en JSON ✔")
+        print("Notas de tareas guardado en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
@@ -121,7 +121,7 @@ def save_categorias(sesskey):
         with open(config.JSON_CATEGORIAS, "w", encoding="utf-8") as f:
             json.dump(sesskey, f, indent=4, ensure_ascii=False)
 
-        print("Categorias guardado en JSON ✔")
+        print("Categorias guardado en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
@@ -131,7 +131,7 @@ def save_carreras(sesskey):
         with open(config.JSON_CARRERAS, "w", encoding="utf-8") as f:
             json.dump(sesskey, f, indent=4, ensure_ascii=False)
 
-        print("Carreras guardado en JSON ✔")
+        print("Carreras guardado en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
@@ -141,7 +141,7 @@ def save_Linkcarreras(sesskey):
         with open(config.JSON_LINKCARRERAS, "w", encoding="utf-8") as f:
             json.dump(sesskey, f, indent=4, ensure_ascii=False)
 
-        print("Carreras guardado en JSON ✔")
+        print("Carreras guardado en JSON")
 
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")

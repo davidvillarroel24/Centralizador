@@ -156,23 +156,35 @@ def normalize_asignatura(value):
 
 
 def filter_courses_by_role(request, courses, role='all'):
+    # Materias con al menos un profesor asignado (Materia.profesores): heurística
+    # actual para distinguir "el usuario las ve como docente" de "las ve como
+    # estudiante", ya que el modelo no registra el rol por curso del usuario logueado.
+    con_profesor_normalizadas = {
+        normalize_asignatura(m)
+        for m in Materia.objects.filter(profesores__isnull=False).values_list('moodle_nombre', flat=True)
+    }
+
+    current_profesor = get_current_profesor(request)
+    docente_materias = {
+        normalize_asignatura(m)
+        for m in current_profesor.materias.values_list('moodle_nombre', flat=True)
+    } if current_profesor else set()
+
+    estudiante_materias = {
+        normalize_asignatura(course.get('asignatura'))
+        for course in courses
+        if normalize_asignatura(course.get('asignatura')) not in con_profesor_normalizadas
+    }
+
     if role == 'docente':
-        current_profesor = get_current_profesor(request)
-        if not current_profesor:
-            return []
-        materias_normalizadas = {
-            normalize_asignatura(m)
-            for m in current_profesor.materias.values_list('moodle_nombre', flat=True)
-        }
-        return [course for course in courses if normalize_asignatura(course.get('asignatura')) in materias_normalizadas]
+        return [course for course in courses if normalize_asignatura(course.get('asignatura')) in docente_materias]
     if role == 'estudiante':
-        profesor_materias = set(
-            Materia.objects.filter(profesores__isnull=False)
-                   .values_list('moodle_nombre', flat=True)
-        )
-        materias_normalizadas = {normalize_asignatura(m) for m in profesor_materias}
-        return [course for course in courses if normalize_asignatura(course.get('asignatura')) not in materias_normalizadas]
-    return courses
+        return [course for course in courses if normalize_asignatura(course.get('asignatura')) in estudiante_materias]
+
+    # 'all': únicamente los cursos donde el usuario actual participa como
+    # docente y/o como estudiante — no todas las materias de la base de datos.
+    relevantes = docente_materias | estudiante_materias
+    return [course for course in courses if normalize_asignatura(course.get('asignatura')) in relevantes]
 
 
 def parse_selected_course_ids(request):

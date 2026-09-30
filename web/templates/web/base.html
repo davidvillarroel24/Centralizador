@@ -9,24 +9,32 @@
     <link rel="stylesheet" href="{% static 'web/sidebar.css' %}">
     <link rel="stylesheet"
       href="https://cdn.datatables.net/2.3.2/css/dataTables.dataTables.min.css">
+    <link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   </head>
   <body>
     <div class="app-shell{% if not user.is_authenticated %} no-sidebar{% endif %}">
       {% if user.is_authenticated %}
       <aside class="sidebar">
-        <div class="brand">Centralizador</div>
-        <nav>
+        <div class="sidebar-top">
+          <div class="brand">Centralizador</div>
+          <button type="button" class="sidebar-toggle" id="sidebarToggle"
+                  aria-expanded="false" aria-controls="sidebarNav" aria-label="Abrir menú">
+            <i class="bi bi-list"></i>
+          </button>
+        </div>
+        <nav id="sidebarNav">
           <ul>
-            <li><a href="{% url 'resumen' %}">🏠 Resumen</a></li>
-            <li><a href="{% url 'materias' %}">📚 Materias</a></li>
-            <li><a href="{% url 'docentes' %}">👨‍🏫 Docentes</a></li>
-            <li><a href="{% url 'estudiantes' %}">👨‍🎓 Estudiantes</a></li>
-            <li><a href="{% url 'alertas' %}">⚠️ Alertas</a></li>
-            <li><a href="{% url 'predicciones' %}">📈 Predicciones</a></li>
-            <li><a href="{% url 'reportes' %}">📄 Reportes</a></li>
-            <li><a href="{% url 'dashboard' %}">🏠 Extraccion</a></li>
-            <li><a href="{% url 'configuracion' %}">⚙️ Configuración</a></li>
-            <li><a href="{% url 'logout' %}">🔒 Cerrar sesión</a></li>
+            <li><a href="{% url 'resumen' %}"><i class="bi bi-speedometer2"></i> Resumen</a></li>
+            <li><a href="{% url 'materias' %}"><i class="bi bi-journal-bookmark"></i> Materias</a></li>
+            <li><a href="{% url 'docentes' %}"><i class="bi bi-person-badge"></i> Docentes</a></li>
+            <li><a href="{% url 'estudiantes' %}"><i class="bi bi-people-fill"></i> Estudiantes</a></li>
+            <li><a href="{% url 'alertas' %}"><i class="bi bi-exclamation-triangle-fill"></i> Alertas</a></li>
+            <li><a href="{% url 'predicciones' %}"><i class="bi bi-graph-up-arrow"></i> Predicciones</a></li>
+            <li><a href="{% url 'reportes' %}"><i class="bi bi-file-earmark-text"></i> Reportes</a></li>
+            <li><a href="{% url 'dashboard' %}"><i class="bi bi-cloud-arrow-down-fill"></i> Extraccion</a></li>
+            <li><a href="{% url 'configuracion' %}"><i class="bi bi-gear-fill"></i> Configuración</a></li>
+            <li><a href="{% url 'logout' %}"><i class="bi bi-box-arrow-right"></i> Cerrar sesión</a></li>
           </ul>
         </nav>
       </aside>
@@ -45,6 +53,22 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
     <script src="https://cdn.datatables.net/2.3.2/js/dataTables.min.js"></script>
+    <script>
+      (function () {
+        var sidebar = document.querySelector('.sidebar');
+        var toggle = document.getElementById('sidebarToggle');
+        if (!sidebar || !toggle) return;
+        var icon = toggle.querySelector('i');
+        toggle.addEventListener('click', function () {
+          var isOpen = sidebar.classList.toggle('open');
+          toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+          if (icon) {
+            icon.classList.toggle('bi-list', !isOpen);
+            icon.classList.toggle('bi-x-lg', isOpen);
+          }
+        });
+      })();
+    </script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

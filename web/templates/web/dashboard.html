@@ -138,3 +138,30 @@
     </div>
 {% endblock %}
 
+{% block scripts %}
+<script>
+    (function () {
+        var counter = document.querySelector('.selection-summary strong');
+        var checkboxes = document.querySelectorAll('input[name="courses"]');
+
+        function syncSelection() {
+            var checked = 0;
+            checkboxes.forEach(function (box) {
+                var card = box.closest('.course-card');
+                if (box.checked) {
+                    checked += 1;
+                    if (card) card.classList.add('selected');
+                } else if (card) {
+                    card.classList.remove('selected');
+                }
+            });
+            if (counter) counter.textContent = checked;
+        }
+
+        checkboxes.forEach(function (box) {
+            box.addEventListener('change', syncSelection);
+        });
+        syncSelection();
+    })();
+</script>
+{% endblock %}

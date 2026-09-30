@@ -53,24 +53,47 @@ def handle_session_error(request, error_msg, next_url='/web/'):
 
 
 def load_courses():
-    try:
-        return cargarjson.cargar_cursos()
-    except Exception:
-        return []
+    """Carga los cursos (Materia) desde Postgres en vez del JSON legado.
+
+    El resto del dashboard (selección de cursos, filtrado de tareas por
+    asignatura) sigue trabajando con dicts {id, asignatura, url} para no
+    tener que tocar el pipeline de scraping basado en cursos.json.
+    """
+    materias = Materia.objects.select_related('carrera').order_by('nombre')
+    return [
+        {
+            'id': materia.id,
+            'asignatura': materia.moodle_nombre,
+            'url': materia.moodle_url,
+        }
+        for materia in materias
+    ]
 
 
 def get_current_profesor(request):
     if not request.user.is_authenticated:
         return None
+    try:
+        profesor = Profesor.objects.filter(user=request.user).first()
+        if profesor:
+            return profesor
+    except Exception:
+        return None
+
+    # Compatibilidad con cuentas creadas antes de vincular Profesor.user:
+    # se resuelve por nombre una unica vez y se deja el vinculo guardado.
     nombre_usuario = request.user.get_full_name() or request.user.username
     nombre_usuario = nombre_usuario.strip()
     if not nombre_usuario:
         return None
     try:
-        profesor = Profesor.objects.filter(nombre__iexact=nombre_usuario).first()
+        profesor = Profesor.objects.filter(nombre__iexact=nombre_usuario, user__isnull=True).first()
+        if not profesor:
+            profesor = Profesor.objects.filter(nombre__icontains=nombre_usuario, user__isnull=True).first()
         if profesor:
-            return profesor
-        return Profesor.objects.filter(nombre__icontains=nombre_usuario).first()
+            profesor.user = request.user
+            profesor.save(update_fields=['user'])
+        return profesor
     except Exception:
         return None
 
@@ -98,7 +121,8 @@ def register_view(request):
             profesor = Profesor.objects.filter(nombre__iexact=username).first()
             if profesor:
                 profesor.moodle_session_hash = make_password(cookie_value)
-                profesor.save(update_fields=['moodle_session_hash'])
+                profesor.user = user
+                profesor.save(update_fields=['moodle_session_hash', 'user'])
             request.session['MoodleSession'] = cookie_value
             login(request, user)
             return redirect('dashboard')
@@ -134,14 +158,12 @@ def normalize_asignatura(value):
 def filter_courses_by_role(request, courses, role='all'):
     if role == 'docente':
         current_profesor = get_current_profesor(request)
-        profesor_materias = set(
-            Materia.objects.filter(profesores__isnull=False)
-                   .values_list('moodle_nombre', flat=True)
-        )
-        materias_normalizadas = {normalize_asignatura(m) for m in profesor_materias}
-        if current_profesor:
-            current_materias = current_profesor.materias.values_list('moodle_nombre', flat=True)
-            materias_normalizadas = {normalize_asignatura(m) for m in current_materias}
+        if not current_profesor:
+            return []
+        materias_normalizadas = {
+            normalize_asignatura(m)
+            for m in current_profesor.materias.values_list('moodle_nombre', flat=True)
+        }
         return [course for course in courses if normalize_asignatura(course.get('asignatura')) in materias_normalizadas]
     if role == 'estudiante':
         profesor_materias = set(

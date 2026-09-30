@@ -129,7 +129,7 @@
                                 <a class="course-link" href="{{ course.url }}" target="_blank">Abrir</a>
                             </article>
                         {% empty %}
-                            <div class="empty-state">No se encontraron cursos. Asegúrate de tener <code>data/raw/cursos.json</code>.</div>
+                            <div class="empty-state">No se encontraron cursos en la base de datos. Necesitas importar materias (tabla <code>Materia</code>) antes de poder extraer.</div>
                         {% endfor %}
                     </div>
                 </div>

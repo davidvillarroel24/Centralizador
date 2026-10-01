@@ -14,7 +14,7 @@ Proyecto de grado — TECBA 2026.
 
 ---
 
-## 1. Estado real (actualizado 2026-09-30)
+## 1. Estado real (actualizado 2026-10-01)
 
 Lo que la Fase 1 dejó **realmente** funcionando, verificado contra el código —
 no contra los documentos de junio, que inflaban el avance.
@@ -26,7 +26,7 @@ no contra los documentos de junio, que inflaban el avance.
 | Resumen (KPIs + Chart.js) | ⚠️ Frágil | Renderiza, pero el cálculo está envuelto en `except: pass` (una BD vacía muestra ceros indistinguibles de "sin alertas"); N+1 (~4000 queries medidos); "actividades" cuenta solo tareas cuyo título contiene `"Examen"`/`"tek"`, no todas |
 | Materias / Docentes / Estudiantes | ⚠️ Listado básico | Consultas con algunas anotaciones; quedan `print()` de depuración en el código |
 | Alertas | ⚠️ Parcial | 3 reglas efectivas (el README de junio decía 5): materias sin actividades, tareas sin cierre, sobrecarga >8 pendientes. "Sobrecarga" tiene **dos definiciones incompatibles** en `web/views.py` (≥3 el mismo día para el KPI, >8 pendientes para alertas) |
-| Extracción (`/extraccion/`) | ✅ Pipeline completo + candado | POST dispara 5 acciones en orden: `extraer_tareas` (**nuevo**, ver C8) → `normalizado` → `asignacion` → `estudiantes` → `transformar`. Las dos que llaman a Moodle de verdad (`extraer_tareas`, `estudiantes`) pasan el cookie de `request.session['MoodleSession']` a `MoodleSession(cookie=...)` y por el candado global (`services/utils/extraction_lock.py`, `data.TrabajoExtraccion`) que serializa entre usuarios distintos, con timeout de 2 min y botón "Detener extracción" (`POST /extraccion/detener/`). Verificado con un job simulado (sin Moodle real) — **la extracción real contra Moodle sigue sin probarse**. |
+| Extracción (`/extraccion/`) | ✅ Pipeline completo + candado | POST dispara 6 acciones en orden: `extraer_carreras` (**nuevo**, ver C9) → `extraer_tareas` (ver C8) → `normalizado` → `asignacion` → `estudiantes` → `transformar`. Las tres que llaman a Moodle de verdad (`extraer_carreras`, `extraer_tareas`, `estudiantes`) pasan el cookie de `request.session['MoodleSession']` a `MoodleSession(cookie=...)` y por el candado global (`services/utils/extraction_lock.py`, `data.TrabajoExtraccion`) que serializa entre usuarios distintos, con timeout de 2 min y botón "Detener extracción" (`POST /extraccion/detener/`). Probado contra el Moodle real de TECBA en local (Postgres propio, sin Render): `extraer_carreras` trajo 779 materias / 157 profesores reales. **`extraer_tareas`/`estudiantes` contra Moodle real siguen sin confirmarse.** |
 | Cookie de Moodle | ✅ Nunca toca la BD | Se pega directo en `/extraccion/` (cuadro nuevo, se opaca al guardar). Vive en `request.session`, y `SESSION_ENGINE` se cambió a `signed_cookies` (`gatfh/settings.py`): la sesión completa (incluida la cookie) queda en una cookie firmada del navegador, nunca en `django_session` de Postgres. El flujo viejo (`/session-cookie/`, `session_recovery.html`) sigue existiendo como fallback pero ya no es el camino principal. |
 | Predicciones / Reportes / Configuración | ⛔ Placeholder | Solo renderizan un mensaje fijo |
 | Importadores | ⚠️ Duplicados | Ver §4. Existen dos subsistemas (`services/data_utils/` y `services/imports/`) que escriben las mismas tablas con semánticas distintas |
@@ -56,7 +56,8 @@ services/
   imports/        Importadores JSON→DB por entidad (8 comandos importar_*)  ← canónico (§3, decisión 2)
   data_utils/     Importadores antiguos (a eliminar — §3, decisión 2)
   extraccion/     Wrappers finos sobre los scrapers
-  management/commands/  Comandos de extracción (extraer_*) e importación
+  management/commands/  Comandos de extracción (extraer_*), importación (importar_*)
+                  y `crear_admin` (seed del admin de prueba, ver §3)
   utils/          run_scraping, timing
 data/raw/         Staging JSON de la extracción (gitignoreado — datos reales de personas)
 ```
@@ -75,23 +76,66 @@ python -m venv venv
 pip install -r requirements.txt
 
 copy .env.example .env    # completar DJANGO_SECRET_KEY, MOODLE_BASE_URL, etc.
+```
 
-python manage.py migrate
-# Importar datos desde data/raw/*.json (ver nota sobre importadores en §4):
-python manage.py importar_facultades
-python manage.py importar_carreras
-python manage.py importar_niveles
-python manage.py importar_materias
-python manage.py importar_profesores
-python manage.py importar_tareas
-python manage.py importar_detalles_tareas
-python manage.py importar_estudiantes
+Si reinstalaste Postgres o es una base nueva, creala antes de migrar:
 
-python manage.py runserver   # http://localhost:8000/
+```powershell
+# psql/createdb deben estar en el PATH (carpeta bin de la instalación de Postgres)
+createdb -U postgres -h localhost centralizador
 ```
 
 `.env` nunca se commitea. Si `DATABASE_URL` no está definida, el proyecto usa SQLite
-automáticamente.
+automáticamente — y si cambiaste la contraseña del usuario `postgres` al reinstalar,
+actualizala en `.env` antes de seguir.
+
+```powershell
+python manage.py migrate        # crea todas las tablas (auth, data, sessions...)
+python manage.py crear_admin    # crea/resetea el admin de prueba "tecba" / "st4rcr4fT2"
+python manage.py runserver      # http://localhost:8000/
+```
+
+### 3.1 Repoblar la base desde cero (Facultad/Carrera/Materia/Profesor)
+
+Con la base recién migrada, `data/raw/*.json` vacío y `/web/login/` ya accesible con el
+admin de `crear_admin`, el orden para tener datos reales es:
+
+1. **Conseguir el cookie de Moodle** (`MoodleSession`, copiado de las DevTools del
+   navegador con sesión activa) y pegarlo en el dashboard (`/extraccion/` → "Guardar
+   cookie"). Vive solo en la sesión firmada del navegador, nunca en la base (D1b).
+2. **Extraer la jerarquía de carreras** — botón **"0. Extraer carreras"** en el dashboard.
+   Recorre todas las categorías de Moodle (`/course/index.php`, una request por categoría
+   + paginación) y genera `data/raw/categorias.json`, `carreras.json` y `linkcarreras.json`.
+   Sin esto el selector de cursos del dashboard queda vacío, porque `load_courses()` lee
+   `Materia` desde Postgres, no JSON. Alternativa por CLI (mismo cookie, vía
+   `MOODLE_SESSION_COOKIE` en `.env`): `python manage.py extraer_linkcarreras`.
+3. **Importar `linkcarreras.json` a Postgres, en este orden exacto** (`importar_profesores`
+   va *antes* que `importar_materias` — al revés de como podría parecer natural, porque
+   `materias.py` enlaza cada `Materia` a su `Profesor` buscándolo ya creado; si corre antes,
+   la unión M2M queda vacía en silencio, sin error):
+   ```powershell
+   python manage.py importar_facultades
+   python manage.py importar_carreras
+   python manage.py importar_niveles
+   python manage.py importar_profesores
+   python manage.py importar_materias
+   ```
+4. **Extraer tareas y estudiantes de las materias que te interesen**, desde el dashboard:
+   botones "1. Extraer tareas del curso" y "4. Extraer estudiantes" (seleccionando cursos
+   primero). Guardan `tareas.json`/`estudiantes.json` e importan a la DB en el mismo paso
+   (`import_tareas_from_json`/`import_estudiantes_from_json`, vía `services/data_utils/`).
+5. *(Opcional)* **Detalles y archivos adjuntos de cada tarea**: `python manage.py
+   importar_detalles_tareas`, una vez tengas `detalle.json` (hoy solo sale de scraping
+   manual anterior, no hay botón propio todavía).
+
+Verificación rápida de que algo se pobló:
+```powershell
+python manage.py shell -c "
+from data.models import Facultad, Carrera, Nivel, Materia, Profesor, Tarea, Estudiante, Entrega
+for m in [Facultad, Carrera, Nivel, Materia, Profesor, Tarea, Estudiante, Entrega]:
+    print(m.__name__, m.objects.count())
+"
+```
 
 ---
 
@@ -174,6 +218,7 @@ revisión; resumen accionable acá.
 | C6 | **Dos subsistemas de importación** escribiendo las mismas tablas con semánticas incompatibles; el que corre primero gana. `services/imports/estudiantes.py:8` importa `ArchivoEntrega` (inexistente) → ese comando no arranca | `services/data_utils/` vs `services/imports/` | ⚠️ Parcial: se arregló el crash de `ArchivoEntrega` (se omite el guardado de adjuntos por estudiante, no existe ese modelo). La eliminación completa de `services/data_utils/` sigue pendiente |
 | C7 | **La sección 4 del plan parte de una premisa falsa:** `procesar_profesor` NO puebla `Materia.profesores` (escribe un JSON que nadie lee). La M2M la puebla `carreras.py` → `linkcarreras.json` | `scraping/scrapers/profesores.py` | ⛔ Sin tocar |
 | C8 | **`Materia.moodle_url` guardaba la URL de la primera tarea de la sección 1 (cualquier recurso al azar), no la URL del curso.** Como `load_courses()` (`web/views.py`) pasó a leer los cursos desde `Materia` en vez de `cursos.json` (necesario: `data/raw/*.json` está gitignoreado y no existe en Render), el scraper de "Extraer tareas" le pedía secciones a un link de tarea en vez de al curso — nunca iba a traer nada. Además faltaba por completo el botón/acción que dispara `obtener_tareas_async` y llena `tareas.json`, que es lo que "Normalizar" necesita para tener datos | `services/data_utils/import_to_db.py`, `web/views.py:load_courses` | ✅ `import_to_db.py` ahora toma la URL real desde `cursos.json` y se autocorrige en cada corrida de "Normalizar" si detecta una `moodle_url` que no es `/course/view.php`. Se agregó la acción `extraer_tareas` (botón "1. Extraer tareas del curso") que faltaba. Los 16 `Materia` de la BD **local** ya se corrigieron a mano; **la BD de Render (`centralizador_db2`) sigue con las URLs viejas, pendiente** |
+| C9 | **Faltaba el paso previo a todo lo demás: no había forma de poblar `Facultad`/`Carrera`/`Materia`/`Profesor` desde el dashboard.** `load_courses()` lee `Materia` desde Postgres, pero nada en `/extraccion/` generaba `linkcarreras.json` ni lo importaba — el prototipo (`moodle_app_async`) sabe hacer el scraping (`categorias → carreras → linkcarreras`, ver `moodle/carreras.py`) pero nunca tuvo un loader de BD funcional (`crearbaseRelacional.py` tiene un import roto, `from moodle.config`, módulo que ya no existe, y no lo llama nada). Además el orden documentado acá mismo (`importar_materias` antes que `importar_profesores`) deja la M2M `Materia.profesores` vacía en silencio, porque `materias.py` busca el `Profesor` ya creado al enlazarlo | `web/views.py` (dashboard), `services/management/commands/importar_*` | ✅ Agregada la acción `extraer_carreras` (botón "0. Extraer carreras"), que corre la cadena de 3 pasos pasando el cookie explícito (mismo patrón que `extraer_tareas`/`estudiantes`, no la ruta vieja de `services/utils/run_scraping` que todavía usa `MoodleSession()` sin cookie). Orden de importación corregido en §3.1 (profesores antes que materias). Probado end-to-end en Postgres local: 779 materias / 157 profesores / 759 materias con profesor enlazado |
 
 ### Importantes
 
@@ -189,19 +234,24 @@ revisión; resumen accionable acá.
 - ✅ `range(1, 13)` hardcodeado en `tareas.py:73` → ahora detecta el número real de secciones leyendo la página del curso (`detectar_num_secciones`), con `12` como piso si no se puede detectar.
 - ✅ `print("... ✔")` en `services/data_utils/{cargarjson,exportarjson}.py` rompía con `UnicodeEncodeError` en consolas Windows con codepage `cp1252` (no en Render, que es Linux/UTF-8, pero sí al correr local) — se sacó el carácter.
 - Documentos de junio (`README` viejo, `PROYECTO_COMPLETADO.md`, `TAREAS_COMPLETADAS.md`) contradicen el código: p. ej. afirmaban "las cookies NUNCA se persisten en DB" (falso, corregido ahora con `SESSION_ENGINE = signed_cookies`) y `actividades = Tarea.objects.count()` (está filtrado).
+- `services/utils/run_scraping.py::run_obtener_categorias/obtener_carreras/obtener_Linkcarreras` **todavía** instancian `MoodleSession()` sin cookie (leen el fallback `config.COOKIES` del `.env`) — es la misma clase de bug que D1b ya corrigió para tareas/estudiantes. La acción web `extraer_carreras` (C9) no pasa por ahí: la vista arma su propio `MoodleSession(cookie=...)` y llama directo a `scraping/scrapers/carreras.py`. Si alguien usa el management command CLI (`extraer_categorias`/`extraer_carreras`/`extraer_linkcarreras`) en vez del botón, sigue dependiendo de `MOODLE_SESSION_COOKIE` en `.env` — sin tocar.
+- **Gunicorn no tiene `--timeout` seteado en el `Procfile`** → default de 30s. Cualquier acción que llame a Moodle de verdad (`extraer_carreras`, `extraer_tareas`, `estudiantes`) corre síncrona dentro del request y puede superar ese límite fácilmente (la sola cadena de `extraer_carreras` hace 8-15+ POST secuenciales con `sleep(1.5-3.5s)` entre páginas) — el worker muere con "WORKER TIMEOUT" sin importar el hosting (Render, VPS, el que sea). Subir `--timeout` es un parche; la solución de fondo sigue siendo sacar la extracción del request HTTP (Bloque 2, cola/worker separado).
 
 ### Contexto no verificable sin ejecutar
 
 - Nada se probó contra el Moodle real de TECBA ni contra un hosting real.
 - `collectstatic` en el build del hosting: con `CompressedManifestStaticFilesStorage`, si no corre en el build, todo `{% static %}` lanza 500.
 
-### Puntos a verificar (pendientes de confirmación manual, 2026-09-30)
+### Puntos a verificar (actualizado 2026-10-01)
 
-- [ ] **"Extraer tareas del curso" contra Moodle real** — corregido el bug de C8 y simulado con un stub, pero nunca ejecutado contra el Moodle real de TECBA. Es el primer lugar para mirar si algo falla en la corrida real.
+- [x] **"Extraer carreras" contra Moodle real** — confirmado en Postgres local: 41 facultad/carrera/nivel, 831 materias en `linkcarreras.json`, importadas como 6 Facultad / 12 Carrera / 9 Nivel / 779 Materia / 157 Profesor (759 materias con profesor enlazado).
+- [ ] **"Extraer tareas del curso" y "Extraer estudiantes" contra Moodle real** — corregido el bug de C8 y simulado con un stub, pero todavía no ejecutado de punta a punta contra el Moodle real de TECBA.
 - [ ] **Aplicar la corrección de `Materia.moodle_url` (C8) en Render** (`centralizador_db2`) — solo se corrigió en la base local; Render sigue con las URLs viejas hasta que se repita la corrección ahí o se vuelva a poblar desde un dump ya corregido.
+- [ ] **Repoblar Render (`centralizador_db2`) con la jerarquía nueva de carreras** — Render todavía tiene el dataset viejo (343 materias, con una Facultad `"Importadas"` de un import previo con `services/data_utils/`); la base local ya quedó más limpia (779 materias, sin esa Facultad ficticia, orden de import corregido). Decidir si se re-pobla Render igual o se espera al hosting definitivo (D3).
 - [ ] **Auditar las migraciones `0012_profesor_user` y `0013_tarea_descripcion_tarea_url_entrega`** — agregan `Profesor.user` (OneToOne a `auth.User`) y campos nuevos a `Tarea`; se hicieron fuera de este historial de auditoría y `get_current_profesor`/`register_view` ya dependen de `Profesor.user`, pero no se revisó si rompen algo de lo documentado en §5/§6.
 - [ ] **Confirmar visualmente en navegador** la paleta nueva (dorado + violeta), el sidebar oculto antes de login, el autocompletado de `/register/` y el layout responsive — todo se verificó con `manage.py check` y el test client de Django, no mirando la página real.
 - [ ] **Probar el candado cross-user con una segunda cuenta de docente real** (no simulada) para confirmar el mensaje de "extracción en curso" y que el botón de emergencia la libera.
+- [ ] **Setear `--timeout` en gunicorn** (o mover la extracción a un worker separado) antes de probar `extraer_carreras`/`extraer_tareas`/`estudiantes` en cualquier hosting real — ver bullet de Gunicorn en "Importantes".
 
 ---
 

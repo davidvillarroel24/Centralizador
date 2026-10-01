@@ -73,13 +73,14 @@
                         <strong>{{ selected_count }}</strong>
                     </div>
                     <div class="actions-grid">
+                        <button type="submit" name="action" value="extraer_carreras" class="btn btn-secondary">0. Extraer carreras</button>
                         <button type="submit" name="action" value="extraer_tareas" class="btn btn-secondary">1. Extraer tareas del curso</button>
                         <button type="submit" name="action" value="normalizado" class="btn btn-primary">2. Normalizar</button>
                         <button type="submit" name="action" value="asignacion" class="btn btn-secondary">3. Asignar tareas</button>
                         <button type="submit" name="action" value="estudiantes" class="btn btn-secondary">4. Extraer estudiantes</button>
                         <button type="submit" name="action" value="transformar" class="btn btn-primary">5. Generar Excel</button>
                     </div>
-                    <div class="note">Selecciona cursos y ejecutá las acciones en orden: primero extraer tareas del curso (necesita cookie de Moodle guardada), recién después normalizar.</div>
+                    <div class="note">0. Extraer carreras recorre Moodle y genera linkcarreras.json con la jerarquía Facultad/Carrera/Materia (necesita cookie guardada); todavía no carga a la base de datos, para eso corré los comandos <code>importar_facultades/carreras/niveles/materias/profesores</code>. Después selecciona cursos y ejecutá el resto en orden: primero extraer tareas del curso, recién después normalizar.</div>
                 </div>
 
                 <div class="panel role-panel">

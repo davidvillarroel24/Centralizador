@@ -19,6 +19,7 @@ from scraping.scrapers.tareas import obtener_tareas_async
 from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
 from scraping.scrapers.normalizacion import extraer_tareas_planas
 from scraping.scrapers.asignartareas import auto_asignar_tareas, mostrar_resumen_tareas, generar_config_final
+from scraping.scrapers.carreras import obtener_categorias, extraer_categorias, cargar_todo, procesar_datos
 from scraping.scrapers.session import MoodleSession
 from services.data_utils import cargarjson, exportarjson
 from services.data_utils.import_to_db import import_tareas_from_json
@@ -272,6 +273,46 @@ def run_asignacion_web(selected_ids):
     return result
 
 
+def run_extraer_carreras_web(cookie, stop_event=None):
+    """Paso 0, previo a la seleccion de cursos: recorre todas las facultades/categorias de
+    Moodle y arma la jerarquia Facultad > Carrera > Nivel > Materia (+ profesor por materia)
+    en linkcarreras.json. Sin esto el selector de cursos del dashboard esta vacio, porque
+    `load_courses()` lee `Materia` desde Postgres, no desde JSON.
+
+    Replica la cadena de 3 pasos del prototipo (categorias -> carreras -> linkcarreras,
+    ver Versioines Demo/moodle_app_async/scripts/run_scraping.py) en una sola accion web,
+    pasando el cookie explicitamente igual que `run_extraer_tareas_web` (no por
+    `services.utils.run_scraping`, que todavia instancia `MoodleSession()` sin cookie).
+
+    No soporta cancelacion a mitad de camino (stop_event no se revisa dentro de
+    `cargar_todo`): son ~7 facultades, bastante mas rapido que extraer tareas/estudiantes.
+    """
+    moodle = MoodleSession(cookie=cookie)
+
+    pagina = obtener_categorias(moodle)
+    categorias = extraer_categorias(pagina)
+    exportarjson.save_categorias(categorias)
+
+    carreras_html = cargar_todo(moodle, categorias)
+    exportarjson.save_carreras(carreras_html)
+
+    linkcarreras = procesar_datos(carreras_html)
+    exportarjson.save_Linkcarreras(linkcarreras)
+
+    total_materias = sum(len(item.get('materias') or []) for item in linkcarreras)
+    detalle = (
+        f'Extracción de carreras completada: {len(categorias)} categoría(s) recorridas, '
+        f'{len(linkcarreras)} carrera(s)/nivel(es) con {total_materias} materia(s) en total, '
+        f'guardado en {config.JSON_LINKCARRERAS}. Todavía no se importó a la base de datos '
+        f'(correr "python manage.py importar_facultades/carreras/niveles/materias/profesores").'
+    )
+    return {
+        'title': 'Carreras extraídas',
+        'detail': detalle,
+        'count': len(linkcarreras),
+    }
+
+
 def run_extraer_tareas_web(selected_ids, courses, cookie, stop_event=None):
     """Primer paso real del pipeline (antes de Normalizar): entra a cada curso seleccionado
     y trae todas las tareas de todas sus secciones, sin discriminar tipo. Llama a Moodle de
@@ -387,7 +428,7 @@ def dashboard(request):
                 action_result = run_normalizado_web(selected_ids, courses)
             elif action == 'asignacion':
                 action_result = run_asignacion_web(selected_ids)
-            elif action in ('extraer_tareas', 'estudiantes'):
+            elif action in ('extraer_carreras', 'extraer_tareas', 'estudiantes'):
                 # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
                 # para que no arranquen dos extracciones de usuarios distintos en paralelo.
                 cookie = request.session.get('MoodleSession')
@@ -401,7 +442,9 @@ def dashboard(request):
                 else:
                     stop_event = extraction_lock.get_stop_event(job_id)
                     try:
-                        if action == 'extraer_tareas':
+                        if action == 'extraer_carreras':
+                            action_result = run_extraer_carreras_web(cookie, stop_event)
+                        elif action == 'extraer_tareas':
                             action_result = run_extraer_tareas_web(selected_ids, courses, cookie, stop_event)
                         else:
                             action_result = run_estudiantes_web(selected_ids, courses, cookie, stop_event)

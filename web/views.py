@@ -25,6 +25,11 @@ from services.data_utils import cargarjson, exportarjson
 from services.data_utils.import_to_db import import_tareas_from_json
 from services.data_utils.import_estudiantes_to_db import import_estudiantes_from_json
 from services.extraccion.trasformar import extraer_transformar
+from services.imports.facultades import importar_facultades
+from services.imports.carreras import importar_carreras
+from services.imports.niveles import importar_niveles
+from services.imports.profesores import importar_profesores
+from services.imports.materias import importar_materias
 from services.utils import extraction_lock
 from data.models import Materia, Profesor, Estudiante, Tarea, Entrega
 
@@ -304,12 +309,33 @@ def run_extraer_carreras_web(cookie, stop_event=None):
         f'Extracción de carreras completada: {len(categorias)} categoría(s) recorridas, '
         f'{len(linkcarreras)} carrera(s)/nivel(es) con {total_materias} materia(s) en total, '
         f'guardado en {config.JSON_LINKCARRERAS}. Todavía no se importó a la base de datos '
-        f'(correr "python manage.py importar_facultades/carreras/niveles/materias/profesores").'
+        f'(usar los botones de "Importar a la base de datos", en orden A → E).'
     )
     return {
         'title': 'Carreras extraídas',
         'detail': detalle,
         'count': len(linkcarreras),
+    }
+
+
+# Importadores de linkcarreras.json -> DB, en el orden del README (§3.1 paso 3):
+# profesores va antes que materias porque materias enlaza cada Materia a su Profesor ya creado.
+IMPORTADORES_CARRERAS = {
+    'importar_facultades': ('facultades', importar_facultades),
+    'importar_carreras': ('carreras', importar_carreras),
+    'importar_niveles': ('niveles', importar_niveles),
+    'importar_profesores': ('profesores', importar_profesores),
+    'importar_materias': ('materias', importar_materias),
+}
+
+
+def run_importar_web(action):
+    entidad, importador = IMPORTADORES_CARRERAS[action]
+    importador()
+    return {
+        'title': f'Importación de {entidad}',
+        'detail': f'Importación de {entidad} desde {config.JSON_LINKCARRERAS} a la base de datos completada.',
+        'count': None,
     }
 
 
@@ -450,6 +476,8 @@ def dashboard(request):
                             action_result = run_estudiantes_web(selected_ids, courses, cookie, stop_event)
                     finally:
                         extraction_lock.release_lock(job_id)
+            elif action in IMPORTADORES_CARRERAS:
+                action_result = run_importar_web(action)
             elif action == 'transformar':
                 action_result = run_transformar_web(selected_ids)
             elif action == 'guardar_cookie':

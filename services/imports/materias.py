@@ -156,3 +156,5 @@ def importar_materias():
                     materia.profesores.add(profesor)
 
     print(f"Materias creadas: {materias_creadas}")
+
+    return materias_creadas

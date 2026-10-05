@@ -11,6 +11,15 @@ def save_cursos(cursos):
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
 
+def save_fechas(config_tareas):
+    try:
+        with open(config.JSON_CONFIG_TAREAS, "w", encoding="utf-8") as f:
+            json.dump(config_tareas, f, indent=4, ensure_ascii=False)
+
+        print("Config de parciales/pesos guardada")
+    except Exception as e:
+        raise Exception(f"No se pudo guardar: {e}")
+
 def save_tareas(tareas):
     try:
         with open(config.JSON_TAREAS, "w", encoding="utf-8") as f:

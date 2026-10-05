@@ -2,6 +2,140 @@
 {% block title %}Configuración - Centralizador{% endblock %}
 {% block header %}Configuración{% endblock %}
 {% block content %}
-  <p>{{ mensaje }}</p>
-  <div class="note">Panel para editar categorías de tareas, fechas de parciales y reglas (por implementar).</div>
+    <div class="page-shell">
+        <div class="hero">
+            <div>
+                <p class="eyebrow">Centralizador</p>
+                <h1>Configuración de parciales y categorías</h1>
+            </div>
+        </div>
+
+        <div class="note">
+            Cada docente tiene su propia configuración (se guarda en tu perfil de Profesor).
+            Lo usa el paso "3. Asignar tareas" del dashboard para decidir en qué parcial cae
+            cada tarea (según su fecha de cierre) y con qué peso cuenta cada categoría.
+        </div>
+
+        {% if saved %}
+            <div class="message card success">Configuración guardada.</div>
+        {% endif %}
+        {% if error %}
+            <div class="message card error">Error: {{ error }}</div>
+        {% endif %}
+
+        {% if rangos_parciales %}
+        <form method="post" class="dashboard-form">
+            {% csrf_token %}
+
+            <section class="actions-panel">
+                <div class="panel">
+                    <h2>Rangos de parciales</h2>
+                    <div class="note">
+                        Fechas de inicio y fin de cada parcial (formato AAAA-MM-DD). Una tarea
+                        cae en el parcial cuyo rango contiene su fecha de cierre. Dejá vacío un
+                        parcial que todavía no tenga fechas definidas.
+                    </div>
+                    <table style="width:100%; border-collapse: collapse; margin-top: 12px;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; padding: 6px 8px;">Parcial</th>
+                                <th style="text-align:left; padding: 6px 8px;">Inicio</th>
+                                <th style="text-align:left; padding: 6px 8px;">Fin</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rango in rangos_parciales %}
+                            <tr>
+                                <td style="padding: 6px 8px;">Parcial {{ rango.parcial }}</td>
+                                <td style="padding: 6px 8px;">
+                                    <input type="date" name="parcial_{{ rango.parcial }}_inicio"
+                                           value="{{ rango.inicio|default:'' }}"
+                                           style="padding:6px; border-radius:6px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;">
+                                </td>
+                                <td style="padding: 6px 8px;">
+                                    <input type="date" name="parcial_{{ rango.parcial }}_fin"
+                                           value="{{ rango.fin|default:'' }}"
+                                           style="padding:6px; border-radius:6px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="panel">
+                    <h2>Pesos por categoría</h2>
+                    <div class="note">
+                        Peso (%) de cada tipo de tarea dentro de un parcial. La categoría se
+                        detecta por el título de la tarea (Mi-Tek, E-Tek, Design Lab, Examen;
+                        cualquier otra cosa cae en Training). Lo ideal es que sumen 100, pero no
+                        se fuerza por si usás solo algunas categorías.
+                    </div>
+                    <table style="width:100%; border-collapse: collapse; margin-top: 12px;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; padding: 6px 8px;">Categoría</th>
+                                <th style="text-align:left; padding: 6px 8px;">Peso (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in pesos_rows %}
+                            <tr>
+                                <td style="padding: 6px 8px;">{{ row.label }}</td>
+                                <td style="padding: 6px 8px;">
+                                    <input type="number" name="peso_{{ row.cat }}" min="0" max="100"
+                                           value="{{ row.peso }}" class="peso-input"
+                                           style="width:90px; padding:6px; border-radius:6px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td style="padding: 6px 8px;"><strong>Total</strong></td>
+                                <td style="padding: 6px 8px;">
+                                    <strong id="total-pesos" {% if total_pesos != 100 %}style="color:#f0c75e;"{% endif %}>
+                                        {{ total_pesos }}%
+                                    </strong>
+                                    <span class="note" id="total-pesos-warning" style="display:{% if total_pesos != 100 %}inline{% else %}none{% endif %}; margin-left:6px;">(no suma 100)</span>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </section>
+
+            <button type="submit" class="btn btn-primary" style="margin-top:16px; width:auto; padding:10px 20px;">
+                Guardar configuración
+            </button>
+        </form>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        var inputs = document.querySelectorAll('.peso-input');
+        var total = document.getElementById('total-pesos');
+        var warning = document.getElementById('total-pesos-warning');
+        if (!inputs.length || !total || !warning) return;
+
+        function recalcular() {
+            var suma = 0;
+            inputs.forEach(function (input) {
+                suma += parseInt(input.value, 10) || 0;
+            });
+            total.textContent = suma + '%';
+            var noSuma100 = suma !== 100;
+            total.style.color = noSuma100 ? '#f0c75e' : '';
+            warning.style.display = noSuma100 ? 'inline' : 'none';
+        }
+
+        inputs.forEach(function (input) {
+            input.addEventListener('input', recalcular);
+        });
+        recalcular();
+    })();
+</script>
 {% endblock %}

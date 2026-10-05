@@ -35,3 +35,5 @@ def importar_niveles():
     )
 
     print(f"Niveles importados: {len(niveles_unicos)}")
+
+    return len(niveles_unicos)

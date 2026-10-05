@@ -24,6 +24,54 @@ class Profesor(models.Model):
     def __str__(self):
         return self.nombre
 
+
+class FechasParciales(models.Model):
+    """Una fila por profesor (id_user = profesor_id), con las fechas de inicio/fin de los
+    4 parciales como columnas fijas - reemplaza al JSON {'rangos_parciales': [...]} para
+    no mezclar datos estructurados dentro de una sola celda."""
+
+    profesor = models.OneToOneField(
+        Profesor,
+        on_delete=models.CASCADE,
+        related_name='fechas_parciales'
+    )
+
+    p1_inicio = models.DateField(null=True, blank=True)
+    p1_fin = models.DateField(null=True, blank=True)
+    p2_inicio = models.DateField(null=True, blank=True)
+    p2_fin = models.DateField(null=True, blank=True)
+    p3_inicio = models.DateField(null=True, blank=True)
+    p3_fin = models.DateField(null=True, blank=True)
+    p4_inicio = models.DateField(null=True, blank=True)
+    p4_fin = models.DateField(null=True, blank=True)
+
+    actualizado = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Fechas de parciales - {self.profesor}"
+
+
+class PesosCategorias(models.Model):
+    """Una fila por profesor (id_user = profesor_id), con el peso (%) de cada categoria de
+    tarea como columna fija - reemplaza al JSON {'pesos_default': {...}}."""
+
+    profesor = models.OneToOneField(
+        Profesor,
+        on_delete=models.CASCADE,
+        related_name='pesos_categorias'
+    )
+
+    mitek = models.PositiveSmallIntegerField(default=0)
+    etek = models.PositiveSmallIntegerField(default=0)
+    training = models.PositiveSmallIntegerField(default=0)
+    designlab = models.PositiveSmallIntegerField(default=0)
+    examen = models.PositiveSmallIntegerField(default=0)
+
+    actualizado = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Pesos de categorias - {self.profesor}"
+
 from django.db import models
 
 

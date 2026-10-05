@@ -35,3 +35,5 @@ def importar_facultades():
     )
 
     print(f"Facultades importadas: {len(facultades_unicas)}")
+
+    return len(facultades_unicas)

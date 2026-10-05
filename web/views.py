@@ -1,4 +1,3 @@
-import asyncio
 import traceback
 import os
 import re
@@ -15,13 +14,7 @@ from django.views.decorators.http import require_http_methods
 from urllib.parse import urlencode
 
 from gatfh import config
-from scraping.scrapers.tareas import obtener_tareas_async
-from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
-from scraping.scrapers.normalizacion import extraer_tareas_planas
-from scraping.scrapers.asignartareas import auto_asignar_tareas, mostrar_resumen_tareas, generar_config_final
-from scraping.scrapers.carreras import obtener_categorias, extraer_categorias, cargar_todo, procesar_datos
-from scraping.scrapers.session import MoodleSession
-from services.data_utils import cargarjson, exportarjson
+from services.utils import run_scraping
 from services.data_utils.import_to_db import import_tareas_from_json
 from services.data_utils.import_estudiantes_to_db import import_estudiantes_from_json
 from services.extraccion.trasformar import extraer_transformar
@@ -31,7 +24,7 @@ from services.imports.niveles import importar_niveles
 from services.imports.profesores import importar_profesores
 from services.imports.materias import importar_materias
 from services.utils import extraction_lock
-from data.models import Materia, Profesor, Estudiante, Tarea, Entrega
+from data.models import Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias
 
 from collections import Counter
 from django.db.models import Count
@@ -205,37 +198,13 @@ def parse_selected_course_ids(request):
     return ids
 
 
-def get_asignaturas_by_course_ids(courses, selected_ids):
-    """Obtiene las asignaturas de los cursos seleccionados por ID."""
-    if not selected_ids:
-        return []
-    asignaturas = []
-    for course in courses:
-        if course.get('id') in selected_ids:
-            asignaturas.append(course.get('asignatura'))
-    return asignaturas
-
-
-def filter_tareas_by_asignatura(tareas, asignaturas):
-    """Filtra tareas por asignaturas seleccionadas."""
-    if not asignaturas:
-        return tareas
-    return [curso for curso in tareas if curso.get('asignatura') in asignaturas]
-
-
 def run_normalizado_web(selected_ids, courses):
+    """La normalizacion en si vive en services/utils/run_scraping.py::normalizado() -
+    mismo codigo que usa el comando CLI `extraer_normalizado`."""
     if not selected_ids:
         raise ValueError('Debes seleccionar al menos un curso para normalizar.')
 
-    asignaturas = get_asignaturas_by_course_ids(courses, selected_ids)
-    tareas = cargarjson.cargar_tareas()
-    tareas_seleccionadas = filter_tareas_by_asignatura(tareas, asignaturas)
-
-    if not tareas_seleccionadas:
-        raise ValueError('No se encontraron tareas para los cursos seleccionados.')
-
-    normalizado = extraer_tareas_planas(tareas_seleccionadas)
-    exportarjson.save_normalizacion(normalizado)
+    normalizado = run_scraping.normalizado(selected_ids)
 
     import_result = import_tareas_from_json()
     return {
@@ -248,22 +217,18 @@ def run_normalizado_web(selected_ids, courses):
     }
 
 
-def run_asignacion_web(selected_ids):
-    config_base = cargarjson.cargar_fechas()
-    tareas = cargarjson.cargar_normalizacion()
-    warning = None
-
-    if selected_ids:
-        tareas_filtradas = [t for t in tareas if t.get('curso_id') in selected_ids]
-        if tareas_filtradas:
-            tareas = tareas_filtradas
-        else:
-            warning = 'No se encontró curso_id en normalización; usando todos los datos disponibles.'
-
-    asignaciones = auto_asignar_tareas(tareas, config_base.get('rangos_parciales', []))
-    asignaciones_ordenados = mostrar_resumen_tareas(asignaciones)
-    config_final, errores = generar_config_final(asignaciones_ordenados, config_base)
-    exportarjson.save_asignacion(config_final)
+def run_asignacion_web(selected_ids, profesor):
+    """La asignacion en si vive en services/utils/run_scraping.py::asignacion_tareas() -
+    mismo codigo que usa el comando CLI `extraer_asignacion`. La config de parciales/pesos
+    es la del `profesor` logueado (Profesor.config_tareas, ver /configuracion/), no un
+    archivo global compartido."""
+    if profesor is None:
+        raise ValueError(
+            'Tu cuenta no está vinculada a ningún Profesor, así que no hay una config de '
+            'parciales/pesos de dónde partir. Configurala primero en /configuracion/.'
+        )
+    config_base = config_tareas_de(profesor)
+    asignaciones, errores, warning = run_scraping.asignacion_tareas(selected_ids, config_base=config_base)
 
     result = {
         'title': 'Asignación',
@@ -284,25 +249,16 @@ def run_extraer_carreras_web(cookie, stop_event=None):
     en linkcarreras.json. Sin esto el selector de cursos del dashboard esta vacio, porque
     `load_courses()` lee `Materia` desde Postgres, no desde JSON.
 
-    Replica la cadena de 3 pasos del prototipo (categorias -> carreras -> linkcarreras,
-    ver Versioines Demo/moodle_app_async/scripts/run_scraping.py) en una sola accion web,
-    pasando el cookie explicitamente igual que `run_extraer_tareas_web` (no por
-    `services.utils.run_scraping`, que todavia instancia `MoodleSession()` sin cookie).
+    La extraccion en si vive en services/utils/run_scraping.py::extraer_carreras_completo()
+    - mismo codigo que usan los comandos CLI (extraer_carreras_completo, o los 3 pasos
+    sueltos extraer_categorias/extraer_carreras/extraer_linkcarreras).
 
     No soporta cancelacion a mitad de camino (stop_event no se revisa dentro de
     `cargar_todo`): son ~7 facultades, bastante mas rapido que extraer tareas/estudiantes.
     """
-    moodle = MoodleSession(cookie=cookie)
-
-    pagina = obtener_categorias(moodle)
-    categorias = extraer_categorias(pagina)
-    exportarjson.save_categorias(categorias)
-
-    carreras_html = cargar_todo(moodle, categorias)
-    exportarjson.save_carreras(carreras_html)
-
-    linkcarreras = procesar_datos(carreras_html)
-    exportarjson.save_Linkcarreras(linkcarreras)
+    categorias, carreras_html, linkcarreras = run_scraping.extraer_carreras_completo(
+        cookie=cookie, stop_event=stop_event
+    )
 
     total_materias = sum(len(item.get('materias') or []) for item in linkcarreras)
     detalle = (
@@ -331,42 +287,30 @@ IMPORTADORES_CARRERAS = {
 
 def run_importar_web(action):
     entidad, importador = IMPORTADORES_CARRERAS[action]
-    importador()
+    count = importador()
     return {
         'title': f'Importación de {entidad}',
-        'detail': f'Importación de {entidad} desde {config.JSON_LINKCARRERAS} a la base de datos completada.',
-        'count': None,
+        'detail': (
+            f'Importación de {entidad} desde {config.JSON_LINKCARRERAS} completada: '
+            f'{count} procesadas.'
+        ),
+        'count': count,
     }
 
 
-def run_extraer_tareas_web(selected_ids, courses, cookie, stop_event=None):
+def run_extraer_tareas_web(selected_ids, cookie, stop_event=None):
     """Primer paso real del pipeline (antes de Normalizar): entra a cada curso seleccionado
     y trae todas las tareas de todas sus secciones, sin discriminar tipo. Llama a Moodle de
     verdad, por eso pasa por el candado de extraction_lock en la vista `dashboard`, igual que
-    `run_estudiantes_web`."""
+    `run_estudiantes_web`.
+
+    La extraccion en si vive en services/utils/run_scraping.py::tareas() - es el mismo
+    codigo que usa el comando CLI `extraer_tareas`, para que un print() puesto ahi se vea
+    sin importar si se dispara desde el boton o desde la consola."""
     if not selected_ids:
         raise ValueError('Debes seleccionar al menos un curso para extraer sus tareas.')
 
-    cursos_seleccionados = [c for c in courses if c.get('id') in selected_ids]
-    if not cursos_seleccionados:
-        raise ValueError('No se encontraron los cursos seleccionados.')
-
-    moodle = MoodleSession(cookie=cookie)
-
-    # Se conserva lo ya extraido de otros cursos y se reemplaza solo lo de los seleccionados,
-    # para poder correr esta accion curso por curso sin perder el resto del avance.
-    asignaturas_seleccionadas = {c.get('asignatura') for c in cursos_seleccionados}
-    tareas_previas = [
-        t for t in cargarjson.cargar_tareas()
-        if t.get('asignatura') not in asignaturas_seleccionadas
-    ]
-
-    tareas_nuevas = asyncio.run(
-        obtener_tareas_async(moodle, cursos_seleccionados, stop_event)
-    )
-    detenido = stop_event is not None and stop_event.is_set()
-
-    exportarjson.save_tareas(tareas_previas + tareas_nuevas)
+    tareas_nuevas, detenido = run_scraping.tareas(selected_ids, cookie=cookie, stop_event=stop_event)
 
     detalle = (
         f'Extracción de tareas completada: {len(tareas_nuevas)} curso(s) procesados, '
@@ -382,34 +326,17 @@ def run_extraer_tareas_web(selected_ids, courses, cookie, stop_event=None):
     }
 
 
-def run_estudiantes_web(selected_ids, courses, cookie, stop_event=None):
+def run_estudiantes_web(selected_ids, cookie, stop_event=None):
     """Segundo paso que llama a Moodle de verdad: entra a cada tarea ya extraida por
     `run_extraer_tareas_web` y trae los datos de entrega/calificacion de los estudiantes.
-    Tambien pasa por el candado de extraction_lock en la vista `dashboard`."""
+    Tambien pasa por el candado de extraction_lock en la vista `dashboard`.
+
+    La extraccion en si vive en services/utils/run_scraping.py::estudiantes() - mismo
+    codigo que usa el comando CLI `extraer_estudiantes`."""
     if not selected_ids:
         raise ValueError('Debes seleccionar al menos un curso para extraer estudiantes.')
 
-    asignaturas = get_asignaturas_by_course_ids(courses, selected_ids)
-    tareas = cargarjson.cargar_tareas()
-    tareas_seleccionadas = filter_tareas_by_asignatura(tareas, asignaturas)
-
-    if not tareas_seleccionadas:
-        raise ValueError('No se encontraron tareas para los cursos seleccionados.')
-
-    moodle = MoodleSession(cookie=cookie)
-    estudiantes = []
-    detenido = False
-
-    for curso in tareas_seleccionadas:
-        if stop_event is not None and stop_event.is_set():
-            detenido = True
-            break
-        curso_estudiantes = asyncio.run(
-            obtener_tareas_docente_async(moodle, [curso], stop_event)
-        )
-        estudiantes.extend(curso_estudiantes)
-
-    exportarjson.save_estudiantes(estudiantes)
+    estudiantes, detenido = run_scraping.estudiantes(selected_ids, cookie=cookie, stop_event=stop_event)
 
     import_result = import_estudiantes_from_json()
     detalle = (
@@ -453,7 +380,7 @@ def dashboard(request):
             if action == 'normalizado':
                 action_result = run_normalizado_web(selected_ids, courses)
             elif action == 'asignacion':
-                action_result = run_asignacion_web(selected_ids)
+                action_result = run_asignacion_web(selected_ids, get_current_profesor(request))
             elif action in ('extraer_carreras', 'extraer_tareas', 'estudiantes'):
                 # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
                 # para que no arranquen dos extracciones de usuarios distintos en paralelo.
@@ -471,9 +398,9 @@ def dashboard(request):
                         if action == 'extraer_carreras':
                             action_result = run_extraer_carreras_web(cookie, stop_event)
                         elif action == 'extraer_tareas':
-                            action_result = run_extraer_tareas_web(selected_ids, courses, cookie, stop_event)
+                            action_result = run_extraer_tareas_web(selected_ids, cookie, stop_event)
                         else:
-                            action_result = run_estudiantes_web(selected_ids, courses, cookie, stop_event)
+                            action_result = run_estudiantes_web(selected_ids, cookie, stop_event)
                     finally:
                         extraction_lock.release_lock(job_id)
             elif action in IMPORTADORES_CARRERAS:
@@ -972,10 +899,109 @@ def reportes_view(request):
     return render(request, 'web/reportes.html', context)
 
 
+CATEGORIAS_PESO = ['mitek', 'etek', 'training', 'designlab', 'examen']
+CATEGORIA_LABELS = {
+    'mitek': 'Mi-Tek',
+    'etek': 'E-Tek',
+    'training': 'Training',
+    'designlab': 'Design Lab',
+    'examen': 'Examen',
+}
+
+
+def config_tareas_de(profesor):
+    """Config de parciales/pesos del `profesor` dado, leida de las tablas normalizadas
+    FechasParciales y PesosCategorias (data/models.py) - una fila por profesor en cada
+    una, columnas fijas en vez de un blob JSON. Devuelve el mismo shape de dict que
+    `run_scraping.asignacion_tareas()` ya esperaba ({'rangos_parciales': [...],
+    'pesos_default': {...}}), asi esa funcion no tuvo que cambiar."""
+    fechas = FechasParciales.objects.filter(profesor=profesor).first()
+    rangos = [
+        {
+            'parcial': i,
+            'inicio': getattr(fechas, f'p{i}_inicio', None).isoformat() if fechas and getattr(fechas, f'p{i}_inicio', None) else None,
+            'fin': getattr(fechas, f'p{i}_fin', None).isoformat() if fechas and getattr(fechas, f'p{i}_fin', None) else None,
+        }
+        for i in range(1, 5)
+    ]
+
+    pesos_row = PesosCategorias.objects.filter(profesor=profesor).first()
+    pesos = {cat: getattr(pesos_row, cat, 0) if pesos_row else 0 for cat in CATEGORIAS_PESO}
+
+    return {'rangos_parciales': rangos, 'pesos_default': pesos}
+
+
 @login_required
 def configuracion_view(request):
-    # panel de administración de parámetros (temporal)
-    context = {'mensaje': 'Configuración de categorías, parciales y reglas.'}
+    """Reemplaza al config_tareas.json que antes solo se editaba a mano y era compartido
+    por todos (ver Versioines Demo/moodle_app_async/core/config_tareas.json) - ahora cada
+    profesor tiene su propia config en Profesor.config_tareas. Los rangos de fecha de cada
+    parcial y los pesos por categoria de tarea (Mi-Tek/E-Tek/Training/Design Lab/Examen)
+    son lo que "3. Asignar tareas" (run_asignacion_web -> run_scraping.asignacion_tareas())
+    usa para construir asignacion.json."""
+    error = None
+    saved = False
+
+    profesor = get_current_profesor(request)
+    if profesor is None:
+        context = {
+            'error': (
+                'Tu cuenta no está vinculada a ningún Profesor todavía, así que no hay '
+                'dónde guardar esta configuración. Iniciá sesión con un usuario que '
+                'coincida con un docente registrado.'
+            ),
+            'rangos_parciales': [],
+            'pesos_rows': [],
+            'total_pesos': 0,
+            'saved': False,
+        }
+        return render(request, 'web/configuracion.html', context)
+
+    config_actual = config_tareas_de(profesor)
+
+    if request.method == 'POST':
+        try:
+            rangos = []
+            for i in range(1, 5):
+                inicio = request.POST.get(f'parcial_{i}_inicio', '').strip() or None
+                fin = request.POST.get(f'parcial_{i}_fin', '').strip() or None
+                if inicio and fin and inicio > fin:
+                    raise ValueError(f'El Parcial {i} tiene la fecha de inicio después de la de fin.')
+                rangos.append({'parcial': i, 'inicio': inicio, 'fin': fin})
+
+            pesos = {}
+            for cat in CATEGORIAS_PESO:
+                valor = request.POST.get(f'peso_{cat}', '0').strip()
+                peso = int(valor) if valor else 0
+                if peso < 0:
+                    raise ValueError('Los pesos no pueden ser negativos.')
+                pesos[cat] = peso
+
+            fechas_kwargs = {}
+            for r in rangos:
+                i = r['parcial']
+                fechas_kwargs[f'p{i}_inicio'] = r['inicio']
+                fechas_kwargs[f'p{i}_fin'] = r['fin']
+            FechasParciales.objects.update_or_create(profesor=profesor, defaults=fechas_kwargs)
+            PesosCategorias.objects.update_or_create(profesor=profesor, defaults=pesos)
+
+            config_actual = {'rangos_parciales': rangos, 'pesos_default': pesos}
+            saved = True
+        except ValueError as exc:
+            error = str(exc) if str(exc) else 'Los pesos deben ser números enteros.'
+
+    pesos_rows = [
+        {'cat': cat, 'label': CATEGORIA_LABELS[cat], 'peso': config_actual['pesos_default'][cat]}
+        for cat in CATEGORIAS_PESO
+    ]
+
+    context = {
+        'rangos_parciales': config_actual['rangos_parciales'],
+        'pesos_rows': pesos_rows,
+        'total_pesos': sum(config_actual['pesos_default'].values()),
+        'saved': saved,
+        'error': error,
+    }
     return render(request, 'web/configuracion.html', context)
 
 def parse_date_string(fecha_str):

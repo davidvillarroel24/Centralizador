@@ -1,8 +1,6 @@
-import asyncio
 from services.utils import run_scraping
-from services.data_utils import run_export
-from services.data_utils  import exportarjson
 
-def extraer_estudiantes():
-    estudiantes=run_scraping.estudiantes()
-    exportarjson.save_estudiantes(estudiantes)
+
+def extraer_estudiantes(ids):
+    # run_scraping.estudiantes() ya guarda en estudiantes.json; no volver a guardar aca.
+    return run_scraping.estudiantes(ids)

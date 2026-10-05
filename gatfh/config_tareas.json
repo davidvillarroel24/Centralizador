@@ -1,16 +1,31 @@
 {
-  "rangos_parciales": [
-    {"parcial": 1, "inicio": "2025-02-01", "fin": "2025-05-31"},
-    {"parcial": 2, "inicio": null, "fin": null},
-    {"parcial": 3, "inicio": null, "fin": null},
-    {"parcial": 4, "inicio": null, "fin": null}
-  ],
-
-  "pesos_default": {
-    "mitek": 20,
-    "etek": 10,
-    "training": 15,
-    "designlab": 25,
-    "examen": 30
-  }
+    "rangos_parciales": [
+        {
+            "parcial": 1,
+            "inicio": "2025-02-01",
+            "fin": "2025-05-31"
+        },
+        {
+            "parcial": 2,
+            "inicio": "2025-06-01",
+            "fin": "2025-09-30"
+        },
+        {
+            "parcial": 3,
+            "inicio": null,
+            "fin": null
+        },
+        {
+            "parcial": 4,
+            "inicio": null,
+            "fin": null
+        }
+    ],
+    "pesos_default": {
+        "mitek": 20,
+        "etek": 10,
+        "training": 15,
+        "designlab": 25,
+        "examen": 30
+    }
 }

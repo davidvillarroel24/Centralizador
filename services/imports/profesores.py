@@ -49,3 +49,5 @@ def importar_profesores():
     )
 
     print(f"Profesores importados: {len(profesores_unicos)}")
+
+    return len(profesores_unicos)

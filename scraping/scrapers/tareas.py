@@ -77,27 +77,31 @@ async def fetch_section(session, course_url, Nsec, stop_event=None):
             detalle.append({"id":tarea_id,"Titulo": titulo,"apertura": apertura,"cierre": cierre, "url": url})
     return {"unidad": tituloUnidad[0][6:], "contenido": detalle}
 
-async def detectar_num_secciones(session, course_url, minimo=12):
-    """Detecta cuantas secciones/unidades tiene realmente el curso leyendo su pagina
-    principal, en vez de asumir un numero fijo (antes hardcodeado en 12 - C3/seccion 7 del
-    plan). Si no se puede detectar ninguna, cae al minimo anterior para no romper cursos
-    con una estructura de pagina distinta."""
+async def detectar_num_secciones(session, course_url, minimo=1):
+    """Detecta cuantas secciones/unidades tiene el curso.
+
+    Esta instalacion de Moodle NO marca las secciones con id="section-N" (lo que
+    asumia la version anterior, a ciegas, y por eso siempre devolvia 0 o el minimo
+    viejo de 12 sin encontrar nada real). La navegacion real del curso son los links
+    <a href="...&section=N">, con N cambiando por seccion - confirmado contra el HTML
+    real de un curso. minimo=1 porque un curso siempre tiene al menos una seccion ademas
+    de la 0 (la seccion "General", que no cuenta como unidad de contenido)."""
     async with session.get(course_url) as resp:
         text = await resp.text()
         if "/login/" in str(resp.url):
             raise SesionExpiradaError("La sesión de Moodle expiró (la cookie ya no es válida).")
     soup = BeautifulSoup(text, "html.parser")
     numeros = []
-    for elemento in soup.find_all(id=re.compile(r"^section-\d+$")):
-        try:
-            numeros.append(int(elemento["id"].split("-")[1]))
-        except (IndexError, ValueError):
-            continue
+    for link in soup.find_all("a", href=re.compile(r"section=\d+")):
+        match = re.search(r"section=(\d+)", link.get("href", ""))
+        if match:
+            numeros.append(int(match.group(1)))
     return max(numeros) if numeros else minimo
 
 
 async def obtener_tareas_async(moodle, courses, stop_event=None):
 
+    print("obtener_tareas_async", courses)
     tareas = []
     cookies = moodle.session.cookies.get_dict()
     async with aiohttp.ClientSession(cookies=cookies, timeout=CLIENT_TIMEOUT) as session:
@@ -109,7 +113,7 @@ async def obtener_tareas_async(moodle, courses, stop_event=None):
             print("Extrayendo secciones de:", asignatura)
 
             num_secciones = await detectar_num_secciones(session, course_url)
-
+            print("secciones totales",num_secciones)
             results = await asyncio.gather(*[
                 fetch_section(session, course_url, Nsec, stop_event)
                 for Nsec in range(1, num_secciones + 1)
@@ -117,6 +121,12 @@ async def obtener_tareas_async(moodle, courses, stop_event=None):
             errores = [r for r in results if isinstance(r, SesionExpiradaError)]
             if errores:
                 raise errores[0]
+            # Cualquier otra excepcion por seccion (parsing, timeout, etc.) se descartaba
+            # en silencio aca - sin esto, un curso entero podia quedar con 0 tareas sin
+            # ningun indicio de por que.
+            for i, r in enumerate(results, start=1):
+                if isinstance(r, BaseException):
+                    print(f"  seccion {i} de {asignatura}: FALLO {type(r).__name__}: {r}")
             results = [r for r in results if not isinstance(r, BaseException)]
             tareas.append({
                 "asignatura": asignatura,

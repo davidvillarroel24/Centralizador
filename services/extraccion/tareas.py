@@ -1,8 +1,8 @@
-import asyncio
 from services.utils import run_scraping
-from services.data_utils import run_export
-from services.data_utils  import exportarjson
 
-def extraer_tareas():
-    tareas =run_scraping.tareas()
-    exportarjson.save_tareas(tareas)
+
+def extraer_tareas(ids):
+    # run_scraping.tareas() ya guarda en tareas.json (fusionado con lo de otros cursos);
+    # no volver a llamar exportarjson.save_tareas() aca, pisaria ese merge.
+    tareas_nuevas, detenido = run_scraping.tareas(ids)
+    return tareas_nuevas, detenido

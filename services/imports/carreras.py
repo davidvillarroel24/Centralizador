@@ -48,3 +48,5 @@ def importar_carreras():
     )
 
     print(f"Carreras importadas: {len(carreras_unicas)}")
+
+    return len(carreras_unicas)

@@ -75,12 +75,11 @@
                     <div class="actions-grid">
                         <button type="submit" name="action" value="extraer_carreras" class="btn btn-secondary">0. Extraer carreras</button>
                         <button type="submit" name="action" value="extraer_tareas" class="btn btn-secondary">1. Extraer tareas del curso</button>
-                        <button type="submit" name="action" value="normalizado" class="btn btn-primary">2. Normalizar</button>
-                        <button type="submit" name="action" value="asignacion" class="btn btn-secondary">3. Asignar tareas</button>
-                        <button type="submit" name="action" value="estudiantes" class="btn btn-secondary">4. Extraer estudiantes</button>
-                        <button type="submit" name="action" value="transformar" class="btn btn-primary">5. Generar Excel</button>
+                        <button type="submit" name="action" value="asignacion" class="btn btn-primary">2. Asignar tareas</button>
+                        <button type="submit" name="action" value="estudiantes" class="btn btn-secondary">3. Extraer estudiantes</button>
+                        <button type="submit" name="action" value="transformar" class="btn btn-primary">4. Generar Excel</button>
                     </div>
-                    <div class="note">0. Extraer carreras recorre Moodle y genera linkcarreras.json con la jerarquía Facultad/Carrera/Materia (necesita cookie guardada); todavía no carga a la base de datos, para eso usá los botones de "Importar a la base de datos". Después selecciona cursos y ejecutá el resto en orden: primero extraer tareas del curso, recién después normalizar.</div>
+                    <div class="note">0. Extraer carreras recorre Moodle y genera linkcarreras.json con la jerarquía Facultad/Carrera/Materia (necesita cookie guardada); todavía no carga a la base de datos, para eso usá los botones de "Importar a la base de datos". Después selecciona cursos y ejecutá el resto en orden: primero extraer tareas del curso, importalas a la base (panel de al lado) y recién después asigná tareas.</div>
                 </div>
 
                 <div class="panel">
@@ -91,8 +90,11 @@
                         <button type="submit" name="action" value="importar_niveles" class="btn btn-secondary">C. Importar niveles</button>
                         <button type="submit" name="action" value="importar_profesores" class="btn btn-secondary">D. Importar profesores</button>
                         <button type="submit" name="action" value="importar_materias" class="btn btn-secondary">E. Importar materias</button>
+                        <button type="submit" name="action" value="importar_tareas" class="btn btn-secondary">F. Importar tareas</button>
+                        <button type="submit" name="action" value="importar_asignacion" class="btn btn-secondary">G. Importar asignación</button>
+                        <button type="submit" name="action" value="importar_estudiantes" class="btn btn-secondary">H. Importar estudiantes</button>
                     </div>
-                    <div class="note">Cargan linkcarreras.json a la base de datos. Ejecutalos en este orden: profesores va antes que materias porque cada materia se enlaza a su profesor ya creado.</div>
+                    <div class="note">A-E cargan linkcarreras.json (ejecutalos en ese orden: profesores antes que materias). F carga tareas.json a Materia/Unidad/Tarea (después de "1. Extraer tareas del curso"). G carga asignacion.json a Tarea.categoria/Tarea.parcial (después de "2. Asignar tareas"). H carga estudiantes.json a Estudiante/Entrega, con nota/nota_maxima parseados de calificacion_final (después de "3. Extraer estudiantes").</div>
                 </div>
 
                 <div class="panel role-panel">

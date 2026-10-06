@@ -1,16 +1,33 @@
+from decimal import Decimal, InvalidOperation
 from gatfh import config
 from services.data_utils import cargarjson
 from data.models import Tarea, Estudiante, Entrega
 import re
 
 
-def extract_grade(grade_str):
-    """Extrae la calificación del formato 'Calificar100,00 / 100,00' → '100,00'"""
-    if not grade_str:
-        return None
-    # Remover 'Calificar' y extrae el primer número con coma/punto decimal
-    match = re.search(r'(\d+[.,]\d+)', grade_str)
-    return match.group(1) if match else None
+CALIFICACION_FINAL_RE = re.compile(r'(\d+[.,]\d+)\s*/\s*(\d+[.,]\d+)')
+
+
+def parsear_calificacion_final(calificacion_final):
+    """Extrae (nota, nota_maxima) de calificacion_final ('16,70 / 100,00' -> (16.70, 100.00)).
+
+    calificacion_final es el campo seguro para parsear: solo tiene numeros y el separador
+    "/" entre nota asignada y nota maxima (a diferencia de `calificacion`, que trae pegado
+    el texto del boton de Moodle, ej. 'Calificar16,70 / 100,00'). Cuando la tarea todavia
+    no fue calificada, Moodle lo deja en '-'; eso (o cualquier otro formato inesperado) debe
+    devolver (None, None) en vez de guardar basura que despues rompa el calculo de notas en
+    'Generar Excel' - es la seguridad que faltaba."""
+    if not calificacion_final:
+        return None, None
+    match = CALIFICACION_FINAL_RE.search(calificacion_final)
+    if not match:
+        return None, None
+    try:
+        nota = Decimal(match.group(1).replace(',', '.'))
+        nota_maxima = Decimal(match.group(2).replace(',', '.'))
+    except InvalidOperation:
+        return None, None
+    return nota, nota_maxima
 
 
 def import_estudiantes_from_json():
@@ -64,9 +81,8 @@ def import_estudiantes_from_json():
                 created['skipped'] += 1
                 continue
 
-            # Extraer calificación
-            calif_raw = est_data.get('calificacion')
-            calif_parsed = extract_grade(calif_raw) if calif_raw else None
+            calificacion_final_raw = est_data.get('calificacion_final')
+            nota, nota_maxima = parsear_calificacion_final(calificacion_final_raw)
 
             # Crear o actualizar entrega
             try:
@@ -75,12 +91,14 @@ def import_estudiantes_from_json():
                     estudiante=estudiante,
                     defaults={
                         'estado': est_data.get('estado'),
-                        'calificacion': calif_parsed,
+                        'calificacion': est_data.get('calificacion'),
+                        'nota': nota,
+                        'nota_maxima': nota_maxima,
                         'ultima_mod_entrega': est_data.get('ultima_mod_entrega'),
                         'ultima_mod_calificacion': est_data.get('ultima_mod_calificacion'),
                         'comentarios_entrega': est_data.get('comentarios_entrega'),
                         'comentarios_feedback': est_data.get('comentarios_feedback'),
-                        'calificacion_final': est_data.get('calificacion_final'),
+                        'calificacion_final': calificacion_final_raw,
                         'link_calificar': est_data.get('link_calificar'),
                     }
                 )
@@ -89,11 +107,13 @@ def import_estudiantes_from_json():
                 else:
                     # actualizar entrega
                     entrega.estado = est_data.get('estado', entrega.estado)
-                    entrega.calificacion = calif_parsed or entrega.calificacion
+                    entrega.calificacion = est_data.get('calificacion', entrega.calificacion)
+                    entrega.nota = nota
+                    entrega.nota_maxima = nota_maxima
                     entrega.ultima_mod_entrega = est_data.get('ultima_mod_entrega', entrega.ultima_mod_entrega)
                     entrega.ultima_mod_calificacion = est_data.get('ultima_mod_calificacion', entrega.ultima_mod_calificacion)
                     entrega.comentarios_feedback = est_data.get('comentarios_feedback', entrega.comentarios_feedback)
-                    entrega.calificacion_final = est_data.get('calificacion_final', entrega.calificacion_final)
+                    entrega.calificacion_final = calificacion_final_raw
                     entrega.save()
                     created['updated'] += 1
             except Exception as e:

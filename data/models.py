@@ -249,6 +249,26 @@ class Tarea(models.Model):
         blank=True
     )
 
+    CATEGORIAS = [
+        ('mitek', 'Mi-Tek'),
+        ('etek', 'E-Tek'),
+        ('training', 'Training'),
+        ('designlab', 'Design Lab'),
+        ('examen', 'Examen'),
+    ]
+
+    categoria = models.CharField(
+        max_length=20,
+        choices=CATEGORIAS,
+        null=True,
+        blank=True
+    )
+
+    parcial = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True
+    )
+
     def __str__(self):
 
         return self.titulo
@@ -295,6 +315,24 @@ class Entrega(models.Model):
 
     calificacion = models.CharField(
         max_length=100,
+        null=True,
+        blank=True
+    )
+
+    # nota/nota_maxima se parsean de calificacion_final ("16,70 / 100,00"), no de
+    # calificacion (trae el texto del boton de Moodle pegado, ej. "Calificar16,70 / 100,00")
+    # - calificacion/calificacion_final se conservan como texto crudo para auditoria.
+    # Ambos quedan en None si la tarea todavia no fue calificada (calificacion_final="-").
+    nota = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True
+    )
+
+    nota_maxima = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
         null=True,
         blank=True
     )

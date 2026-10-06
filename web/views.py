@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 from gatfh import config
 from services.utils import run_scraping
-from services.data_utils.import_to_db import import_tareas_from_json
+from services.data_utils.import_to_db import import_tareas_from_json, import_asignacion_from_json
 from services.data_utils.import_estudiantes_to_db import import_estudiantes_from_json
 from services.extraccion.trasformar import extraer_transformar
 from services.imports.facultades import importar_facultades
@@ -198,22 +198,17 @@ def parse_selected_course_ids(request):
     return ids
 
 
-def run_normalizado_web(selected_ids, courses):
-    """La normalizacion en si vive en services/utils/run_scraping.py::normalizado() -
-    mismo codigo que usa el comando CLI `extraer_normalizado`."""
-    if not selected_ids:
-        raise ValueError('Debes seleccionar al menos un curso para normalizar.')
-
-    normalizado = run_scraping.normalizado(selected_ids)
-
+def run_importar_tareas_web():
+    """Importa tareas.json (ya extraido por 'Extraer tareas del curso') hacia Materia/
+    Unidad/Tarea en la base de datos. Antes esto pasaba escondido dentro del boton
+    'Normalizar' (ya eliminado, ver asignacion_tareas en run_scraping.py); ahora es su
+    propio paso explicito, para poder correrlo de nuevo sin depender de normalizacion.json
+    (que ademas nunca era la fuente real de esta importacion)."""
     import_result = import_tareas_from_json()
     return {
-        'title': 'Normalizado',
-        'detail': (
-            f'Normalización completada: {len(normalizado)} tareas planas guardadas en {config.JSON_NORMALIZACION}. '
-            f'Importación a DB: {import_result}.'
-        ),
-        'count': len(normalizado),
+        'title': 'Tareas importadas a BD',
+        'detail': f'Importación a la base de datos completada: {import_result}.',
+        'count': None,
     }
 
 
@@ -241,6 +236,19 @@ def run_asignacion_web(selected_ids, profesor):
         result['warning'] = warning
 
     return result
+
+
+def run_importar_asignacion_web():
+    """Importa asignacion.json (ya generado por 'Asignar tareas') hacia las columnas
+    Tarea.categoria/Tarea.parcial. Paso separado a proposito: permite revisar el resultado
+    de 'Asignar tareas' antes de confirmarlo en la base, igual que 'Importar tareas a BD'
+    es un paso aparte de 'Extraer tareas del curso'."""
+    import_result = import_asignacion_from_json()
+    return {
+        'title': 'Asignación importada a BD',
+        'detail': f'Importación a la base de datos completada: {import_result}.',
+        'count': None,
+    }
 
 
 def run_extraer_carreras_web(cookie, stop_event=None):
@@ -298,7 +306,7 @@ def run_importar_web(action):
     }
 
 
-def run_extraer_tareas_web(selected_ids, cookie, stop_event=None):
+def run_extraer_tareas_web(selected_ids, cookie, stop_event=None, profesor=None):
     """Primer paso real del pipeline (antes de Normalizar): entra a cada curso seleccionado
     y trae todas las tareas de todas sus secciones, sin discriminar tipo. Llama a Moodle de
     verdad, por eso pasa por el candado de extraction_lock en la vista `dashboard`, igual que
@@ -306,11 +314,17 @@ def run_extraer_tareas_web(selected_ids, cookie, stop_event=None):
 
     La extraccion en si vive en services/utils/run_scraping.py::tareas() - es el mismo
     codigo que usa el comando CLI `extraer_tareas`, para que un print() puesto ahi se vea
-    sin importar si se dispara desde el boton o desde la consola."""
+    sin importar si se dispara desde el boton o desde la consola.
+
+    `profesor`: Profesor del usuario logueado (get_current_profesor), para que tareas.json
+    sepa a quien pertenecen los datos guardados - ver el docstring de run_scraping.tareas."""
     if not selected_ids:
         raise ValueError('Debes seleccionar al menos un curso para extraer sus tareas.')
 
-    tareas_nuevas, detenido = run_scraping.tareas(selected_ids, cookie=cookie, stop_event=stop_event)
+    profesor_id = profesor.id if profesor is not None else None
+    tareas_nuevas, detenido = run_scraping.tareas(
+        selected_ids, cookie=cookie, stop_event=stop_event, profesor_id=profesor_id
+    )
 
     detalle = (
         f'Extracción de tareas completada: {len(tareas_nuevas)} curso(s) procesados, '
@@ -326,22 +340,29 @@ def run_extraer_tareas_web(selected_ids, cookie, stop_event=None):
     }
 
 
-def run_estudiantes_web(selected_ids, cookie, stop_event=None):
+def run_estudiantes_web(selected_ids, cookie, stop_event=None, profesor=None):
     """Segundo paso que llama a Moodle de verdad: entra a cada tarea ya extraida por
     `run_extraer_tareas_web` y trae los datos de entrega/calificacion de los estudiantes.
     Tambien pasa por el candado de extraction_lock en la vista `dashboard`.
 
     La extraccion en si vive en services/utils/run_scraping.py::estudiantes() - mismo
-    codigo que usa el comando CLI `extraer_estudiantes`."""
+    codigo que usa el comando CLI `extraer_estudiantes`.
+
+    `profesor`: Profesor del usuario logueado. estudiantes() exige que tenga
+    PesosCategorias guardado (candado de validacion previa, ver su docstring); si no hay
+    profesor o no tiene pesos, falla ahi con un mensaje claro antes de llamar a Moodle."""
     if not selected_ids:
         raise ValueError('Debes seleccionar al menos un curso para extraer estudiantes.')
 
-    estudiantes, detenido = run_scraping.estudiantes(selected_ids, cookie=cookie, stop_event=stop_event)
+    profesor_id = profesor.id if profesor is not None else None
+    estudiantes, detenido = run_scraping.estudiantes(
+        selected_ids, cookie=cookie, stop_event=stop_event, profesor_id=profesor_id
+    )
 
-    import_result = import_estudiantes_from_json()
     detalle = (
-        f'Extracción de estudiantes completada: {len(estudiantes)} registros guardados en {config.JSON_ESTUDIANTES}. '
-        f'Importación a DB: {import_result}.'
+        f'Extracción de estudiantes completada: {len(estudiantes)} registros guardados en '
+        f'{config.JSON_ESTUDIANTES}. Todavía no se importó a la base de datos, para eso usá '
+        f'"Importar estudiantes".'
     )
     if detenido:
         detalle = f'Extracción detenida manualmente. Resultados parciales: {detalle}'
@@ -350,6 +371,19 @@ def run_estudiantes_web(selected_ids, cookie, stop_event=None):
         'detail': detalle,
         'count': len(estudiantes),
         'detenido': detenido,
+    }
+
+
+def run_importar_estudiantes_web():
+    """Importa estudiantes.json (ya extraido por 'Extraer estudiantes') hacia Estudiante/
+    Entrega en la base de datos, parseando nota/nota_maxima desde calificacion_final (ver
+    import_estudiantes_to_db.parsear_calificacion_final). Paso separado a proposito, mismo
+    criterio que 'Importar tareas'/'Importar asignación'."""
+    import_result = import_estudiantes_from_json()
+    return {
+        'title': 'Estudiantes importados a BD',
+        'detail': f'Importación a la base de datos completada: {import_result}.',
+        'count': None,
     }
 
 
@@ -377,10 +411,14 @@ def dashboard(request):
     if request.method == 'POST':
         action = request.POST.get('action')
         try:
-            if action == 'normalizado':
-                action_result = run_normalizado_web(selected_ids, courses)
+            if action == 'importar_tareas':
+                action_result = run_importar_tareas_web()
             elif action == 'asignacion':
                 action_result = run_asignacion_web(selected_ids, get_current_profesor(request))
+            elif action == 'importar_asignacion':
+                action_result = run_importar_asignacion_web()
+            elif action == 'importar_estudiantes':
+                action_result = run_importar_estudiantes_web()
             elif action in ('extraer_carreras', 'extraer_tareas', 'estudiantes'):
                 # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
                 # para que no arranquen dos extracciones de usuarios distintos en paralelo.
@@ -398,9 +436,13 @@ def dashboard(request):
                         if action == 'extraer_carreras':
                             action_result = run_extraer_carreras_web(cookie, stop_event)
                         elif action == 'extraer_tareas':
-                            action_result = run_extraer_tareas_web(selected_ids, cookie, stop_event)
+                            action_result = run_extraer_tareas_web(
+                                selected_ids, cookie, stop_event, profesor=get_current_profesor(request)
+                            )
                         else:
-                            action_result = run_estudiantes_web(selected_ids, cookie, stop_event)
+                            action_result = run_estudiantes_web(
+                                selected_ids, cookie, stop_event, profesor=get_current_profesor(request)
+                            )
                     finally:
                         extraction_lock.release_lock(job_id)
             elif action in IMPORTADORES_CARRERAS:

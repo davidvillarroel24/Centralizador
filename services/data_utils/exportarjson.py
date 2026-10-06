@@ -95,16 +95,6 @@ def save_sesskey(sesskey):
     except Exception as e:
         raise Exception(f"No se pudo guardar: {e}")
     
-def save_normalizacion(sesskey):
-    try:
-        with open(config.JSON_NORMALIZACION, "w", encoding="utf-8") as f:
-            json.dump(sesskey, f, indent=4, ensure_ascii=False)
-
-        print("Normalizacion guardado en JSON")
-
-    except Exception as e:
-        raise Exception(f"No se pudo guardar: {e}")
-    
 def save_asignacion(sesskey):
     try:
         with open(config.JSON_ASIGNACION, "w", encoding="utf-8") as f:

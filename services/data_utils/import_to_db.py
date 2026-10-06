@@ -5,6 +5,36 @@ from django.db import transaction
 import re
 
 
+def import_asignacion_from_json():
+    """Importa asignacion.json (salida de 'Asignar tareas': categoria + parcial por
+    tarea, agrupados por evaluacion) hacia las columnas Tarea.categoria/Tarea.parcial.
+    Boton separado a proposito (no se ejecuta solo como parte de 'Asignar tareas') para
+    poder revisar/editar asignacion.json a mano antes de confirmarlo en la base, igual que
+    'Importar tareas a BD' es un paso aparte de 'Extraer tareas del curso'.
+
+    El numero de parcial es la posicion de la evaluacion en la lista (1, 2, 3...), igual
+    que ya asume generar_excel() en services/imports/... (run_export.py) - asignacion.json
+    nunca guarda el numero de parcial como campo propio, solo en el texto "nombre".
+    """
+    config_final = cargarjson.cargar_asignaciones()
+    actualizadas = 0
+    no_encontradas = 0
+
+    for parcial_num, evaluacion in enumerate(config_final.get('evaluaciones', []), start=1):
+        for categoria, cat_data in evaluacion.get('categorias', {}).items():
+            for moodle_id in cat_data.get('tareas', []):
+                filas = Tarea.objects.filter(moodle_id=moodle_id).update(
+                    categoria=categoria, parcial=parcial_num
+                )
+                if filas:
+                    actualizadas += 1
+                else:
+                    no_encontradas += 1
+
+    print(f"Asignación importada a BD: {actualizadas} tarea(s) actualizadas, {no_encontradas} no encontradas.")
+    return {'actualizadas': actualizadas, 'no_encontradas': no_encontradas}
+
+
 def import_tareas_from_json():
     """Importa tareas desde el JSON generado por el scraper hacia los modelos básicos.
     Crea entidades mínimas para Facultad/Carrera si no existen.

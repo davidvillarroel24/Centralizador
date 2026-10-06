@@ -43,13 +43,6 @@ def cargar_fechas():
     except Exception as e:
         raise Exception(f"Error cargando fechas: {e}")
     
-def cargar_normalizacion():
-    try:
-        with open(config.JSON_NORMALIZACION, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        raise Exception(f"Error cargando normalizacion: {e}")
-    
 def cargar_estudiantes():
     try:
         with open(config.JSON_ESTUDIANTES, "r", encoding="utf-8") as f:

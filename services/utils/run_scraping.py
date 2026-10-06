@@ -6,7 +6,6 @@ from scraping.scrapers.detalles import obtener_detalle_tarea_async
 from scraping.scrapers.calificaciones import obtener_calificaciones_async
 from scraping.scrapers.profesores import obtener_profesores_async
 from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
-from scraping.scrapers.normalizacion import extraer_tareas_planas
 from scraping.scrapers.asignartareas import  auto_asignar_tareas
 from scraping.scrapers.asignartareas import  mostrar_resumen_tareas
 from scraping.scrapers.asignartareas import  generar_config_final
@@ -24,6 +23,7 @@ from scraping.scrapers.session import MoodleSession
 from services.data_utils import cargarjson, exportarjson
 from services.utils import conexiondb
 from gatfh import config
+from data.models import Tarea, PesosCategorias
 
 from services.utils.timing import medir_tiempo
 
@@ -46,7 +46,7 @@ def cursos():
     print("Cursos OK",cursos)
     return cursos
 
-def tareas(ids, cookie=None, stop_event=None):
+def tareas(ids, cookie=None, stop_event=None, profesor_id=None):
     """Unico lugar donde vive la extraccion de tareas: tanto el boton web
     ("1. Extraer tareas del curso", via run_extraer_tareas_web en web/views.py) como el
     comando CLI (python manage.py extraer_tareas <id> [<id> ...]) pasan por aca, para que
@@ -64,6 +64,14 @@ def tareas(ids, cookie=None, stop_event=None):
     `cookie`: se pasa explicito a MoodleSession, nunca se lee de config.COOKIES global
     (D1b). Si se llama sin cookie (uso CLI suelto), MoodleSession cae al fallback de
     MOODLE_SESSION_COOKIE en .env - ver el docstring de MoodleSession.__init__.
+
+    `profesor_id`: tareas.json es un archivo compartido en disco (no hay un tareas.json
+    por usuario); sin esto, si el usuario A extrae unos cursos y despues el usuario B
+    extrae otros, el merge de abajo (pensado para no perder lo de otros cursos) mezclaria
+    tareas de ambos como si fueran del mismo profesor. Para evitarlo, el primer elemento
+    del JSON es un marcador de escritura unica {"profesor": id}: si coincide con el
+    profesor_id de esta corrida, se mergea igual que antes; si pertenece a otro profesor,
+    se descarta todo lo anterior y se arranca de cero con los datos de este profesor.
     """
     if not ids:
         raise ValueError('Debes indicar al menos un id de curso (Materia.id) para extraer sus tareas.')
@@ -75,11 +83,18 @@ def tareas(ids, cookie=None, stop_event=None):
 
     moodle = MoodleSession(cookie=cookie)
 
-    # Se conserva lo ya extraido de otros cursos y se reemplaza solo lo de los
-    # seleccionados, para poder correr esta accion curso por curso sin perder el resto.
+    tareas_guardadas = cargarjson.cargar_tareas()
+    marcador = next((t for t in tareas_guardadas if 'profesor' in t), None)
+    entradas_previas = [t for t in tareas_guardadas if 'asignatura' in t]
+    if marcador is not None and marcador.get('profesor') != profesor_id:
+        print(f"Tareas guardadas pertenecen a otro profesor ({marcador.get('profesor')}); se descartan.")
+        entradas_previas = []
+
+    # Se conserva lo ya extraido de otros cursos (del mismo profesor) y se reemplaza solo
+    # lo de los seleccionados, para poder correr esta accion curso por curso sin perder el resto.
     asignaturas_seleccionadas = {c.get('asignatura') for c in cursos}
     tareas_previas = [
-        t for t in cargarjson.cargar_tareas()
+        t for t in entradas_previas
         if t.get('asignatura') not in asignaturas_seleccionadas
     ]
 
@@ -88,7 +103,7 @@ def tareas(ids, cookie=None, stop_event=None):
     )
     detenido = stop_event is not None and stop_event.is_set()
 
-    exportarjson.save_tareas(tareas_previas + tareas_nuevas)
+    exportarjson.save_tareas([{'profesor': profesor_id}] + tareas_previas + tareas_nuevas)
 
     print("Tareas OK", tareas_nuevas)
     return tareas_nuevas, detenido
@@ -137,23 +152,55 @@ def _cursos_seleccionados_o_falla(ids, para_que):
     return cursos
 
 
-def estudiantes(ids, cookie=None, stop_event=None):
+def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
     """Unico lugar para extraer estudiantes/entregas: boton web (run_estudiantes_web en
     web/views.py) y CLI (python manage.py extraer_estudiantes <id> [<id> ...]) pasan por
     aca. Antes elegia el curso con seleccionar_curso(), un input() de consola bloqueante
     pensado para correrlo a mano uno por uno sin tener que pasarle todos los cursos - hoy
-    esa seleccion se hace con ids de Materia explicitos, igual que tareas()."""
-    cursos = _cursos_seleccionados_o_falla(ids, 'extraer sus estudiantes')
+    esa seleccion se hace con ids de Materia explicitos, igual que tareas().
 
-    asignaturas_seleccionadas = {c['asignatura'] for c in cursos}
+    `profesor_id`: candado de validacion previa. Extraer estudiantes sin tener pesos de
+    categoria configurados (PesosCategorias) deja datos que despues no se van a poder
+    calificar en "5. Generar Excel" (que normaliza cada nota con el peso de su categoria);
+    por eso esta extraccion ni arranca si el profesor no tiene esa fila guardada - no es un
+    filtro que decida que tareas pedir, solo una validacion fail-fast antes de llamar a
+    Moodle. Configurar los pesos es responsabilidad de /configuracion/.
+
+    Antes leia tareas.json (matcheando por texto de `asignatura`, igual de fragil que el
+    viejo asignacion_tareas()); tareas.json se sigue generando igual en tareas() para
+    inspeccion manual, pero ya no es la fuente de esta funcion - ahora lee Tarea (BD),
+    filtrado por Materia.id real via unidad__materia_id, igual que asignacion_tareas()."""
+    if not PesosCategorias.objects.filter(profesor_id=profesor_id).exists():
+        raise ValueError(
+            'Tu cuenta no tiene pesos de categorías guardados. Configuralos primero en '
+            '/configuracion/ antes de extraer estudiantes.'
+        )
+
+    # Solo valida que los ids resuelvan a Materias reales; la lista en si viene de Tarea.
+    _cursos_seleccionados_o_falla(ids, 'extraer sus estudiantes')
+
+    tareas_por_materia = {}
+    tareas_qs = (
+        Tarea.objects.filter(tipo='assign', unidad__materia_id__in=ids)
+        .select_related('unidad__materia')
+        .order_by('unidad__materia_id', 'unidad_id')
+    )
+    for t in tareas_qs:
+        materia = t.unidad.materia
+        curso_entry = tareas_por_materia.setdefault(
+            materia.id, {'asignatura': materia.moodle_nombre, 'tareas': {}}
+        )
+        unidad_entry = curso_entry['tareas'].setdefault(t.unidad_id, {'unidad': t.unidad.nombre, 'contenido': []})
+        unidad_entry['contenido'].append({'url': t.url, 'Titulo': t.titulo})
+
     tareas_filtradas = [
-        t for t in cargarjson.cargar_tareas()
-        if t.get('asignatura') in asignaturas_seleccionadas
+        {'asignatura': entry['asignatura'], 'tareas': list(entry['tareas'].values())}
+        for entry in tareas_por_materia.values()
     ]
     if not tareas_filtradas:
         raise ValueError(
-            'No se encontraron tareas para los cursos seleccionados. '
-            'Corré primero "Extraer tareas del curso" para esos mismos ids.'
+            'No se encontraron tareas (tipo assign) importadas para los cursos seleccionados. '
+            'Corré primero "Extraer tareas del curso" y "Importar tareas" para esos mismos ids.'
         )
 
     moodle = MoodleSession(cookie=cookie)
@@ -175,30 +222,6 @@ def estudiantes(ids, cookie=None, stop_event=None):
     return estudiantes_resultado, detenido
 
 
-def normalizado(ids):
-    """Unico lugar para 'normalizar' (aplanar) las tareas ya extraidas de los cursos
-    indicados: boton web (run_normalizado_web) y CLI (extraer_normalizado <id> ...) pasan
-    por aca. Misma seleccion por ids que tareas()/estudiantes(), sin input() de consola."""
-    cursos = _cursos_seleccionados_o_falla(ids, 'normalizar sus tareas')
-
-    asignaturas_seleccionadas = {c['asignatura'] for c in cursos}
-    tareas_filtradas = [
-        t for t in cargarjson.cargar_tareas()
-        if t.get('asignatura') in asignaturas_seleccionadas
-    ]
-    if not tareas_filtradas:
-        raise ValueError(
-            'No se encontraron tareas para los cursos seleccionados. '
-            'Corré primero "Extraer tareas del curso" para esos mismos ids.'
-        )
-
-    normalizado_resultado = extraer_tareas_planas(tareas_filtradas)
-    exportarjson.save_normalizacion(normalizado_resultado)
-
-    print("Normalizado OK", normalizado_resultado)
-    return normalizado_resultado
-
-
 def asignacion_tareas(ids=None, config_base=None):
     """Unico lugar para la asignacion automatica de tareas a periodos/parciales: boton web
     (run_asignacion_web) y CLI (extraer_asignacion) pasan por aca. Ya no pasa por
@@ -209,18 +232,34 @@ def asignacion_tareas(ids=None, config_base=None):
     `config_base`: dict {'rangos_parciales': [...], 'pesos_default': {...}}. El boton web
     pasa el de Profesor.config_tareas del usuario logueado (cada profesor tiene el suyo,
     ver data.models.Profesor.config_tareas). Si se llama sin el (CLI suelto, sin nocion de
-    "usuario actual"), cae al viejo gatfh/config_tareas.json como fallback compartido."""
+    "usuario actual"), cae al viejo gatfh/config_tareas.json como fallback compartido.
+
+    Antes leia normalizacion.json (tareas aplanadas a mano, filtrando "assign/view.php" en
+    la url). Ese archivo no aportaba nada que Tarea no tuviera ya (se poblaba, de hecho,
+    leyendo tareas.json directo via import_tareas_from_json - nunca desde normalizacion.json)
+    y su filtro de ids (`curso_id`) nunca funcionaba porque tareas.json jamas guardo un id
+    de Materia por curso. Ahora se lee directo de Tarea (tipo='assign'), filtrado por
+    Materia.id real via unidad__materia_id."""
     if config_base is None:
         config_base = cargarjson.cargar_fechas()
-    tareas = cargarjson.cargar_normalizacion()
+
+    tareas_qs = Tarea.objects.filter(tipo='assign').select_related('unidad__materia')
+    if ids:
+        tareas_qs = tareas_qs.filter(unidad__materia_id__in=ids)
     warning = None
 
-    if ids:
-        tareas_filtradas = [t for t in tareas if t.get('curso_id') in ids]
-        if tareas_filtradas:
-            tareas = tareas_filtradas
-        else:
-            warning = 'No se encontró curso_id en normalización; usando todos los datos disponibles.'
+    tareas = [
+        {
+            'id': t.moodle_id,
+            'titulo': t.titulo,
+            'cierre': t.cierre,
+            'curso_id': t.unidad.materia_id,
+            'asignatura': t.unidad.materia.moodle_nombre,
+        }
+        for t in tareas_qs
+    ]
+    if ids and not tareas:
+        warning = 'No se encontraron tareas (tipo assign) importadas para esos cursos en la base de datos.'
 
     print("Tareas a asignar:", tareas)
 

@@ -16,13 +16,22 @@ class Command(BaseCommand):
             'ids', nargs='+', type=int,
             help='IDs de Materia a extraer (ver /web/extraccion/ o Materia.objects.values_list("id", "nombre"))',
         )
+        parser.add_argument(
+            '--profesor', type=int, default=None,
+            help=(
+                'Profesor.id duenio de esta extraccion. Se guarda como marcador en '
+                'tareas.json para no mezclar cursos de profesores distintos; si se omite, '
+                'se guarda sin profesor identificado (uso CLI suelto).'
+            ),
+        )
 
     def handle(self, *args, **options):
 
         ids = options['ids']
+        profesor_id = options['profesor']
         self.stdout.write(f"Extrayendo tareas de {len(ids)} curso(s): {ids}...")
 
-        tareas_nuevas, detenido = extraer_tareas(ids)
+        tareas_nuevas, detenido = extraer_tareas(ids, profesor_id=profesor_id)
 
         if detenido:
             self.stdout.write(self.style.WARNING("Extracción detenida manualmente."))

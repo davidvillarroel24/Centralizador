@@ -471,6 +471,20 @@ def dashboard(request):
             error = error_str
             traceback.print_exc()
 
+        # Post-Redirect-Get: sin esto, la ultima peticion del navegador queda como el POST
+        # de la accion. Si el usuario recarga (F5) y confirma "reenviar formulario", el
+        # navegador repite ese POST tal cual - re-disparando la misma accion, scraping real
+        # incluido (extraction_lock no protege esto: ya se libero para cuando se llega a
+        # refrescar). El resultado/error se guarda un instante en sesion ("flash") y se
+        # consume en el GET de abajo, para poder mostrarlo despues del redirect.
+        request.session['dashboard_flash'] = {'action_result': action_result, 'error': error}
+        redirect_params = [('role', role)] + [('courses', cid) for cid in selected_ids_str]
+        return redirect(f"{reverse('dashboard')}?{urlencode(redirect_params)}")
+
+    flash = request.session.pop('dashboard_flash', None) or {}
+    action_result = flash.get('action_result')
+    error = flash.get('error')
+
     candado_actual = extraction_lock.current_lock()
     context = {
         'courses': courses,

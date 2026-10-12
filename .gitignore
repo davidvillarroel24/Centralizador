@@ -1,5 +1,7 @@
 # Entorno / secretos
 .env
+deploy/.env
+deploy/respaldos/
 venv/
 __pycache__/
 *.pyc
@@ -15,6 +17,13 @@ db.sqlite3
 
 # Datos scrapeados (contienen informacion real de estudiantes/docentes)
 data/raw/*.json
+# Excepcion: carreras/categorias/linkcarreras no traen datos de estudiantes (solo
+# facultades/carreras/materias/profesores) y son los mas pesados de re-extraer de
+# Moodle; se versionan para poder probar la importacion a BD (ej. en el VPS) sin
+# tener que volver a correr "0. Extraer carreras" cada vez.
+!data/raw/categorias.json
+!data/raw/carreras.json
+!data/raw/linkcarreras.json
 notas*.xlsx
 notas1*.xlsx
 notas2*.xlsx

@@ -1,0 +1,298 @@
+[
+    {
+        "id": 2,
+        "nombre": "FATEK ARQUITECTURA"
+    },
+    {
+        "id": 11,
+        "nombre": "FATEK ARQUITECTURA / TS. CONSTRUCCIÓN CIVIL"
+    },
+    {
+        "id": 21,
+        "nombre": "FATEK ARQUITECTURA / TS. CONSTRUCCIÓN CIVIL / PRIMER SEMESTRE"
+    },
+    {
+        "id": 22,
+        "nombre": "FATEK ARQUITECTURA / TS. CONSTRUCCIÓN CIVIL / SEGUNDO SEMESTRE"
+    },
+    {
+        "id": 23,
+        "nombre": "FATEK ARQUITECTURA / TS. CONSTRUCCIÓN CIVIL / TERCER SEMESTRE"
+    },
+    {
+        "id": 24,
+        "nombre": "FATEK ARQUITECTURA / TS. CONSTRUCCIÓN CIVIL / CUARTO SEMESTRE"
+    },
+    {
+        "id": 25,
+        "nombre": "FATEK ARQUITECTURA / TS. CONSTRUCCIÓN CIVIL / QUINTO SEMESTRE"
+    },
+    {
+        "id": 26,
+        "nombre": "FATEK ARQUITECTURA / TS. CONSTRUCCIÓN CIVIL / SEXTO SEMESTRE"
+    },
+    {
+        "id": 3,
+        "nombre": "FATEK COMUNICACIÓN"
+    },
+    {
+        "id": 12,
+        "nombre": "FATEK COMUNICACIÓN / TS. DISEÑO GRÁFICO"
+    },
+    {
+        "id": 27,
+        "nombre": "FATEK COMUNICACIÓN / TS. DISEÑO GRÁFICO / PRIMER AÑO"
+    },
+    {
+        "id": 28,
+        "nombre": "FATEK COMUNICACIÓN / TS. DISEÑO GRÁFICO / SEGUNDO AÑO"
+    },
+    {
+        "id": 29,
+        "nombre": "FATEK COMUNICACIÓN / TS. DISEÑO GRÁFICO / TERCER AÑO"
+    },
+    {
+        "id": 13,
+        "nombre": "FATEK COMUNICACIÓN / TS. INGLÉS"
+    },
+    {
+        "id": 30,
+        "nombre": "FATEK COMUNICACIÓN / TS. INGLÉS / PRIMER SEMESTRE"
+    },
+    {
+        "id": 31,
+        "nombre": "FATEK COMUNICACIÓN / TS. INGLÉS / SEGUNDO SEMESTRE"
+    },
+    {
+        "id": 32,
+        "nombre": "FATEK COMUNICACIÓN / TS. INGLÉS / TERCER SEMESTRE"
+    },
+    {
+        "id": 33,
+        "nombre": "FATEK COMUNICACIÓN / TS. INGLÉS / CUARTO SEMESTRE"
+    },
+    {
+        "id": 34,
+        "nombre": "FATEK COMUNICACIÓN / TS. INGLÉS / QUINTO SEMESTRE"
+    },
+    {
+        "id": 35,
+        "nombre": "FATEK COMUNICACIÓN / TS. INGLÉS / SEXTO SEMESTRE"
+    },
+    {
+        "id": 4,
+        "nombre": "FATEK COMPUTACIÓN"
+    },
+    {
+        "id": 14,
+        "nombre": "FATEK COMPUTACIÓN / TS. SISTEMAS INFORMÁTICOS"
+    },
+    {
+        "id": 36,
+        "nombre": "FATEK COMPUTACIÓN / TS. SISTEMAS INFORMÁTICOS  / PRIMER AÑO"
+    },
+    {
+        "id": 37,
+        "nombre": "FATEK COMPUTACIÓN / TS. SISTEMAS INFORMÁTICOS  / SEGUNDO AÑO"
+    },
+    {
+        "id": 38,
+        "nombre": "FATEK COMPUTACIÓN / TS. SISTEMAS INFORMÁTICOS  / TERCER AÑO"
+    },
+    {
+        "id": 15,
+        "nombre": "FATEK COMPUTACIÓN / TS. ELECTRÓNICA"
+    },
+    {
+        "id": 39,
+        "nombre": "FATEK COMPUTACIÓN / TS. ELECTRÓNICA  / PRIMER SEMESTRE"
+    },
+    {
+        "id": 40,
+        "nombre": "FATEK COMPUTACIÓN / TS. ELECTRÓNICA  / SEGUNDO SEMESTRE"
+    },
+    {
+        "id": 41,
+        "nombre": "FATEK COMPUTACIÓN / TS. ELECTRÓNICA  / TERCER SEMESTRE"
+    },
+    {
+        "id": 42,
+        "nombre": "FATEK COMPUTACIÓN / TS. ELECTRÓNICA  / CUARTO SEMESTRE"
+    },
+    {
+        "id": 43,
+        "nombre": "FATEK COMPUTACIÓN / TS. ELECTRÓNICA  / QUINTO SEMESTRE"
+    },
+    {
+        "id": 44,
+        "nombre": "FATEK COMPUTACIÓN / TS. ELECTRÓNICA  / SEXTO SEMESTRE"
+    },
+    {
+        "id": 5,
+        "nombre": "FATEK EMPRESAS"
+    },
+    {
+        "id": 17,
+        "nombre": "FATEK EMPRESAS / TS. ADMINISTRACIÓN DE EMPRESAS"
+    },
+    {
+        "id": 51,
+        "nombre": "FATEK EMPRESAS / TS. ADMINISTRACIÓN DE EMPRESAS / PRIMER AÑO"
+    },
+    {
+        "id": 52,
+        "nombre": "FATEK EMPRESAS / TS. ADMINISTRACIÓN DE EMPRESAS / SEGUNDO AÑO"
+    },
+    {
+        "id": 53,
+        "nombre": "FATEK EMPRESAS / TS. ADMINISTRACIÓN DE EMPRESAS / TERCER AÑO"
+    },
+    {
+        "id": 18,
+        "nombre": "FATEK EMPRESAS / TS. CONTADURÍA GENERAL"
+    },
+    {
+        "id": 54,
+        "nombre": "FATEK EMPRESAS / TS. CONTADURÍA GENERAL / PRIMER AÑO"
+    },
+    {
+        "id": 55,
+        "nombre": "FATEK EMPRESAS / TS. CONTADURÍA GENERAL / SEGUNDO AÑO"
+    },
+    {
+        "id": 56,
+        "nombre": "FATEK EMPRESAS / TS. CONTADURÍA GENERAL / TERCER AÑO"
+    },
+    {
+        "id": 19,
+        "nombre": "FATEK EMPRESAS / TS. MERCADOTECNIA"
+    },
+    {
+        "id": 60,
+        "nombre": "FATEK EMPRESAS / TS. MERCADOTECNIA / PRIMER AÑO"
+    },
+    {
+        "id": 61,
+        "nombre": "FATEK EMPRESAS / TS. MERCADOTECNIA / SEGUNDO AÑO"
+    },
+    {
+        "id": 20,
+        "nombre": "FATEK EMPRESAS / TS. COMERCIO INTERNACIONAL Y ADM. ADUANERA"
+    },
+    {
+        "id": 57,
+        "nombre": "FATEK EMPRESAS / TS. COMERCIO INTERNACIONAL Y ADM. ADUANERA / PRIMER AÑO"
+    },
+    {
+        "id": 58,
+        "nombre": "FATEK EMPRESAS / TS. COMERCIO INTERNACIONAL Y ADM. ADUANERA / SEGUNDO AÑO"
+    },
+    {
+        "id": 59,
+        "nombre": "FATEK EMPRESAS / TS. COMERCIO INTERNACIONAL Y ADM. ADUANERA / TERCER AÑO"
+    },
+    {
+        "id": 6,
+        "nombre": "FATEK INDUSTRIA"
+    },
+    {
+        "id": 16,
+        "nombre": "FATEK INDUSTRIA / TS. AUTOMÁTICA INDUSTRIAL"
+    },
+    {
+        "id": 45,
+        "nombre": "FATEK INDUSTRIA / TS. AUTOMÁTICA INDUSTRIAL / PRIMER SEMESTRE"
+    },
+    {
+        "id": 46,
+        "nombre": "FATEK INDUSTRIA / TS. AUTOMÁTICA INDUSTRIAL / SEGUNDO  SEMESTRE"
+    },
+    {
+        "id": 47,
+        "nombre": "FATEK INDUSTRIA / TS. AUTOMÁTICA INDUSTRIAL / TERCER SEMESTRE"
+    },
+    {
+        "id": 48,
+        "nombre": "FATEK INDUSTRIA / TS. AUTOMÁTICA INDUSTRIAL / CUARTO SEMESTRE"
+    },
+    {
+        "id": 49,
+        "nombre": "FATEK INDUSTRIA / TS. AUTOMÁTICA INDUSTRIAL / QUINTO SEMESTRE"
+    },
+    {
+        "id": 50,
+        "nombre": "FATEK INDUSTRIA / TS. AUTOMÁTICA INDUSTRIAL / SEXTO SEMESTRE"
+    },
+    {
+        "id": 7,
+        "nombre": "FATEK SALUD"
+    },
+    {
+        "id": 8,
+        "nombre": "FATEK SALUD / TS. FISIOTERAPIA"
+    },
+    {
+        "id": 67,
+        "nombre": "FATEK SALUD / TS. FISIOTERAPIA / PRIMER SEMESTRE"
+    },
+    {
+        "id": 68,
+        "nombre": "FATEK SALUD / TS. FISIOTERAPIA / SEGUNDO SEMESTRE"
+    },
+    {
+        "id": 69,
+        "nombre": "FATEK SALUD / TS. FISIOTERAPIA / TERCER SEMESTRE"
+    },
+    {
+        "id": 70,
+        "nombre": "FATEK SALUD / TS. FISIOTERAPIA / CUARTO SEMESTRE"
+    },
+    {
+        "id": 71,
+        "nombre": "FATEK SALUD / TS. FISIOTERAPIA / QUINTO SEMESTRE"
+    },
+    {
+        "id": 72,
+        "nombre": "FATEK SALUD / TS. FISIOTERAPIA / SEXTO SEMESTRE"
+    },
+    {
+        "id": 9,
+        "nombre": "FATEK SALUD / TM. ENFERMERÍA"
+    },
+    {
+        "id": 73,
+        "nombre": "FATEK SALUD / TM. ENFERMERÍA / PRIMER AÑO"
+    },
+    {
+        "id": 74,
+        "nombre": "FATEK SALUD / TM. ENFERMERÍA / SEGUNDO AÑO"
+    },
+    {
+        "id": 10,
+        "nombre": "FATEK SALUD / TM. RAYOS X"
+    },
+    {
+        "id": 75,
+        "nombre": "FATEK SALUD / TM. RAYOS X / PRIMER AÑO"
+    },
+    {
+        "id": 76,
+        "nombre": "FATEK SALUD / TM. RAYOS X / SEGUNDO AÑO"
+    },
+    {
+        "id": 62,
+        "nombre": "ZITBA"
+    },
+    {
+        "id": 63,
+        "nombre": "WISEN"
+    },
+    {
+        "id": 64,
+        "nombre": "WISEN / CAPACITACION DOCENTE"
+    },
+    {
+        "id": 65,
+        "nombre": "WISEN / CAPACITACIÓN ESTUDIANTES"
+    }
+]

@@ -1,0 +1,99 @@
+# Centralizador Academico en el VPS compartido (Contabo).
+#
+# Este stack NO abre los puertos 80/443: los tiene el proxy compartido del
+# VPS (uno para los 4 proyectos), que lee las etiquetas `caddy` del servicio
+# `web`, saca el certificado HTTPS del dominio y nos manda el trafico. La
+# base de datos queda en una red interna, sin acceso desde afuera ni desde
+# los otros proyectos del VPS.
+#
+# Uso (desde esta carpeta): docker compose up -d --build
+# Variables: deploy/.env (copiar de .env.example).
+name: centralizador
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: America/La_Paz
+    volumes:
+      - db:/var/lib/postgresql/data
+    networks: [interna]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Limites para no afectar a los otros proyectos del VPS.
+    mem_limit: 1g
+    cpus: 1.0
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DJANGO_ALLOWED_HOSTS: ${DOMINIO}
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMINIO}
+    volumes:
+      # data/raw/*.json (tareas, estudiantes, carreras...) es staging que
+      # escribe el scraper en disco: sin este volumen se perderia en cada
+      # `docker compose up -d --build` (la capa escribible del contenedor
+      # se descarta al reconstruir la imagen).
+      - data_raw:/app/data/raw
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [interna, proxy]
+    labels:
+      # Lo lee el proxy compartido: dominio + a que puerto mandar el trafico.
+      caddy: ${DOMINIO}
+      caddy.reverse_proxy: "{{upstreams 8000}}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/login/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 768m
+    cpus: 1.0
+
+  # Respaldo diario de la base: se guardan 14 diarios, 4 semanales y 3
+  # mensuales en deploy/respaldos (fuera de Docker, facil de copiar).
+  respaldos:
+    image: prodrigestivill/postgres-backup-local:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SCHEDULE: "0 3 * * *"
+      BACKUP_KEEP_DAYS: 14
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 3
+      TZ: America/La_Paz
+    volumes:
+      - ./respaldos:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [interna]
+    mem_limit: 256m
+    cpus: 0.3
+
+networks:
+  interna: {}
+  # Red del proxy compartido (la crea el script preparar-vps.sh del VPS).
+  proxy:
+    external: true
+
+volumes:
+  db: {}
+  data_raw: {}

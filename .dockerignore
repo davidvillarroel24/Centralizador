@@ -1,0 +1,31 @@
+# Contexto de build: deploy/docker-compose.yml usa context: .. (la raiz del
+# repo), asi que esto se aplica a TODO lo que entra a la imagen "web".
+
+.git/
+.gitignore
+.dockerignore
+venv/
+__pycache__/
+*.pyc
+
+# Secretos / entorno local (se inyectan via deploy/.env en runtime, nunca
+# se copian a la imagen)
+.env
+deploy/.env
+deploy/respaldos/
+
+# Datos locales que no deben viajar en la imagen (data/raw/*.json se monta
+# como volumen en runtime, no se hornea en el build)
+db.sqlite3
+data/raw/*.json
+staticfiles/
+notas*.xlsx
+
+# Contenido fuera del alcance de la app (ya excluido del repo tambien)
+/Versioines Demo/
+/Proyecto de grado/
+
+# Editor / SO
+.vscode/
+*.swp
+Thumbs.db

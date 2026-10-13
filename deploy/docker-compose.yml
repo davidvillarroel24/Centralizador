@@ -22,6 +22,13 @@ services:
     volumes:
       - db:/var/lib/postgresql/data
     networks: [interna]
+    # Bindeado SOLO a loopback (127.0.0.1) del VPS, nunca a 0.0.0.0: no es
+    # alcanzable desde internet ni desde otros proyectos, solo desde dentro del
+    # propio VPS. Para conectar pgAdmin/DBeaver desde tu PC hay que abrir un
+    # tunel SSH hacia ese 127.0.0.1:5432 (ver deploy/README.md) - sin esto no
+    # viola la regla de "sin ports:" del VPS compartido.
+    ports:
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s

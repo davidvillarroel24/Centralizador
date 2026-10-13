@@ -87,7 +87,37 @@ Ver en qué commit está el VPS:
 `cd /srv/centralizador && sudo -u <usuario> git log --oneline -1`
 (como root, git exige el `sudo -u <usuario>` por "dubious ownership").
 
-## 5. Qué NO vive en Docker
+## 5. Conectar pgAdmin/DBeaver desde tu PC
+
+La base **no** publica el puerto 5432 al mundo (regla del VPS compartido);
+`docker-compose.yml` solo lo bindea a `127.0.0.1` del propio VPS, así que
+hace falta un túnel SSH para llegar desde tu computadora.
+
+1. Abrir el túnel (dejar esta terminal abierta mientras usás pgAdmin/DBeaver):
+
+   ```bash
+   ssh -L 5433:127.0.0.1:5432 root@169.58.97.170
+   ```
+
+   (con PuTTY: pestaña **Connection → SSH → Tunnels**, *Source port* `5433`,
+   *Destination* `127.0.0.1:5432`, **Add**, y recién después conectar en
+   **Session**.)
+
+2. En pgAdmin/DBeaver, nueva conexión:
+
+   | Campo | Valor |
+   |---|---|
+   | Host | `127.0.0.1` (o `localhost`) |
+   | Puerto | `5433` |
+   | Base de datos | el `POSTGRES_DB` de tu `.env` |
+   | Usuario | el `POSTGRES_USER` de tu `.env` |
+   | Password | el `POSTGRES_PASSWORD` de tu `.env` |
+
+3. Cerrar la terminal del túnel corta la conexión. El puerto 5432 sigue sin
+   ser alcanzable desde fuera del VPS en ningún momento — el túnel SSH es el
+   único camino.
+
+## 6. Qué NO vive en Docker
 
 - La cookie de Moodle de cada usuario: vive solo en su sesión de navegador
   (`SESSION_ENGINE = signed_cookies`), nunca en la base de datos ni en el

@@ -14,10 +14,15 @@ __pycache__/
 deploy/.env
 deploy/respaldos/
 
-# Datos locales que no deben viajar en la imagen (data/raw/*.json se monta
-# como volumen en runtime, no se hornea en el build)
+# Datos locales que no deben viajar en la imagen - EXCEPTO los 3 que si se
+# hornean a proposito porque son pesados de re-extraer de Moodle (mismo
+# criterio que el .gitignore, debe quedar identico para que lo que entra al
+# repo tambien entre a la imagen).
 db.sqlite3
 data/raw/*.json
+!data/raw/categorias.json
+!data/raw/carreras.json
+!data/raw/linkcarreras.json
 staticfiles/
 notas*.xlsx
 

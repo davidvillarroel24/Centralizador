@@ -49,10 +49,12 @@ services:
       DJANGO_ALLOWED_HOSTS: ${DOMINIO}
       DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMINIO}
     volumes:
-      # data/raw/*.json (tareas, estudiantes, carreras...) es staging que
-      # escribe el scraper en disco: sin este volumen se perderia en cada
-      # `docker compose up -d --build` (la capa escribible del contenedor
-      # se descarta al reconstruir la imagen).
+      # data/raw/*.json (tareas, estudiantes, y los 3 pesados de carreras) no
+      # se pierde entre rebuilds gracias a este volumen. Los 3 pesados
+      # (categorias/carreras/linkcarreras) ademas viajan horneados en la
+      # imagen (ver .dockerignore) y entrypoint.sh los siembra aca la primera
+      # vez que el volumen esta vacio - una extraccion en vivo mas nueva que
+      # ya este en el volumen nunca se pisa con la version vieja del repo.
       - data_raw:/app/data/raw
     depends_on:
       db:

@@ -20,7 +20,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/data/raw \
+# categorias.json/carreras.json/linkcarreras.json viajan commiteados en el repo
+# (son los mas pesados de re-extraer de Moodle). En runtime, /app/data/raw es
+# un volumen (ver docker-compose.yml) para que tareas.json/estudiantes.json no
+# se pierdan con un rebuild - pero eso mismo tapa lo que venga horneado en esa
+# ruta. Por eso se guarda una copia aparte en data/raw_seed/, fuera del punto
+# de montaje: entrypoint.sh la usa para "sembrar" el volumen la primera vez
+# (o si alguno de los 3 faltara), sin pisar nunca una extraccion mas nueva que
+# ya este en el volumen.
+RUN mkdir -p /app/data/raw_seed \
+    && for f in categorias.json carreras.json linkcarreras.json; do \
+         if [ -f "/app/data/raw/$f" ]; then cp "/app/data/raw/$f" "/app/data/raw_seed/$f"; fi; \
+       done \
+    && mkdir -p /app/data/raw \
     && chmod +x deploy/web/entrypoint.sh
 
 EXPOSE 8000

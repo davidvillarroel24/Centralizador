@@ -122,7 +122,12 @@ hace falta un túnel SSH para llegar desde tu computadora.
 - La cookie de Moodle de cada usuario: vive solo en su sesión de navegador
   (`SESSION_ENGINE = signed_cookies`), nunca en la base de datos ni en el
   `.env` de este stack — por diseño (D1b, ver README de la raíz).
-- `data/raw/*.json` (staging del scraper) sí persiste entre reconstrucciones
-  gracias al volumen `data_raw` — si se borra (`docker compose down -v`), se
-  regenera solo volviendo a correr "Extraer tareas del curso" etc., pero los
-  datos ya importados a Postgres no se pierden.
+- `data/raw/*.json` (staging del scraper) persiste entre reconstrucciones
+  gracias al volumen `data_raw`. `categorias.json`, `carreras.json` y
+  `linkcarreras.json` además viajan commiteados en el repo y horneados en la
+  imagen (ver `.gitignore`/`.dockerignore`): `entrypoint.sh` los copia al
+  volumen la primera vez que arranca vacío, sin pisar nunca una extracción
+  más nueva que ya esté ahí. Si se borra el volumen a propósito
+  (`docker compose down -v`), vuelve a sembrarse solo con la versión del
+  repo en el próximo arranque; los datos ya importados a Postgres no
+  dependen de esto.

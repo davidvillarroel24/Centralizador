@@ -89,10 +89,11 @@
                         <button type="submit" name="action" value="extraer_carreras" class="btn btn-secondary">0. Extraer carreras</button>
                         <button type="submit" name="action" value="extraer_tareas" class="btn btn-secondary">1. Extraer tareas del curso</button>
                         <button type="submit" name="action" value="asignacion" class="btn btn-primary">2. Asignar tareas</button>
+                        <button type="submit" name="action" value="ver_asignacion" class="btn btn-secondary">✏️ Revisar asignación del curso seleccionado</button>
                         <button type="submit" name="action" value="estudiantes" class="btn btn-secondary">3. Extraer estudiantes</button>
                         <button type="submit" name="action" value="transformar" class="btn btn-primary">4. Generar Excel</button>
                     </div>
-                    <div class="note">0. Extraer carreras recorre Moodle y genera linkcarreras.json con la jerarquía Facultad/Carrera/Materia (necesita cookie guardada); todavía no carga a la base de datos, para eso usá los botones de "Importar a la base de datos". Después selecciona cursos y ejecutá el resto en orden: primero extraer tareas del curso, importalas a la base (panel de al lado) y recién después asigná tareas.</div>
+                    <div class="note">0. Extraer carreras recorre Moodle y genera linkcarreras.json con la jerarquía Facultad/Carrera/Materia (necesita cookie guardada); todavía no carga a la base de datos, para eso usá los botones de "Importar a la base de datos". Después selecciona cursos y ejecutá el resto en orden: primero extraer tareas del curso, importalas a la base (panel de al lado) y recién después asigná tareas. "Revisar asignación" lee y corrige directo la base de datos (necesita que "F. Importar tareas" y "G. Importar asignación" ya hayan corrido para el curso tildado).</div>
                 </div>
 
                 <div class="panel">
@@ -164,14 +165,93 @@
                 </div>
             </section>
         </form>
+
+        {% if asignacion_detalle %}
+        <div id="modalAsignacion" class="modal-overlay" style="display:none;">
+            <div class="modal-box">
+                <div class="modal-header">
+                    <h2>Revisar asignación de tareas</h2>
+                    <button type="button" class="modal-close" onclick="document.getElementById('modalAsignacion').style.display='none'">✕</button>
+                </div>
+                <p class="note">
+                    Cada tarea pertenece a una sola categoría — elegí la correcta y guardá. El parcial
+                    no se edita acá (lo decide la fecha de cierre). Esto escribe directo en la base de
+                    datos, sin pasos intermedios.
+                </p>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="role" value="{{ role }}" />
+                    <input type="hidden" name="action" value="guardar_asignacion_manual" />
+                    {% for cid in selected_ids %}<input type="hidden" name="courses" value="{{ cid }}" />{% endfor %}
+                    <div class="modal-scroll">
+                        {% for parcial in asignacion_detalle %}
+                            <h3>{{ parcial.etiqueta }}</h3>
+                            {% if parcial.tareas %}
+                                <table class="asignacion-tabla">
+                                    <thead>
+                                        <tr>
+                                            <th>Tarea</th>
+                                            {% for cat in categorias_peso %}<th>{{ cat.label }}</th>{% endfor %}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for tarea in parcial.tareas %}
+                                        <tr>
+                                            <td>{{ tarea.titulo }}</td>
+                                            {% for cat in categorias_peso %}
+                                                <td style="text-align:center;">
+                                                    <input type="radio" name="categoria_{{ tarea.id }}" value="{{ cat.key }}" {% if tarea.categoria == cat.key %}checked{% endif %} />
+                                                </td>
+                                            {% endfor %}
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            {% else %}
+                                <p class="note">Sin tareas en este parcial.</p>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modalAsignacion').style.display='none'">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
     </div>
 {% endblock %}
 
 {% block scripts %}
+<style>
+    .modal-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+        align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+    }
+    .modal-box {
+        background: #1b1b24; border: 1px solid rgba(155,91,246,0.35); border-radius: 12px;
+        max-width: 900px; width: 100%; max-height: 85vh; display: flex; flex-direction: column;
+        padding: 20px; color: #fff;
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; }
+    .modal-close {
+        background: none; border: none; color: #fff; font-size: 18px; cursor: pointer;
+    }
+    .modal-scroll { overflow-y: auto; flex: 1; margin: 12px 0; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+    .asignacion-tabla { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 13px; }
+    .asignacion-tabla th, .asignacion-tabla td {
+        border: 1px solid rgba(255,255,255,0.1); padding: 6px 8px;
+    }
+    .asignacion-tabla th { color: #f0c75e; font-weight: 600; }
+</style>
 <script>
     (function () {
         var counter = document.querySelector('.selection-summary strong');
-        var checkboxes = document.querySelectorAll('input[name="courses"]');
+        // type="checkbox" explicito: el modal de asignacion agrega inputs hidden del mismo
+        // name="courses" para arrastrar la seleccion actual, no son parte de esta grilla.
+        var checkboxes = document.querySelectorAll('input[type="checkbox"][name="courses"]');
 
         function syncSelection() {
             var checked = 0;
@@ -203,6 +283,11 @@
             errors: {{ action_result.errors|default_if_none:"null" }},
             {% if action_result.warning %}warning: "{{ action_result.warning|escapejs }}",{% endif %}
         });
+    {% endif %}
+
+    {% if abrir_modal_asignacion and asignacion_detalle %}
+        var modalAsignacion = document.getElementById('modalAsignacion');
+        if (modalAsignacion) modalAsignacion.style.display = 'flex';
     {% endif %}
 </script>
 {% endblock %}

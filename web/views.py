@@ -238,6 +238,62 @@ def run_asignacion_web(selected_ids, profesor):
     return result
 
 
+def construir_asignacion_detalle(ids):
+    """Arma, por parcial, la lista de tareas (tipo=assign) de los cursos seleccionados con
+    su categoria actual - llena el modal de revision manual. Lee directo de Tarea (BD), no
+    de asignacion.json: asi siempre refleja lo que ya quedo en la base (el ultimo "G.
+    Importar asignación" corrido) y queda scopeado al curso tildado, no a lo ultimo que
+    haya en el archivo compartido. None si no hay cursos seleccionados o no tienen tareas
+    importadas todavia."""
+    if not ids:
+        return None
+    multiples_cursos = len(ids) > 1
+    tareas_qs = (
+        Tarea.objects.filter(tipo='assign', unidad__materia_id__in=ids)
+        .select_related('unidad__materia')
+        .order_by('unidad__materia__nombre', 'titulo')
+    )
+
+    por_parcial = defaultdict(list)
+    for t in tareas_qs:
+        titulo = f'{t.titulo} ({t.unidad.materia.nombre})' if multiples_cursos else t.titulo
+        por_parcial[t.parcial or 0].append({'id': t.moodle_id, 'titulo': titulo, 'categoria': t.categoria})
+
+    if not por_parcial:
+        return None
+
+    parciales = []
+    for numero in sorted(por_parcial.keys()):
+        etiqueta = f'Parcial {numero}' if numero else 'Sin parcial asignado todavía'
+        parciales.append({'numero': numero, 'etiqueta': etiqueta, 'tareas': por_parcial[numero]})
+    return parciales
+
+
+def run_guardar_asignacion_manual_web(post_data, ids):
+    """Guarda las correcciones manuales de categoria directo en Tarea.categoria (BD) -
+    reemplazo del viejo editar_tareas_interactivamente() por consola. Solo se puede
+    cambiar la categoria de cada tarea; el parcial no se edita aca, queda el que puso la
+    asignacion automatica por fecha de cierre. Al escribir directo en la base, ya no hace
+    falta un paso de "Importar asignación" despues - el cambio queda al toque."""
+    if not ids:
+        raise ValueError('Debes seleccionar al menos un curso para guardar su asignación.')
+
+    tareas = Tarea.objects.filter(tipo='assign', unidad__materia_id__in=ids)
+    cambios = 0
+    for t in tareas:
+        nueva = post_data.get(f'categoria_{t.moodle_id}')
+        if nueva in CATEGORIAS_PESO and nueva != t.categoria:
+            t.categoria = nueva
+            t.save(update_fields=['categoria'])
+            cambios += 1
+
+    return {
+        'title': 'Asignación actualizada',
+        'detail': f'{cambios} tarea(s) con categoría corregida directamente en la base de datos.',
+        'count': cambios,
+    }
+
+
 def run_importar_asignacion_web():
     """Importa asignacion.json (ya generado por 'Asignar tareas') hacia las columnas
     Tarea.categoria/Tarea.parcial. Paso separado a proposito: permite revisar el resultado
@@ -387,12 +443,17 @@ def run_importar_estudiantes_web():
     }
 
 
-def run_transformar_web(selected_ids):
-    extraer_transformar()
+def run_transformar_web(selected_ids, profesor):
+    """Genera notas.xlsx filtrado por los cursos seleccionados y los pesos del `profesor`
+    logueado - antes `extraer_transformar()` no recibia ningun filtro y mezclaba en el
+    mismo Excel estudiantes/tareas de cualquier curso extraido alguna vez."""
+    if not selected_ids:
+        raise ValueError('Debes seleccionar al menos un curso para generar el Excel.')
+    total = extraer_transformar(selected_ids, profesor)
     return {
         'title': 'Transformar',
-        'detail': f'Transformación completada y Excel generado. Revisa el archivo notas.xlsx en el directorio del proyecto.',
-        'count': None,
+        'detail': f'Excel generado con {total} estudiante(s). Revisa el archivo notas.xlsx en el directorio del proyecto.',
+        'count': total,
     }
 
 
@@ -407,6 +468,7 @@ def dashboard(request):
     selected_count = len(selected_ids)
     action_result = None
     error = None
+    abrir_modal_asignacion = False
 
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -417,6 +479,17 @@ def dashboard(request):
                 action_result = run_asignacion_web(selected_ids, get_current_profesor(request))
             elif action == 'importar_asignacion':
                 action_result = run_importar_asignacion_web()
+            elif action == 'ver_asignacion':
+                # No corre nada: solo valida la seleccion y marca para reabrir el modal
+                # despues del redirect - el contenido en si se arma mas abajo, en cada GET,
+                # a partir de selected_ids (que el redirect conserva en la URL).
+                if not selected_ids:
+                    error = 'Debes seleccionar al menos un curso para revisar su asignación.'
+                else:
+                    abrir_modal_asignacion = True
+            elif action == 'guardar_asignacion_manual':
+                action_result = run_guardar_asignacion_manual_web(request.POST, selected_ids)
+                abrir_modal_asignacion = True
             elif action == 'importar_estudiantes':
                 action_result = run_importar_estudiantes_web()
             elif action in ('extraer_carreras', 'extraer_tareas', 'estudiantes'):
@@ -450,7 +523,7 @@ def dashboard(request):
             elif action in IMPORTADORES_CARRERAS:
                 action_result = run_importar_web(action)
             elif action == 'transformar':
-                action_result = run_transformar_web(selected_ids)
+                action_result = run_transformar_web(selected_ids, get_current_profesor(request))
             elif action == 'guardar_cookie':
                 # Solo vive en la sesion del navegador (nunca en la base de datos).
                 cookie_value = request.POST.get('moodle_cookie', '').strip()
@@ -481,6 +554,8 @@ def dashboard(request):
         # consume en el GET de abajo, para poder mostrarlo despues del redirect.
         request.session['dashboard_flash'] = {'action_result': action_result, 'error': error}
         redirect_params = [('role', role)] + [('courses', cid) for cid in selected_ids_str]
+        if abrir_modal_asignacion and not error:
+            redirect_params.append(('modal', 'asignacion'))
         return redirect(f"{reverse('dashboard')}?{urlencode(redirect_params)}")
 
     flash = request.session.pop('dashboard_flash', None) or {}
@@ -498,6 +573,9 @@ def dashboard(request):
         'error': error,
         'extraccion_en_curso': candado_actual,
         'cookie_guardada': bool(request.session.get('MoodleSession')),
+        'asignacion_detalle': construir_asignacion_detalle(selected_ids),
+        'abrir_modal_asignacion': request.GET.get('modal') == 'asignacion',
+        'categorias_peso': [{'key': cat, 'label': CATEGORIA_LABELS[cat]} for cat in CATEGORIAS_PESO],
     }
     return render(request, 'web/dashboard.html', context)
 

@@ -1,62 +1,65 @@
+from collections import defaultdict
+
 import pandas as pd
 
 from services.utils.timing import medir_tiempo
-from services.data_utils import cargarjson
+from data.models import Entrega, PesosCategorias
+
+CATEGORIAS_PESO = ['mitek', 'etek', 'training', 'designlab', 'examen']
+
 
 @medir_tiempo
-def generar_excel(estudiantes, archivo="notas.xlsx"):
+def generar_excel(ids, profesor, archivo="notas.xlsx"):
+    """Genera notas.xlsx directo de la base de datos (Entrega/Tarea/Estudiante), filtrado
+    por los cursos seleccionados (`ids`, Materia.id) y usando los pesos por categoria del
+    `profesor` logueado (PesosCategorias). Reemplaza al pipeline viejo, que leia
+    estudiantes.json + asignacion.json completos sin filtrar por seleccion - mezclaba
+    cursos de cualquier extraccion anterior en el mismo Excel.
 
-    config_final = cargarjson.cargar_asignaciones()
+    Requiere que "Importar estudiantes" (Entrega.nota/nota_maxima) e "Importar asignación"
+    (Tarea.categoria/Tarea.parcial) ya hayan corrido para estos cursos."""
+    pesos_row = PesosCategorias.objects.filter(profesor=profesor).first()
+    pesos = {cat: getattr(pesos_row, cat, 0) if pesos_row else 0 for cat in CATEGORIAS_PESO}
+
+    entregas = (
+        Entrega.objects.filter(tarea__tipo='assign', tarea__unidad__materia_id__in=ids)
+        .select_related('tarea', 'estudiante')
+    )
+
+    por_estudiante = defaultdict(list)
+    for entrega in entregas:
+        por_estudiante[entrega.estudiante].append(entrega)
+
     filas = []
-
-    for est in estudiantes:
-        fila = {"nombre": est["nombre"]}
-
+    for estudiante, entregas_est in por_estudiante.items():
+        fila = {"nombre": estudiante.nombre}
         parciales_totales = []
 
-        for i, parcial in enumerate(config_final["evaluaciones"], start=1):
-
+        for parcial_num in range(1, 5):
             total_parcial = 0
 
-            for cat_nombre, cat_data in parcial["categorias"].items():
-
-                peso = cat_data["peso"]
-                ids_tareas = cat_data["tareas"]
-
-                notas_categoria = []
-
-                for t in est["tareas"]:
-                    if t["id"] in ids_tareas and t["nota"] is not None and t["max"]:
-
-                        normalizada = (t["nota"] / t["max"]) * peso
-                        notas_categoria.append(normalizada)
-
-                # promedio si hay varias tareas
-                if notas_categoria:
-                    valor = sum(notas_categoria) / len(notas_categoria)
-                else:
-                    valor = 0
-
-                col = f"P{i}_{cat_nombre}"
-                fila[col] = round(valor, 2)
-
+            for cat in CATEGORIAS_PESO:
+                peso = pesos.get(cat, 0)
+                notas_categoria = [
+                    float(e.nota) / float(e.nota_maxima) * peso
+                    for e in entregas_est
+                    if e.tarea.parcial == parcial_num
+                    and e.tarea.categoria == cat
+                    and e.nota is not None
+                    and e.nota_maxima
+                ]
+                valor = sum(notas_categoria) / len(notas_categoria) if notas_categoria else 0
+                fila[f"P{parcial_num}_{cat}"] = round(valor, 2)
                 total_parcial += valor
 
-            fila[f"P{i}_total"] = round(total_parcial, 2)
+            fila[f"P{parcial_num}_total"] = round(total_parcial, 2)
             parciales_totales.append(total_parcial)
 
-        # promedio final
-        if parciales_totales:
-            fila["final"] = round(sum(parciales_totales) / len(parciales_totales), 2)
-        else:
-            fila["final"] = 0
-
+        fila["final"] = round(sum(parciales_totales) / len(parciales_totales), 2) if parciales_totales else 0
         filas.append(fila)
 
-    # Crear DataFrame
     df = pd.DataFrame(filas)
-
-    # Exportar a Excel
     df.to_excel(archivo, index=False)
 
-    print(f"✅ Excel generado: {archivo}")
+    print(f"✅ Excel generado: {archivo} ({len(filas)} estudiante(s))")
+    return len(filas)

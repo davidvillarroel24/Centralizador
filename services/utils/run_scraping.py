@@ -9,7 +9,6 @@ from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
 from scraping.scrapers.asignartareas import  auto_asignar_tareas
 from scraping.scrapers.asignartareas import  mostrar_resumen_tareas
 from scraping.scrapers.asignartareas import  generar_config_final
-from scraping.scrapers.normalizar_est import transformar_estudiantes
 from scraping.scrapers.carreras import extraer_categorias
 from scraping.scrapers.carreras import obtener_categorias
 from scraping.scrapers.carreras import  cargar_todo
@@ -234,18 +233,21 @@ def asignacion_tareas(ids=None, config_base=None):
     ver data.models.Profesor.config_tareas). Si se llama sin el (CLI suelto, sin nocion de
     "usuario actual"), cae al viejo gatfh/config_tareas.json como fallback compartido.
 
-    Antes leia normalizacion.json (tareas aplanadas a mano, filtrando "assign/view.php" en
-    la url). Ese archivo no aportaba nada que Tarea no tuviera ya (se poblaba, de hecho,
-    leyendo tareas.json directo via import_tareas_from_json - nunca desde normalizacion.json)
-    y su filtro de ids (`curso_id`) nunca funcionaba porque tareas.json jamas guardo un id
-    de Materia por curso. Ahora se lee directo de Tarea (tipo='assign'), filtrado por
-    Materia.id real via unidad__materia_id."""
+    `ids` es obligatorio (Materia.id de los cursos seleccionados) - antes, sin seleccion,
+    caia silenciosamente a asignar TODAS las tareas de TODOS los cursos de la base, igual
+    de peligroso que el bug viejo de estudiantes()/asignacion_tareas() que ya se corrigio
+    en otros lugares (ver _cursos_seleccionados_o_falla).
+
+    Lee directo de Tarea (tipo='assign'), filtrado por Materia.id real via
+    unidad__materia_id - no depende de normalizacion.json ni de tareas.json."""
+    if not ids:
+        raise ValueError('Debes indicar al menos un id de curso (Materia.id) para asignar sus tareas.')
     if config_base is None:
         config_base = cargarjson.cargar_fechas()
 
-    tareas_qs = Tarea.objects.filter(tipo='assign').select_related('unidad__materia')
-    if ids:
-        tareas_qs = tareas_qs.filter(unidad__materia_id__in=ids)
+    tareas_qs = Tarea.objects.filter(
+        tipo='assign', unidad__materia_id__in=ids
+    ).select_related('unidad__materia')
     warning = None
 
     tareas = [
@@ -258,7 +260,7 @@ def asignacion_tareas(ids=None, config_base=None):
         }
         for t in tareas_qs
     ]
-    if ids and not tareas:
+    if not tareas:
         warning = 'No se encontraron tareas (tipo assign) importadas para esos cursos en la base de datos.'
 
     print("Tareas a asignar:", tareas)
@@ -270,13 +272,6 @@ def asignacion_tareas(ids=None, config_base=None):
 
     print("Asignación OK", config_final)
     return asignacion, errores, warning
-
-
-@medir_tiempo
-def transformar_calificacion():
-    estudiantes=cargarjson.cargar_estudiantes()
-    notas_estudiantes=transformar_estudiantes(estudiantes)
-    return notas_estudiantes
 
 @medir_tiempo
 def run_obtener_categorias(cookie=None):

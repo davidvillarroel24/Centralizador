@@ -7,21 +7,21 @@ class Command(BaseCommand):
 
     help = (
         'Asigna automaticamente a periodos/parciales las tareas (tipo=assign) ya '
-        'importadas a la base de datos (ver extraer_tareas + "Importar tareas a BD"). '
-        'Sin ids, usa todas las tareas assign disponibles. Con ids (de Materia), filtra '
-        'solo esos cursos. Ejemplo: python manage.py extraer_asignacion 227 193'
+        'importadas a la base de datos (ver extraer_tareas + "Importar tareas a BD"), '
+        'filtradas por los cursos indicados (Materia.id). '
+        'Ejemplo: python manage.py extraer_asignacion 227 193'
     )
 
     def add_arguments(self, parser):
         parser.add_argument(
-            'ids', nargs='*', type=int, default=None,
-            help='IDs de Materia a asignar (opcional; sin esto, usa todas las tareas assign)',
+            'ids', nargs='+', type=int,
+            help='IDs de Materia a asignar (obligatorio)',
         )
 
     def handle(self, *args, **options):
 
-        ids = options['ids'] or None
-        self.stdout.write(f"Asignando tareas{f' de {len(ids)} curso(s): {ids}' if ids else ' (todas las disponibles)'}...")
+        ids = options['ids']
+        self.stdout.write(f"Asignando tareas de {len(ids)} curso(s): {ids}...")
 
         asignacion, errores, warning = extraer_asignacion(ids)
 

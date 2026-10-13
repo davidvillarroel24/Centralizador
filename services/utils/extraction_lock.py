@@ -16,11 +16,12 @@ Diseno:
   corriendo, y un threading.Event() en memoria de ese otro worker nunca se enterraba. En
   la base, cualquier worker lo ve.
 """
+import threading
 import time
 import uuid
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import connections, transaction
 from django.utils import timezone
 
 from data.models import TrabajoExtraccion
@@ -33,7 +34,14 @@ class DbStopEvent:
     (`.is_set()`), pero respaldado en TrabajoExtraccion.detener en vez de memoria del
     proceso. Cachea la lectura un segundo: los loops de scraping (fetch_section,
     obtener_tareas_async...) pueden llamar is_set() muchas veces por segundo y no tiene
-    sentido pegarle a la base en cada una."""
+    sentido pegarle a la base en cada una.
+
+    is_set() se llama desde adentro de funciones async (fetch_section, etc, corriendo
+    dentro de un asyncio.run()) - el ORM de Django no permite tocarlo directo desde ahi
+    ("You cannot call this from an async context"). Por eso la consulta real corre en un
+    hilo del sistema operativo aparte (sin loop de asyncio corriendo ahi adentro): Django
+    solo revisa si HAY un loop corriendo en el hilo que llama al ORM, no en el hilo
+    original de la funcion async."""
 
     _CACHE_SECONDS = 1.0
 
@@ -46,11 +54,28 @@ class DbStopEvent:
         ahora = time.monotonic()
         if ahora - self._cached_at < self._CACHE_SECONDS:
             return self._cached
-        self._cached = TrabajoExtraccion.objects.filter(
-            pk=1, job_id=self.job_id, detener=True
-        ).exists()
+        self._cached = self._consultar_en_hilo_aparte()
         self._cached_at = ahora
         return self._cached
+
+    def _consultar_en_hilo_aparte(self):
+        resultado = {}
+
+        def consulta():
+            try:
+                resultado['valor'] = TrabajoExtraccion.objects.filter(
+                    pk=1, job_id=self.job_id, detener=True
+                ).exists()
+            finally:
+                # Este hilo no esta atado al ciclo request/response de Django, asi que
+                # nadie mas cierra la conexion que abre aca - sin esto se acumulan
+                # conexiones huerfanas a Postgres durante una extraccion larga.
+                connections.close_all()
+
+        hilo = threading.Thread(target=consulta)
+        hilo.start()
+        hilo.join()
+        return resultado.get('valor', False)
 
 
 def try_acquire_lock(usuario):

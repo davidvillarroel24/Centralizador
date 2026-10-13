@@ -390,6 +390,10 @@ class TrabajoExtraccion(models.Model):
     usuario = models.CharField(max_length=255, blank=True, default='')
     en_curso = models.BooleanField(default=False)
     iniciado = models.DateTimeField(null=True, blank=True)
+    # Antes vivia solo en memoria (threading.Event) del proceso que arranco la extraccion
+    # - con mas de un worker de gunicorn, el click de "Detener" podia caer en un worker
+    # distinto al que la corria y no hacer nada. En la base, cualquier worker lo ve.
+    detener = models.BooleanField(default=False)
 
     def __str__(self):
         if self.en_curso:

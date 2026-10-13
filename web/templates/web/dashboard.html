@@ -24,15 +24,28 @@
             <div class="message card success">Se pidió detener la extracción en curso.</div>
         {% elif request.GET.detenido == '0' %}
             <div class="message card">No había ninguna extracción en curso para detener.</div>
+        {% elif request.GET.detenido == 'sin_permiso' %}
+            <div class="message card error">Solo quien inició la extracción o un administrador puede detenerla.</div>
         {% endif %}
 
         {% if extraccion_en_curso %}
-            <form method="post" action="{% url 'detener_extraccion' %}" class="dashboard-form" style="margin-bottom: 20px;">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-secondary" style="border-color:#d23c3c;color:#ff8080;">
-                    ⏹ Detener extracción en curso
-                </button>
-            </form>
+            {% if user.is_staff or extraccion_en_curso.usuario == user.username %}
+                <form method="post" action="{% url 'detener_extraccion' %}" class="dashboard-form" style="margin-bottom: 20px;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-secondary" style="border-color:#d23c3c;color:#ff8080;">
+                        ⏹ Detener extracción en curso
+                    </button>
+                </form>
+            {% else %}
+                <div class="dashboard-form" style="margin-bottom: 20px;">
+                    <button type="button" class="btn btn-secondary" disabled style="opacity:0.5;cursor:not-allowed;">
+                        ⏹ Detener extracción en curso
+                    </button>
+                    <p class="note" style="margin-top:6px;">
+                        Solo {{ extraccion_en_curso.usuario }} (quien la inició) o un administrador puede detenerla.
+                    </p>
+                </div>
+            {% endif %}
         {% endif %}
 
         <section class="panel cookie-panel" style="margin-bottom: 20px;">

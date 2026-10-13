@@ -20,6 +20,11 @@ python manage.py migrate --noinput
 echo "Recolectando archivos estaticos..."
 python manage.py collectstatic --noinput
 
+# 2 workers: con una extraccion en curso (sincronica, puede tardar) el sitio sigue
+# respondiendo para el resto en el otro worker. El boton "Detener extraccion" ya no
+# depende de en que worker cae el click (extraction_lock.py guarda el pedido de parada
+# en la base, no en memoria de un proceso), asi que no hace falta bajar a 1 worker para
+# que funcione.
 echo "Levantando gunicorn..."
 exec gunicorn gatfh.wsgi:application \
     --bind 0.0.0.0:8000 \

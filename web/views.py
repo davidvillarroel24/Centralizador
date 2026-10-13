@@ -423,7 +423,7 @@ def dashboard(request):
                 # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
                 # para que no arranquen dos extracciones de usuarios distintos en paralelo.
                 cookie = request.session.get('MoodleSession')
-                job_id = extraction_lock.try_acquire_lock(request.user.username)
+                job_id, aviso_candado_vencido = extraction_lock.try_acquire_lock(request.user.username)
                 if job_id is None:
                     candado = extraction_lock.current_lock()
                     error = (
@@ -443,6 +443,8 @@ def dashboard(request):
                             action_result = run_estudiantes_web(
                                 selected_ids, cookie, stop_event, profesor=get_current_profesor(request)
                             )
+                        if aviso_candado_vencido:
+                            action_result['warning'] = aviso_candado_vencido
                     finally:
                         extraction_lock.release_lock(job_id)
             elif action in IMPORTADORES_CARRERAS:
@@ -504,7 +506,15 @@ def dashboard(request):
 @require_http_methods(['POST'])
 def detener_extraccion(request):
     """Boton de emergencia: marca la extraccion en curso para que se corte apenas termine
-    la seccion que este en vuelo, en vez de esperar a que acabe sola o vencer el timeout."""
+    la seccion que este en vuelo, en vez de esperar a que acabe sola o vencer el timeout.
+
+    Solo puede detenerla quien la inicio, o un admin (request.user.is_staff) - antes
+    cualquier usuario logueado podia cortar la extraccion de cualquier otro sin ninguna
+    verificacion. El template ya deshabilita el boton para quien no cumple esto, pero el
+    chequeo real tiene que estar aca: un POST directo a esta URL se saltaria el HTML."""
+    candado = extraction_lock.current_lock()
+    if candado and not (request.user.is_staff or candado.usuario == request.user.username):
+        return redirect(f"{reverse('dashboard')}?detenido=sin_permiso")
     detenida = extraction_lock.request_stop()
     return redirect(f"{reverse('dashboard')}?detenido={'1' if detenida else '0'}")
 

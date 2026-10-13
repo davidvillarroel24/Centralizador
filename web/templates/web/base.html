@@ -53,6 +53,43 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
     <script src="https://cdn.datatables.net/2.3.2/js/dataTables.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+      // Helper global: muestra el resultado de una accion (extraccion, importacion,
+      // guardado de config) como un popup de SweetAlert2 y, ademas, en la consola del
+      // navegador con el detalle completo - pensado para cuando la app corre en Docker
+      // y no hay forma rapida de ver los print()/logs del servidor sin entrar por SSH.
+      function mostrarResultado(opts) {
+        opts = opts || {};
+        if (opts.error) {
+          console.error('[Centralizador] Error:', opts.error);
+          if (window.Swal) {
+            Swal.fire({
+              icon: 'error',
+              title: 'Ocurrió un error',
+              text: opts.error,
+              footer: 'Detalle completo en la consola del navegador (F12).',
+              confirmButtonColor: '#9b5bf6',
+            });
+          }
+        } else if (opts.title || opts.detail) {
+          console.log('[Centralizador]', opts.title || 'Resultado', '-', opts.detail || '', opts);
+          if (window.Swal) {
+            var lineas = [];
+            if (opts.detail) lineas.push(opts.detail);
+            if (opts.count !== null && opts.count !== undefined) lineas.push('Total: ' + opts.count);
+            if (opts.errors !== null && opts.errors !== undefined) lineas.push('Errores: ' + opts.errors);
+            Swal.fire({
+              icon: opts.warning ? 'warning' : 'success',
+              title: opts.title || 'Listo',
+              html: lineas.map(function (l) { return '<p>' + l + '</p>'; }).join('') +
+                    (opts.warning ? '<p><strong>' + opts.warning + '</strong></p>' : ''),
+              confirmButtonColor: '#9b5bf6',
+            });
+          }
+        }
+      }
+    </script>
     <script>
       (function () {
         var sidebar = document.querySelector('.sidebar');

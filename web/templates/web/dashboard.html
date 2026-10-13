@@ -179,5 +179,17 @@
         });
         syncSelection();
     })();
+
+    {% if error %}
+        mostrarResultado({ error: "{{ error|escapejs }}" });
+    {% elif action_result %}
+        mostrarResultado({
+            title: "{{ action_result.title|escapejs }}",
+            detail: "{{ action_result.detail|escapejs }}",
+            count: {{ action_result.count|default_if_none:"null" }},
+            errors: {{ action_result.errors|default_if_none:"null" }},
+            {% if action_result.warning %}warning: "{{ action_result.warning|escapejs }}",{% endif %}
+        });
+    {% endif %}
 </script>
 {% endblock %}

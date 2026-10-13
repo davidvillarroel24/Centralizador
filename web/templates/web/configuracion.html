@@ -137,5 +137,11 @@
         });
         recalcular();
     })();
+
+    {% if error %}
+        mostrarResultado({ error: "{{ error|escapejs }}" });
+    {% elif saved %}
+        mostrarResultado({ title: "Configuración", detail: "Configuración guardada." });
+    {% endif %}
 </script>
 {% endblock %}

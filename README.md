@@ -14,10 +14,13 @@ Proyecto de grado — TECBA 2026.
 
 ---
 
-## 1. Estado real (actualizado 2026-10-01)
+## 1. Estado real (actualizado 2026-10-14)
 
 Lo que la Fase 1 dejó **realmente** funcionando, verificado contra el código —
 no contra los documentos de junio, que inflaban el avance.
+
+*Filas marcadas con fecha 10-14 se revisaron contra el código en esta pasada; el resto
+queda como en la revisión del 10-01 (no se volvió a comprobar en esta actualización).*
 
 | Módulo | Estado | Detalle |
 |---|---|---|
@@ -26,13 +29,20 @@ no contra los documentos de junio, que inflaban el avance.
 | Resumen (KPIs + Chart.js) | ⚠️ Frágil | Renderiza, pero el cálculo está envuelto en `except: pass` (una BD vacía muestra ceros indistinguibles de "sin alertas"); N+1 (~4000 queries medidos); "actividades" cuenta solo tareas cuyo título contiene `"Examen"`/`"tek"`, no todas |
 | Materias / Docentes / Estudiantes | ⚠️ Listado básico | Consultas con algunas anotaciones; quedan `print()` de depuración en el código |
 | Alertas | ⚠️ Parcial | 3 reglas efectivas (el README de junio decía 5): materias sin actividades, tareas sin cierre, sobrecarga >8 pendientes. "Sobrecarga" tiene **dos definiciones incompatibles** en `web/views.py` (≥3 el mismo día para el KPI, >8 pendientes para alertas) |
-| Extracción (`/extraccion/`) | ✅ Pipeline completo + candado | POST dispara 6 acciones en orden: `extraer_carreras` (**nuevo**, ver C9) → `extraer_tareas` (ver C8) → `normalizado` → `asignacion` → `estudiantes` → `transformar`. Las tres que llaman a Moodle de verdad (`extraer_carreras`, `extraer_tareas`, `estudiantes`) pasan el cookie de `request.session['MoodleSession']` a `MoodleSession(cookie=...)` y por el candado global (`services/utils/extraction_lock.py`, `data.TrabajoExtraccion`) que serializa entre usuarios distintos, con timeout de 2 min y botón "Detener extracción" (`POST /extraccion/detener/`). Probado contra el Moodle real de TECBA en local (Postgres propio, sin Render): `extraer_carreras` trajo 779 materias / 157 profesores reales. **`extraer_tareas`/`estudiantes` contra Moodle real siguen sin confirmarse.** |
+| Extracción (`/extraccion/`) | ✅ Pipeline reescrito (10-14) | "Normalizar" **se eliminó**; el scraping y la importación a BD quedaron en botones separados. Scraping real, detrás del candado: `extraer_carreras` / `extraer_tareas` / `estudiantes`. Importar JSON→BD, aparte: `importar_tareas` / `importar_estudiantes` / `importar_asignacion`. `asignacion` arma `asignacion.json` con los parciales/pesos del **profesor logueado** (ver fila Configuración), y un modal nuevo (`ver_asignacion` / `guardar_asignacion_manual`) deja revisarla y corregirla a mano antes de confirmarla. Los 5 importadores de jerarquía (`importar_facultades/carreras/niveles/profesores/materias`, antes solo CLI, §3.1) ahora también son botones del dashboard (`IMPORTADORES_CARRERAS`). El candado (`extraction_lock.py`) pasó de un `threading.Event()` en memoria a un `DbStopEvent` respaldado en `TrabajoExtraccion.detener`: con gunicorn corriendo 2 workers en el VPS (§10), un `Event()` de un worker no lo veía el otro, así que "Detener extracción" podía no hacer nada. `detener_extraccion` ahora también exige ser dueño del job o staff (antes cualquier logueado detenía la de cualquiera). Sigue sin confirmarse `extraer_tareas`/`estudiantes` de punta a punta contra Moodle real. |
 | Cookie de Moodle | ✅ Nunca toca la BD | Se pega directo en `/extraccion/` (cuadro nuevo, se opaca al guardar). Vive en `request.session`, y `SESSION_ENGINE` se cambió a `signed_cookies` (`gatfh/settings.py`): la sesión completa (incluida la cookie) queda en una cookie firmada del navegador, nunca en `django_session` de Postgres. El flujo viejo (`/session-cookie/`, `session_recovery.html`) sigue existiendo como fallback pero ya no es el camino principal. |
-| Predicciones / Reportes / Configuración | ⛔ Placeholder | Solo renderizan un mensaje fijo |
-| Importadores | ⚠️ Duplicados | Ver §4. Existen dos subsistemas (`services/data_utils/` y `services/imports/`) que escriben las mismas tablas con semánticas distintas |
-| Base de datos | ✅ Postgres | `DATABASE_URL` vía `dj-database-url`, fallback a SQLite. Migraciones `0001`–`0013` (`0012`/`0013` agregan `Profesor.user` y `Tarea.descripcion`/`url_entrega` — hechas fuera de esta auditoría, sin revisar todavía) |
-| Preparación de deploy | ✅ Local, ⛔ sin probar | `Procfile`, `requirements.txt`, `.python-version`, `whitenoise`, hardening de producción condicionado a `DEBUG=False`. Nunca se desplegó en ninguna plataforma |
-| Interfaz (paleta / responsive) | ✅ Hecho | Paleta cambiada de naranja→azul→dorado+violeta ("Protoss"); sidebar oculto antes de login; autocompletado de nombre de docente en `/register/` (`<datalist>`); tablas/gráficos/sidebar responsive (breakpoints en `sidebar.css`/`dashboard.css`). Verificado con Django test client + `manage.py check`, no visualmente en navegador real. |
+| Predicciones / Reportes | ⛔ Placeholder | Solo renderizan un mensaje fijo (`predicciones_view`/`reportes_view`, vista sin cambios). Trabajo de base para Predicciones (modelo de riesgo, Random Forest) ya empezado — ver §11 |
+| Configuración (`/configuracion/`) | ✅ Funcional, por profesor (10-14) | Dejó de ser placeholder. Reemplaza a `config_tareas.json` (un archivo compartido, editado a mano) con dos tablas nuevas por `Profesor`: `FechasParciales` (rango de cada uno de los 4 parciales) y `PesosCategorias` (peso de Mi-Tek/E-Tek/Training/Design Lab/Examen). Alimenta directo a "Asignar tareas". |
+| Notas y Excel | ✅ Nuevo (10-14) | `Entrega.nota`/`nota_maxima` (migración `0016`) + botón "Generar Excel" → `descargar_excel`: arma el archivo en memoria (`BytesIO`) y lo entrega como descarga directa (`FileResponse`), sin pasar por el disco del servidor como antes. |
+| Importadores | ⚠️ Duplicados, parcialmente resuelto (10-14) | Ver §4. `services/imports/` (facultades/carreras/niveles/profesores/materias) es el canónico y ya tiene botón propio en el dashboard. `services/data_utils/` sigue siendo el que usan tareas/estudiantes/asignación (`import_tareas_from_json`, `import_estudiantes_from_json`, `import_asignacion_from_json`) — la migración de esos tres a `services/imports/` (D2) sigue sin hacerse. |
+| Base de datos | ✅ Postgres | `DATABASE_URL` vía `dj-database-url`, fallback a SQLite. Migraciones `0001`–`0017`: `0014`/`0015` agregan `FechasParciales`/`PesosCategorias` y `Tarea.categoria`/`parcial`; `0016` agrega `Entrega.nota`/`nota_maxima`; `0017` agrega `TrabajoExtraccion.detener` (candado de parada). `0012`/`0013` (`Profesor.user`) siguen sin revisarse a fondo. |
+| Preparación de deploy | ✅ Desplegado en VPS (10-14) | Corriendo en un VPS compartido (Contabo) vía Docker Compose, detrás de un proxy Caddy compartido con otros 3 proyectos — ver §10 y [`deploy/README.md`](deploy/README.md). Render quedó abandonado como ruta real (D3); el `Procfile` se mantiene en el repo sin usarse. |
+| Interfaz (paleta / responsive) | ✅ Hecho | Paleta cambiada de naranja→azul→dorado+violeta ("Protoss"); sidebar oculto antes de login, colapsable en celular con botón hamburguesa; iconos de Bootstrap Icons (CDN) en vez de emojis; SweetAlert2 (CDN) para mensajes de error en vez de alertas nativas del navegador; autocompletado de nombre de docente en `/register/` (`<datalist>`); tablas/gráficos/sidebar responsive (breakpoints en `sidebar.css`/`dashboard.css`). |
+
+*Commits revisados para esta actualización (`872cabd`..`0ccad6d`, 14 en total, más el
+deploy en `deploy/`): pipeline de extracción reescrito y modal de asignación (5), hilo/
+candado para 2 workers de gunicorn (3), SweetAlert2, descarga de notas en Excel, conexión
+SSH a Postgres del VPS (3), deploy en VPS (§10).*
 
 **Fase 2 (multiusuario): 0 % en código.** Lo hecho hasta ahora es infraestructura
 (lectura de `.env`, Postgres, preparación para hosting).
@@ -44,8 +54,10 @@ no contra los documentos de junio, que inflaban el avance.
 - **Python 3.14** · **Django 6.0.5** · **PostgreSQL** (SQLite como fallback local)
 - `aiohttp` + `beautifulsoup4` para el scraping · `requests` para la sesión
 - `pandas` + `openpyxl` para exportar Excel · `Chart.js` (CDN) en el front
+- Bootstrap Icons + SweetAlert2 (CDN) en el front · Docker Compose para el deploy
 
 ```
+deploy/           Docker Compose para el VPS compartido (Contabo) — ver §10
 gatfh/            Configuración Django (settings, urls, config.py, wsgi)
 data/             Modelos: Profesor, Facultad, Carrera, Nivel, Materia, Unidad,
                   Tarea, Estudiante, Entrega, ArchivoTarea  + migraciones
@@ -153,6 +165,11 @@ for m in [Facultad, Carrera, Nivel, Materia, Profesor, Tarea, Estudiante, Entreg
   ▼
 [web/ : dashboard, resumen, listados, alertas]
 ```
+
+Aparte, para las notas: `PesosCategorias`/`FechasParciales` (por profesor, en
+`/configuracion/`) alimentan `asignacion_tareas()` → `asignacion.json` (editable desde el
+modal de `/extraccion/`) → `Entrega.nota`/`nota_maxima` → botón "Generar Excel"
+(`descargar_excel`, arma el archivo en memoria, sin tocar disco).
 
 **Importador canónico:** `services/imports/` (comandos `importar_*`). El subsistema
 `services/data_utils/` (usado hoy por el dashboard web y por `import_all_data`) crea una
@@ -316,6 +333,96 @@ hosting; se evalúa si la cola en Postgres sigue siendo necesaria con extracció
 |---|---|
 | `README.md` (este) | Punto de verdad del estado |
 | `PLAN_DESARROLLO.md` | Roadmap de Fase 2 (en re-ordenamiento) |
+| `deploy/README.md` | Guía operativa del VPS (levantar, redeploy, backups) — ver §10 |
 | `archivo/PROYECTO_COMPLETADO.md` | Archivado — junio 2026, avance inflado |
 | `archivo/TAREAS_COMPLETADAS.md` | Archivado — junio 2026, matriz de requisitos desactualizada |
 | `archivo/QUICKSTART.md` | Archivado — junio 2026, comandos y rutas incorrectos |
+
+---
+
+## 10. Deploy en producción (VPS)
+
+Corriendo en un VPS compartido (Contabo) junto a otros 3 proyectos del grupo, vía Docker
+Compose + un proxy Caddy compartido que maneja HTTPS para los 4. Guía operativa completa
+(cómo levantarlo, redeploy, backups, troubleshooting) en [`deploy/README.md`](deploy/README.md).
+
+- **URL:** `https://centralizador-tecba.duckdns.org`
+- **Servicios:** `web` (Django + gunicorn, 2 workers — ver nota sobre el candado en §1),
+  `db` (Postgres 17), `respaldos` (backup diario automático, 14 días / 4 semanales / 3
+  mensuales, fuera de Docker en `deploy/respaldos/`)
+- **Aislamiento:** ningún servicio de Centralizador publica un puerto al mundo salvo el
+  Caddy compartido (80/443). `db` sí tiene un puerto en `127.0.0.1:5432` — solo alcanzable
+  desde el propio VPS, pensado para conectar un cliente como DBeaver por túnel SSH.
+- **Deploy automático:** `.github/workflows/deploy-vps.yml` ya está en el repo (hace
+  `git pull` + `docker compose up -d --build` en cada push a `main`), pero **todavía no
+  está activado** — falta generar la llave SSH restringida en el VPS y cargar los secrets
+  (`VPS_HOST`/`VPS_USER`/`VPS_SSH_KEY`) y la variable `VPS_DEPLOY_ACTIVO` en GitHub
+  (detalle en `deploy/README.md`, sección 4). Hasta entonces, el redeploy es manual:
+  `git pull --ff-only && docker compose up -d` en el VPS.
+- **Render:** abandonado como ruta de deploy (D3, §5); el `Procfile` se mantiene en el
+  repo pero no es el camino real hoy.
+- **Seed de datos:** `data/raw/categorias.json`/`carreras.json`/`linkcarreras.json` se
+  versionan a propósito (excepción en `.gitignore`) para poder importar la jerarquía de
+  carreras en un deploy nuevo sin volver a correr "Extraer carreras" contra Moodle — no
+  traen datos de estudiantes.
+
+---
+
+## 11. Predicciones — modelo de riesgo (Random Forest)
+
+**Estado: en progreso, iniciado 2026-10-14.** `/predicciones/` sigue siendo placeholder
+(§1); esto es el trabajo de base para dejar de serlo. Elegido Random Forest sobre
+XGBoost/K-Means (ver 2.2.9.1 del Marco Conceptual de la tesis). Entrenamiento en Google
+Colab; el modelo entrenado (`.joblib`) se va a versionar en el repo para que el deploy en
+Docker lo sirva sin infraestructura extra.
+
+### Decisión de diseño: qué predice y de dónde sale la etiqueta
+
+No existe en la base ningún campo histórico de "en riesgo"/"aprobó"/"reprobó" — hay que
+derivarlo. Unidad de observación elegida: **una fila por `(Estudiante, Materia,
+parcial)`** ya cerrado (no por estudiante solo, para tener más filas y porque el riesgo
+es específico a una materia). Label: nota ponderada del parcial (misma fórmula que ya usa
+"Generar Excel", ver abajo) comparada contra la nota mínima de aprobación.
+
+- **Nota de aprobación:** 61/100 (confirmado por el usuario, TECBA). **No quedó
+  hardcodeada** — es configurable, porque así lo pidió el usuario explícitamente para
+  poder ajustarla desde el panel de Predicciones más adelante.
+- **Features candidatas** (calculadas con datos *del propio parcial*, nunca posteriores,
+  para no "ver el futuro"): % de tareas sin entregar, % ya calificadas, días de atraso
+  promedio, cantidad de entregas atrasadas.
+- **Advertencia de volumen de datos (confirmada por el usuario):** hoy hay ~80 entregas
+  calificadas, de 2 cursos del año pasado. Es muy poco para un Random Forest confiable —
+  el plan es dejar el pipeline listo y correrlo de nuevo a medida que más profesores usen
+  el sistema, no asumir que ya hay suficiente para entrenar en serio.
+
+### Lo que ya se construyó (verificado contra el código)
+
+| Pieza | Qué hace |
+|---|---|
+| `ConfiguracionInstitucional` (modelo + migración `0018`) | Fila única (mismo patrón que `TrabajoExtraccion`, pk=1) con `nota_aprobacion` (default 61). La usa tanto el entrenamiento como, a futuro, el panel de Predicciones en producción. |
+| `calcular_total_parcial()` en `services/data_utils/run_export.py` | Extraída de `generar_excel()` (antes era código inline) para que la etiqueta del dataset de entrenamiento use **la misma fórmula** que ya ve el profesor en el Excel, en vez de una paralela que podría divergir. |
+| `python manage.py exportar_dataset_ml` (nuevo comando) | Arma `data/ml/dataset_ml.csv` (gitignoreado — trae `estudiante_id` real) con una fila por `(estudiante, materia, parcial)` cerrado: features + `nota_parcial` + `en_riesgo`. Reusa `parse_date_string()` de `web/views.py` para los días de atraso en vez de reimplementar el parseo de fechas en texto libre. Informa por consola cuántas materias se saltearon y por qué (sin profesor enlazado / sin `PesosCategorias`-`FechasParciales` en `/configuracion/` / sin entregas tipo `assign`) — importante porque con tan pocos datos es más probable terminar en 0 filas que en un dataset usable, y sin ese desglose no hay forma de saber por qué. |
+
+**Pendiente de ejecutar** (lo hace el usuario, no se corrió todavía en esta sesión):
+`python manage.py migrate` + `python manage.py exportar_dataset_ml`, y confirmar cuántas
+filas salen antes de seguir con el notebook de Colab.
+
+### Lo que falta (no construido todavía)
+
+1. **Notebook de Colab**: lee `dataset_ml.csv`, entrena `RandomForestClassifier
+   (class_weight='balanced')`, evalúa con precision/recall por clase (no accuracy sola —
+   con pocos casos de "en riesgo", accuracy engaña), guarda con `joblib.dump`.
+2. **Llevar el modelo a Docker**: `.joblib` versionado en el repo (ej.
+   `ml/models/riesgo_v1.joblib`), entra al build con el `COPY . .` del `Dockerfile` de
+   `deploy/web/` sin infraestructura extra. Hay que fijar la versión de `scikit-learn` en
+   `requirements.txt` igual a la usada en Colab, o el `.joblib` puede no cargar.
+3. **Panel de configuración en `/predicciones/`** — importante separar dos cosas que no
+   son lo mismo: la configuración de *entrenamiento* (hiperparámetros de Random Forest)
+   vive en Colab, no en la web — no tiene sentido exponerla en producción porque cambiarla
+   implica reentrenar, no solo re-evaluar. Lo que sí va en el panel web, porque es
+   configuración de *inferencia* sobre un modelo ya entrenado:
+   - Umbral de aprobación (ya armado, `ConfiguracionInstitucional.nota_aprobacion`)
+   - Bandas de riesgo (bajo/medio/alto) por probabilidad de la predicción
+   - Selector de versión de modelo, si se suben reentrenos periódicos
+   - Botón "Recalcular predicciones" explícito (no se corre en cada visita a la página —
+     mismo patrón que ya usa Extracción, no un cálculo síncrono en cada GET)

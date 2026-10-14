@@ -24,6 +24,9 @@ data/raw/*.json
 !data/raw/categorias.json
 !data/raw/carreras.json
 !data/raw/linkcarreras.json
+# Dataset del modelo de riesgo (contiene ids de estudiantes reales)
+data/ml/*.csv
+
 notas*.xlsx
 notas1*.xlsx
 notas2*.xlsx

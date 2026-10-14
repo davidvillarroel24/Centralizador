@@ -379,6 +379,30 @@ class Entrega(models.Model):
 
         return f"{self.estudiante} - {self.tarea}"
     
+class ConfiguracionInstitucional(models.Model):
+    """Fila unica (pk=1), igual que TrabajoExtraccion: parametros que no son por-profesor
+    sino de la institucion entera. Hoy solo la nota minima de aprobacion (TECBA: 61/100),
+    que usa tanto el panel de Predicciones (banda de riesgo) como el comando
+    `exportar_dataset_ml` (para etiquetar las filas de entrenamiento)."""
+
+    nota_aprobacion = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=61,
+        help_text='Nota minima sobre 100 para considerar un parcial aprobado.',
+    )
+
+    actualizado = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Nota de aprobación: {self.nota_aprobacion}/100"
+
+    @classmethod
+    def actual(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
 class TrabajoExtraccion(models.Model):
     """Fila unica (pk=1) que actua como candado global de extraccion: garantiza que solo
     haya UNA extraccion en curso a la vez en todo el sistema, sin importar que usuario la

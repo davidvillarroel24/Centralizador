@@ -9,8 +9,15 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
 CONFIG_DIR = os.path.join(BASE_DIR, "gatfh")
 
-# Asegurar que la carpeta exista
+# Carpeta separada para el dataset del modelo de riesgo (exportar_dataset_ml): va aparte
+# de data/raw porque trae ids de estudiantes reales y no deberia mezclarse con el
+# staging de scraping (que sigue reglas de gitignore distintas, ver .gitignore).
+ML_DIR = os.path.join(BASE_DIR, "data", "ml")
+CSV_DATASET_ML = os.path.join(ML_DIR, "dataset_ml.csv")
+
+# Asegurar que las carpetas existan
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(ML_DIR, exist_ok=True)
 
 # Archivos CSV
 CSV_CURSOS = os.path.join(DATA_DIR, "cursos.csv")

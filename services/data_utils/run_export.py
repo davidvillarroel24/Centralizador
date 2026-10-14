@@ -8,6 +8,31 @@ from data.models import Entrega, PesosCategorias
 CATEGORIAS_PESO = ['mitek', 'etek', 'training', 'designlab', 'examen']
 
 
+def calcular_total_parcial(entregas_est, parcial_num, pesos):
+    """Nota de un estudiante en un parcial, ponderada por categoria (Mi-Tek/E-Tek/
+    Training/Design Lab/Examen) con los pesos del profesor (PesosCategorias). Una
+    categoria sin tareas calificadas en ese parcial aporta 0 (no se re-normaliza sobre
+    las categorias presentes) - si `pesos` suma 100, el resultado queda "sobre 100".
+
+    Extraida de `generar_excel` para que el dataset de entrenamiento del modelo de
+    riesgo (`exportar_dataset_ml`) etiquete cada fila con la misma nota que el profesor
+    ya ve en el Excel, en vez de una formula paralela que podria divergir."""
+    total_parcial = 0
+    for cat in CATEGORIAS_PESO:
+        peso = pesos.get(cat, 0)
+        notas_categoria = [
+            float(e.nota) / float(e.nota_maxima) * peso
+            for e in entregas_est
+            if e.tarea.parcial == parcial_num
+            and e.tarea.categoria == cat
+            and e.nota is not None
+            and e.nota_maxima
+        ]
+        valor = sum(notas_categoria) / len(notas_categoria) if notas_categoria else 0
+        total_parcial += valor
+    return total_parcial
+
+
 @medir_tiempo
 def generar_excel(ids, profesor, archivo=None):
     """Genera el Excel directo de la base de datos (Entrega/Tarea/Estudiante), filtrado
@@ -46,8 +71,6 @@ def generar_excel(ids, profesor, archivo=None):
         parciales_totales = []
 
         for parcial_num in range(1, 5):
-            total_parcial = 0
-
             for cat in CATEGORIAS_PESO:
                 peso = pesos.get(cat, 0)
                 notas_categoria = [
@@ -60,8 +83,8 @@ def generar_excel(ids, profesor, archivo=None):
                 ]
                 valor = sum(notas_categoria) / len(notas_categoria) if notas_categoria else 0
                 fila[f"P{parcial_num}_{cat}"] = round(valor, 2)
-                total_parcial += valor
 
+            total_parcial = calcular_total_parcial(entregas_est, parcial_num, pesos)
             fila[f"P{parcial_num}_total"] = round(total_parcial, 2)
             parciales_totales.append(total_parcial)
 

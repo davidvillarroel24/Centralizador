@@ -245,6 +245,18 @@ def asignacion_tareas(ids=None, config_base=None):
     if config_base is None:
         config_base = cargarjson.cargar_fechas()
 
+    rangos_parciales = config_base.get('rangos_parciales', [])
+    if not any(r.get('inicio') and r.get('fin') for r in rangos_parciales):
+        # Sin esto, auto_asignar_tareas()/obtener_parcial() descartan TODOS los rangos (sin
+        # inicio/fin no hay con que comparar la fecha de cierre), y cada tarea termina sin
+        # parcial - generar_config_final() las manda en bloque a `errores`, sin explicar
+        # por que. Candado de validacion previa, mismo criterio que PesosCategorias en
+        # estudiantes().
+        raise ValueError(
+            'Tu cuenta no tiene fechas de parciales configuradas. Configuralas primero en '
+            '/configuracion/ antes de asignar tareas.'
+        )
+
     tareas_qs = Tarea.objects.filter(
         tipo='assign', unidad__materia_id__in=ids
     ).select_related('unidad__materia')
@@ -265,7 +277,7 @@ def asignacion_tareas(ids=None, config_base=None):
 
     print("Tareas a asignar:", tareas)
 
-    asignacion = auto_asignar_tareas(tareas, config_base.get('rangos_parciales', []))
+    asignacion = auto_asignar_tareas(tareas, rangos_parciales)
     asignacion_ordenados = mostrar_resumen_tareas(asignacion)
     config_final, errores = generar_config_final(asignacion_ordenados, config_base)
     exportarjson.save_asignacion(config_final)

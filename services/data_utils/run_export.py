@@ -9,15 +9,25 @@ CATEGORIAS_PESO = ['mitek', 'etek', 'training', 'designlab', 'examen']
 
 
 @medir_tiempo
-def generar_excel(ids, profesor, archivo="notas.xlsx"):
-    """Genera notas.xlsx directo de la base de datos (Entrega/Tarea/Estudiante), filtrado
+def generar_excel(ids, profesor, archivo=None):
+    """Genera el Excel directo de la base de datos (Entrega/Tarea/Estudiante), filtrado
     por los cursos seleccionados (`ids`, Materia.id) y usando los pesos por categoria del
     `profesor` logueado (PesosCategorias). Reemplaza al pipeline viejo, que leia
     estudiantes.json + asignacion.json completos sin filtrar por seleccion - mezclaba
     cursos de cualquier extraccion anterior en el mismo Excel.
 
+    `archivo`: ruta en disco, un buffer tipo BytesIO (pandas acepta ambos por igual - lo
+    usa el boton web para armar la descarga directa sin tocar el disco), o None para
+    guardar en un archivo propio por profesor (notas_profesor_<id>.xlsx) y evitar que dos
+    profesores se pisen el mismo "notas.xlsx" compartido, como pasaba antes.
+
     Requiere que "Importar estudiantes" (Entrega.nota/nota_maxima) e "Importar asignación"
-    (Tarea.categoria/Tarea.parcial) ya hayan corrido para estos cursos."""
+    (Tarea.categoria/Tarea.parcial) ya hayan corrido para estos cursos.
+
+    Devuelve (cantidad_de_filas, archivo)."""
+    if archivo is None:
+        archivo = f"notas_profesor_{profesor.id}.xlsx"
+
     pesos_row = PesosCategorias.objects.filter(profesor=profesor).first()
     pesos = {cat: getattr(pesos_row, cat, 0) if pesos_row else 0 for cat in CATEGORIAS_PESO}
 
@@ -60,6 +70,8 @@ def generar_excel(ids, profesor, archivo="notas.xlsx"):
 
     df = pd.DataFrame(filas)
     df.to_excel(archivo, index=False)
+    if hasattr(archivo, "seek"):
+        archivo.seek(0)
 
     print(f"✅ Excel generado: {archivo} ({len(filas)} estudiante(s))")
-    return len(filas)
+    return len(filas), archivo

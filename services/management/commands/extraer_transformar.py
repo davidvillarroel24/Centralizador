@@ -7,8 +7,8 @@ from services.extraccion.trasformar import extraer_transformar
 class Command(BaseCommand):
 
     help = (
-        'Genera notas.xlsx desde la base de datos, filtrado por los cursos indicados '
-        '(Materia.id) y los pesos por categoria del profesor indicado. '
+        'Genera notas_profesor_<id>.xlsx desde la base de datos, filtrado por los cursos '
+        'indicados (Materia.id) y los pesos por categoria del profesor indicado. '
         'Ejemplo: python manage.py extraer_transformar 227 193 --profesor 50'
     )
 
@@ -29,8 +29,8 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Generando Excel para {len(ids)} curso(s): {ids}...")
 
-        total = extraer_transformar(ids, profesor)
+        total, archivo = extraer_transformar(ids, profesor)
 
         self.stdout.write(
-            self.style.SUCCESS(f"Excel generado con {total} estudiante(s).")
+            self.style.SUCCESS(f"Excel generado con {total} estudiante(s) en {archivo}.")
         )

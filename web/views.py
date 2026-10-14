@@ -3,11 +3,13 @@ import os
 import re
 import json
 from datetime import datetime, timezone, date
+from io import BytesIO
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
+from django.http import FileResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -443,18 +445,41 @@ def run_importar_estudiantes_web():
     }
 
 
-def run_transformar_web(selected_ids, profesor):
-    """Genera notas.xlsx filtrado por los cursos seleccionados y los pesos del `profesor`
-    logueado - antes `extraer_transformar()` no recibia ningun filtro y mezclaba en el
-    mismo Excel estudiantes/tareas de cualquier curso extraido alguna vez."""
-    if not selected_ids:
-        raise ValueError('Debes seleccionar al menos un curso para generar el Excel.')
-    total = extraer_transformar(selected_ids, profesor)
-    return {
-        'title': 'Transformar',
-        'detail': f'Excel generado con {total} estudiante(s). Revisa el archivo notas.xlsx en el directorio del proyecto.',
-        'count': total,
-    }
+@login_required
+@require_http_methods(['POST'])
+def descargar_excel(request):
+    """Genera el Excel filtrado por los cursos seleccionados y los pesos del profesor
+    logueado, y lo devuelve directo como descarga (sin pasar por el disco del servidor:
+    `generar_excel` escribe a un BytesIO en memoria). Antes el boton "Generar Excel" solo
+    guardaba notas.xlsx en el servidor y había que ir a buscarlo a mano.
+
+    Es un botón aparte del dispatcher de dashboard() (vía formaction en el template) porque
+    una respuesta de archivo no encaja con el patrón Post-Redirect-Get del resto de
+    acciones: acá, si todo sale bien, la respuesta ES el archivo, no un redirect."""
+    role = request.POST.get('role', 'all')
+    selected_ids = parse_selected_course_ids(request)
+    try:
+        if not selected_ids:
+            raise ValueError('Debes seleccionar al menos un curso para generar el Excel.')
+        profesor = get_current_profesor(request)
+        buffer = BytesIO()
+        total, _ = extraer_transformar(selected_ids, profesor, archivo=buffer)
+        if total == 0:
+            raise ValueError(
+                'No se encontraron estudiantes con entregas para los cursos seleccionados. '
+                'Corré primero "Importar estudiantes" y "Importar asignación" para esos cursos.'
+            )
+    except Exception as exc:
+        request.session['dashboard_flash'] = {'action_result': None, 'error': str(exc)}
+        redirect_params = [('role', role)] + [('courses', cid) for cid in [str(c) for c in selected_ids]]
+        return redirect(f"{reverse('dashboard')}?{urlencode(redirect_params)}")
+
+    return FileResponse(
+        buffer,
+        as_attachment=True,
+        filename='notas.xlsx',
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
 
 
 @login_required
@@ -522,8 +547,6 @@ def dashboard(request):
                         extraction_lock.release_lock(job_id)
             elif action in IMPORTADORES_CARRERAS:
                 action_result = run_importar_web(action)
-            elif action == 'transformar':
-                action_result = run_transformar_web(selected_ids, get_current_profesor(request))
             elif action == 'guardar_cookie':
                 # Solo vive en la sesion del navegador (nunca en la base de datos).
                 cookie_value = request.POST.get('moodle_cookie', '').strip()

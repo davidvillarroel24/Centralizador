@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Centralizador TECBA - Captura cookie Moodle",
+  "short_name": "Captura cookie Moodle",
+  "version": "1.0.0",
+  "description": "Captura tu cookie de sesión de Moodle (MoodleSession) y la pega en el formulario de Centralizador TECBA, sin copiarla a mano desde las herramientas de desarrollador. El pegado manual sigue funcionando igual, esta extensión solo agrega un atajo.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Centralizador TECBA"
+  },
+  "permissions": ["cookies"],
+  "host_permissions": [
+    "https://moodle-108854-0.cloudclusters.net/*",
+    "https://centralizador-tecba.duckdns.org/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://centralizador-tecba.duckdns.org/*",
+        "http://localhost:8000/*",
+        "http://127.0.0.1:8000/*"
+      ],
+      "js": ["content_script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

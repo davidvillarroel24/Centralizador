@@ -1238,6 +1238,15 @@ def configuracion_view(request):
     }
     return render(request, 'web/configuracion.html', context)
 
+
+def extension_privacidad_view(request):
+    """Politica de privacidad de la extension de Chrome "Captura cookie Moodle" (ver
+    chrome_extension/) - pagina publica a proposito (sin @login_required): la Chrome Web
+    Store la exige como requisito de publicacion y el revisor de Google no esta logueado
+    en Centralizador."""
+    return render(request, 'web/extension_privacidad.html')
+
+
 def parse_date_string(fecha_str):
     try:
         partes = fecha_str.split(',')

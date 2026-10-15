@@ -19,4 +19,5 @@ urlpatterns = [
     path('predicciones/', views.predicciones_view, name='predicciones'),
     path('reportes/', views.reportes_view, name='reportes'),
     path('configuracion/', views.configuracion_view, name='configuracion'),
+    path('extension/privacidad/', views.extension_privacidad_view, name='extension_privacidad'),
 ]

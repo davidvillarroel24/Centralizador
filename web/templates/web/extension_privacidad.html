@@ -1,0 +1,88 @@
+{% extends 'web/base.html' %}
+{% block title %}Política de privacidad - Extensión Centralizador{% endblock %}
+{% block header %}Política de privacidad{% endblock %}
+{% block content %}
+    <div class="page-shell">
+        <div class="hero">
+            <div>
+                <p class="eyebrow">Centralizador TECBA</p>
+                <h1>Política de privacidad de la extensión "Captura cookie Moodle"</h1>
+            </div>
+        </div>
+
+        <div class="note">Última actualización: octubre de 2026.</div>
+
+        <section class="panel" style="margin-top:16px;">
+            <h2>¿Qué hace la extensión?</h2>
+            <p class="note">
+                La extensión de Chrome <strong>"Centralizador TECBA - Captura cookie Moodle"</strong>
+                lee el valor de una única cookie del navegador, <code>MoodleSession</code>, del
+                dominio del campus virtual de Moodle de TECBA, y lo pega automáticamente en el
+                campo "Cookie de Moodle" del panel de extracción de Centralizador. Reemplaza el
+                copiado manual de esa cookie desde las herramientas de desarrollador del
+                navegador (F12 → Application → Cookies); <strong>no reemplaza la posibilidad de
+                pegar la cookie a mano</strong> — ese campo sigue siendo editable como siempre,
+                la extensión solo ofrece un atajo opcional.
+            </p>
+        </section>
+
+        <section class="panel" style="margin-top:16px;">
+            <h2>Qué datos accede y qué hace con ellos</h2>
+            <ul class="note" style="padding-left:20px;">
+                <li>Accede únicamente al valor de la cookie <code>MoodleSession</code> del
+                    dominio de Moodle configurado — ninguna otra cookie, ni de ningún otro
+                    sitio.</li>
+                <li>Esa lectura ocurre solo cuando el usuario hace clic en el botón "Capturar
+                    cookie de Moodle automáticamente" dentro de una página de Centralizador; la
+                    extensión no se ejecuta ni lee nada en segundo plano ni en otras páginas.</li>
+                <li>El valor se pega directamente en el campo de texto de la página de
+                    Centralizador que el propio usuario tiene abierta. La extensión no lo envía
+                    a ningún servidor propio ni de terceros, ni lo guarda en ningún
+                    almacenamiento (ni local ni remoto) — no persiste nada entre usos.</li>
+                <li>Una vez pegado, el usuario revisa y confirma con el botón "Guardar cookie"
+                    ya existente en Centralizador. A partir de ahí, el manejo de esa cookie
+                    sigue las mismas reglas que si se hubiera pegado a mano: se guarda solo en
+                    la sesión de navegador firmada del servidor, nunca en la base de datos.</li>
+            </ul>
+        </section>
+
+        <section class="panel" style="margin-top:16px;">
+            <h2>Permisos que solicita</h2>
+            <ul class="note" style="padding-left:20px;">
+                <li><strong>cookies</strong>: necesario para leer el valor de
+                    <code>MoodleSession</code> mediante la API <code>chrome.cookies</code>.</li>
+                <li><strong>host_permissions</strong> acotado al dominio del Moodle de TECBA (para
+                    leer esa cookie) y a los dominios de Centralizador (para mostrar el botón en
+                    sus propias páginas) — no solicita acceso a "todos los sitios".</li>
+            </ul>
+        </section>
+
+        <section class="panel" style="margin-top:16px;">
+            <h2>Qué NO hace</h2>
+            <ul class="note" style="padding-left:20px;">
+                <li>No recolecta, transmite ni vende datos de navegación, historial ni
+                    información personal a terceros.</li>
+                <li>No se ejecuta en páginas de Moodle ni de ningún sitio fuera de
+                    Centralizador.</li>
+                <li>No incluye analítica, publicidad ni rastreo de ningún tipo.</li>
+            </ul>
+        </section>
+
+        <section class="panel" style="margin-top:16px;">
+            <h2>Revocar el acceso</h2>
+            <p class="note">
+                Desinstalar la extensión desde <code>chrome://extensions</code> elimina por
+                completo cualquier posibilidad de acceso. Cerrar sesión en Moodle invalida la
+                cookie que la extensión podría leer.
+            </p>
+        </section>
+
+        <section class="panel" style="margin-top:16px;">
+            <h2>Contacto</h2>
+            <p class="note">
+                Para consultas sobre esta extensión o esta política de privacidad, escribir a
+                <a href="mailto:ohcame28@gmail.com">ohcame28@gmail.com</a>.
+            </p>
+        </section>
+    </div>
+{% endblock %}

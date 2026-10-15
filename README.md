@@ -14,13 +14,14 @@ Proyecto de grado — TECBA 2026.
 
 ---
 
-## 1. Estado real (actualizado 2026-10-14)
+## 1. Estado real (actualizado 2026-10-15)
 
 Lo que la Fase 1 dejó **realmente** funcionando, verificado contra el código —
 no contra los documentos de junio, que inflaban el avance.
 
-*Filas marcadas con fecha 10-14 se revisaron contra el código en esta pasada; el resto
-queda como en la revisión del 10-01 (no se volvió a comprobar en esta actualización).*
+*Filas marcadas con fecha 10-15 son de esta pasada (último acceso a Moodle, extensión de
+Chrome, bugs de sesión); 10-14 es la pasada anterior; el resto queda como en la revisión
+del 10-01 (no se volvió a comprobar en esta actualización).*
 
 | Módulo | Estado | Detalle |
 |---|---|---|
@@ -30,7 +31,8 @@ queda como en la revisión del 10-01 (no se volvió a comprobar en esta actualiz
 | Materias / Docentes / Estudiantes | ⚠️ Listado básico | Consultas con algunas anotaciones; quedan `print()` de depuración en el código |
 | Alertas | ⚠️ Parcial | 3 reglas efectivas (el README de junio decía 5): materias sin actividades, tareas sin cierre, sobrecarga >8 pendientes. "Sobrecarga" tiene **dos definiciones incompatibles** en `web/views.py` (≥3 el mismo día para el KPI, >8 pendientes para alertas) |
 | Extracción (`/extraccion/`) | ✅ Pipeline reescrito (10-14) | "Normalizar" **se eliminó**; el scraping y la importación a BD quedaron en botones separados. Scraping real, detrás del candado: `extraer_carreras` / `extraer_tareas` / `estudiantes`. Importar JSON→BD, aparte: `importar_tareas` / `importar_estudiantes` / `importar_asignacion`. `asignacion` arma `asignacion.json` con los parciales/pesos del **profesor logueado** (ver fila Configuración), y un modal nuevo (`ver_asignacion` / `guardar_asignacion_manual`) deja revisarla y corregirla a mano antes de confirmarla. Los 5 importadores de jerarquía (`importar_facultades/carreras/niveles/profesores/materias`, antes solo CLI, §3.1) ahora también son botones del dashboard (`IMPORTADORES_CARRERAS`). El candado (`extraction_lock.py`) pasó de un `threading.Event()` en memoria a un `DbStopEvent` respaldado en `TrabajoExtraccion.detener`: con gunicorn corriendo 2 workers en el VPS (§10), un `Event()` de un worker no lo veía el otro, así que "Detener extracción" podía no hacer nada. `detener_extraccion` ahora también exige ser dueño del job o staff (antes cualquier logueado detenía la de cualquiera). Sigue sin confirmarse `extraer_tareas`/`estudiantes` de punta a punta contra Moodle real. |
-| Cookie de Moodle | ✅ Nunca toca la BD | Se pega directo en `/extraccion/` (cuadro nuevo, se opaca al guardar). Vive en `request.session`, y `SESSION_ENGINE` se cambió a `signed_cookies` (`gatfh/settings.py`): la sesión completa (incluida la cookie) queda en una cookie firmada del navegador, nunca en `django_session` de Postgres. El flujo viejo (`/session-cookie/`, `session_recovery.html`) sigue existiendo como fallback pero ya no es el camino principal. |
+| Cookie de Moodle | ✅ Nunca toca la BD (10-15) | Se pega directo en `/extraccion/` (cuadro nuevo, se opaca al guardar). Vive en `request.session`, y `SESSION_ENGINE` se cambió a `signed_cookies` (`gatfh/settings.py`): la sesión completa (incluida la cookie) queda en una cookie firmada del navegador, nunca en `django_session` de Postgres. El flujo viejo (`/session-cookie/`, `session_recovery.html`) sigue existiendo como fallback — tenía un bug (`handle_session_error`/`cookie_recovery_view`/el template redirigían a rutas hardcodeadas con prefijo `/web/`, que no existe: la app está montada en la raíz) que hacía que cualquier extracción sin cookie terminara en un 404 en vez del formulario de recuperación; corregido con `reverse()`. Las acciones que llaman a Moodle ahora frenan antes de tomar el candado si no hay cookie guardada, en vez de descubrirlo recién al fallar contra Moodle. Extensión de Chrome nueva (`chrome_extension/`, MV3) que lee `MoodleSession` del navegador y la pega sola en el campo (sin inhabilitar el pegado manual) — ver D1b. |
+| Último acceso a Moodle (`AccesoCurso`) | ✅ Nuevo (10-15) | Scraper nuevo (`scraping/scrapers/participantes.py`, vía `/user/index.php?id=<curso>`) trae el padrón completo de inscritos de un curso (estudiantes y profesores, con su último acceso) — a diferencia de `estudiantes()`/`Entrega`, que solo ve a quien entregó algo. Botón "3b. Extraer último acceso" + importador a `AccesoCurso` (migración `0019`): una fila por `(Materia, moodle_userid)`, sin FK a `Estudiante`/`Profesor` porque el mismo id puede ser cualquiera de los dos según el curso — una sola tabla sirve para ambos. De paso corrigió el filtro de rol "estudiante"/"todos" del dashboard (`filter_courses_by_role`), que antes no tenía ninguna relación real con el usuario logueado (heurística: "cualquier materia sin profesor asignado en toda la BD"); ahora usa `AccesoCurso` para saber en qué materias el `moodle_id` del profesor logueado aparece con rol de estudiante. Pensado como insumo para el modelo de riesgo (§11): días desde el último acceso más reciente entre materias, para una alerta de abandono — todavía no integrado al dataset de entrenamiento. |
 | Predicciones / Reportes | ⛔ Placeholder | Solo renderizan un mensaje fijo (`predicciones_view`/`reportes_view`, vista sin cambios). Trabajo de base para Predicciones (modelo de riesgo, Random Forest) ya empezado — ver §11 |
 | Configuración (`/configuracion/`) | ✅ Funcional, por profesor (10-14) | Dejó de ser placeholder. Reemplaza a `config_tareas.json` (un archivo compartido, editado a mano) con dos tablas nuevas por `Profesor`: `FechasParciales` (rango de cada uno de los 4 parciales) y `PesosCategorias` (peso de Mi-Tek/E-Tek/Training/Design Lab/Examen). Alimenta directo a "Asignar tareas". |
 | Notas y Excel | ✅ Nuevo (10-14) | `Entrega.nota`/`nota_maxima` (migración `0016`) + botón "Generar Excel" → `descargar_excel`: arma el archivo en memoria (`BytesIO`) y lo entrega como descarga directa (`FileResponse`), sin pasar por el disco del servidor como antes. |
@@ -57,21 +59,25 @@ SSH a Postgres del VPS (3), deploy en VPS (§10).*
 - Bootstrap Icons + SweetAlert2 (CDN) en el front · Docker Compose para el deploy
 
 ```
+chrome_extension/ Extensión de Chrome (MV3) que captura MoodleSession — ver D1b
 deploy/           Docker Compose para el VPS compartido (Contabo) — ver §10
 gatfh/            Configuración Django (settings, urls, config.py, wsgi)
 data/             Modelos: Profesor, Facultad, Carrera, Nivel, Materia, Unidad,
-                  Tarea, Estudiante, Entrega, ArchivoTarea  + migraciones
+                  Tarea, Estudiante, Entrega, ArchivoTarea, AccesoCurso,
+                  ConfiguracionInstitucional, TrabajoExtraccion + migraciones
 web/              Vistas, templates, estáticos (el front completo)
 scraping/scrapers/ Scrapers de Moodle (session, tareas, calificaciones, profesores,
-                  carreras, detallesprofesores, normalización, asignartareas)
+                  carreras, detallesprofesores, participantes/último acceso,
+                  normalización, asignartareas)
 services/
   imports/        Importadores JSON→DB por entidad (8 comandos importar_*)  ← canónico (§3, decisión 2)
   data_utils/     Importadores antiguos (a eliminar — §3, decisión 2)
   extraccion/     Wrappers finos sobre los scrapers
-  management/commands/  Comandos de extracción (extraer_*), importación (importar_*)
-                  y `crear_admin` (seed del admin de prueba, ver §3)
+  management/commands/  Comandos de extracción (extraer_*), importación (importar_*),
+                  `exportar_dataset_ml` (§11) y `crear_admin` (seed del admin, ver §3)
   utils/          run_scraping, timing
 data/raw/         Staging JSON de la extracción (gitignoreado — datos reales de personas)
+data/ml/          Dataset de entrenamiento del modelo de riesgo (gitignoreado — ver §11)
 ```
 
 Carpetas fuera del alcance del repo (gitignoreadas): `Versioines Demo/` (versión demo
@@ -197,6 +203,17 @@ BD, ni en `request.session`, ni en archivo. El modelo:
 - La envía con cada request de extracción on-demand.
 - El servidor la usa en memoria solo durante ese job y la descarta.
 
+**✅ Construida (10-15):** `chrome_extension/` (Manifest V3). `background.js` (service
+worker) es el único archivo que toca `chrome.cookies`, lee `MoodleSession` del dominio de
+Moodle configurado bajo pedido (no persiste nada); `content_script.js` corre solo en las
+páginas de Centralizador y agrega un botón junto al campo de cookie ya existente en
+`dashboard.html`/`session_recovery.html` — **no reemplaza el pegado manual**, el usuario
+sigue revisando y confirmando con "Guardar cookie". Hoy se instala en modo desarrollador
+desde un .zip descargable en `/configuracion/` (`web/static/web/downloads/`); dejarla lista
+para la Chrome Web Store (privada/no listada, sin modo desarrollador para el usuario final)
+es trabajo futuro — checklist en `chrome_extension/README.md`. Política de privacidad
+pública (requisito de la Web Store) en `/extension/privacidad/`.
+
 Esto **elimina** del plan original: `CredencialMoodleMixin`, cifrado Fernet y todo
 almacenamiento de credenciales. El fix del bug de sesión pasa a ser:
 `MoodleSession(cookie=...)` recibe la cookie como parámetro del request.
@@ -236,6 +253,7 @@ revisión; resumen accionable acá.
 | C7 | **La sección 4 del plan parte de una premisa falsa:** `procesar_profesor` NO puebla `Materia.profesores` (escribe un JSON que nadie lee). La M2M la puebla `carreras.py` → `linkcarreras.json` | `scraping/scrapers/profesores.py` | ⛔ Sin tocar |
 | C8 | **`Materia.moodle_url` guardaba la URL de la primera tarea de la sección 1 (cualquier recurso al azar), no la URL del curso.** Como `load_courses()` (`web/views.py`) pasó a leer los cursos desde `Materia` en vez de `cursos.json` (necesario: `data/raw/*.json` está gitignoreado y no existe en Render), el scraper de "Extraer tareas" le pedía secciones a un link de tarea en vez de al curso — nunca iba a traer nada. Además faltaba por completo el botón/acción que dispara `obtener_tareas_async` y llena `tareas.json`, que es lo que "Normalizar" necesita para tener datos | `services/data_utils/import_to_db.py`, `web/views.py:load_courses` | ✅ `import_to_db.py` ahora toma la URL real desde `cursos.json` y se autocorrige en cada corrida de "Normalizar" si detecta una `moodle_url` que no es `/course/view.php`. Se agregó la acción `extraer_tareas` (botón "1. Extraer tareas del curso") que faltaba. Los 16 `Materia` de la BD **local** ya se corrigieron a mano; **la BD de Render (`centralizador_db2`) sigue con las URLs viejas, pendiente** |
 | C9 | **Faltaba el paso previo a todo lo demás: no había forma de poblar `Facultad`/`Carrera`/`Materia`/`Profesor` desde el dashboard.** `load_courses()` lee `Materia` desde Postgres, pero nada en `/extraccion/` generaba `linkcarreras.json` ni lo importaba — el prototipo (`moodle_app_async`) sabe hacer el scraping (`categorias → carreras → linkcarreras`, ver `moodle/carreras.py`) pero nunca tuvo un loader de BD funcional (`crearbaseRelacional.py` tiene un import roto, `from moodle.config`, módulo que ya no existe, y no lo llama nada). Además el orden documentado acá mismo (`importar_materias` antes que `importar_profesores`) deja la M2M `Materia.profesores` vacía en silencio, porque `materias.py` busca el `Profesor` ya creado al enlazarlo | `web/views.py` (dashboard), `services/management/commands/importar_*` | ✅ Agregada la acción `extraer_carreras` (botón "0. Extraer carreras"), que corre la cadena de 3 pasos pasando el cookie explícito (mismo patrón que `extraer_tareas`/`estudiantes`, no la ruta vieja de `services/utils/run_scraping` que todavía usa `MoodleSession()` sin cookie). Orden de importación corregido en §3.1 (profesores antes que materias). Probado end-to-end en Postgres local: 779 materias / 157 profesores / 759 materias con profesor enlazado |
+| C10 | **Redirect de error de sesión rompía con 404.** `handle_session_error`/`cookie_recovery_view` y `session_recovery.html` tenían hardcodeado el prefijo `/web/` (`/web/session-cookie/`, `/web/dashboard/`, `/web/resumen/`), pero la app está montada en la raíz (`gatfh/urls.py` incluye `web.urls` en `''`). Cualquier extracción con la cookie vencida o sin guardar terminaba en un 404 en vez de mostrar el formulario para pegarla de nuevo | `web/views.py`, `web/templates/web/session_recovery.html` | ✅ Reemplazados todos los hardcodeos por `reverse('dashboard')`/`reverse('session_cookie')`/`reverse('resumen')`/`{% url %}`. Además, las acciones que llaman a Moodle (`extraer_carreras`/`extraer_tareas`/`estudiantes`/`extraer_participantes`) ahora frenan con un mensaje claro si no hay cookie guardada **antes** de tomar el candado, en vez de ocuparlo para nada y descubrirlo recién al fallar contra Moodle |
 
 ### Importantes
 
@@ -251,6 +269,7 @@ revisión; resumen accionable acá.
 - ✅ `range(1, 13)` hardcodeado en `tareas.py:73` → ahora detecta el número real de secciones leyendo la página del curso (`detectar_num_secciones`), con `12` como piso si no se puede detectar.
 - ✅ `print("... ✔")` en `services/data_utils/{cargarjson,exportarjson}.py` rompía con `UnicodeEncodeError` en consolas Windows con codepage `cp1252` (no en Render, que es Linux/UTF-8, pero sí al correr local) — se sacó el carácter.
 - Documentos de junio (`README` viejo, `PROYECTO_COMPLETADO.md`, `TAREAS_COMPLETADAS.md`) contradicen el código: p. ej. afirmaban "las cookies NUNCA se persisten en DB" (falso, corregido ahora con `SESSION_ENGINE = signed_cookies`) y `actividades = Tarea.objects.count()` (está filtrado).
+- ✅ (10-15) El filtro de rol "estudiante"/"todos" del dashboard (`filter_courses_by_role`, `web/views.py`) no tenía ninguna relación real con el usuario logueado: calculaba "estudiante" como "cualquier materia de toda la BD sin profesor asignado", heurística sin ningún vínculo con quién inició sesión (a diferencia de "docente", que sí usaba `Materia.profesores` real y por eso andaba bien). Corregido para usar `AccesoCurso` (§1) y el `moodle_id` real del profesor logueado — depende de que ya se haya corrido "3b. Extraer último acceso" + su importador para esas materias.
 - `services/utils/run_scraping.py::run_obtener_categorias/obtener_carreras/obtener_Linkcarreras` **todavía** instancian `MoodleSession()` sin cookie (leen el fallback `config.COOKIES` del `.env`) — es la misma clase de bug que D1b ya corrigió para tareas/estudiantes. La acción web `extraer_carreras` (C9) no pasa por ahí: la vista arma su propio `MoodleSession(cookie=...)` y llama directo a `scraping/scrapers/carreras.py`. Si alguien usa el management command CLI (`extraer_categorias`/`extraer_carreras`/`extraer_linkcarreras`) en vez del botón, sigue dependiendo de `MOODLE_SESSION_COOKIE` en `.env` — sin tocar.
 - **Gunicorn no tiene `--timeout` seteado en el `Procfile`** → default de 30s. Cualquier acción que llame a Moodle de verdad (`extraer_carreras`, `extraer_tareas`, `estudiantes`) corre síncrona dentro del request y puede superar ese límite fácilmente (la sola cadena de `extraer_carreras` hace 8-15+ POST secuenciales con `sleep(1.5-3.5s)` entre páginas) — el worker muere con "WORKER TIMEOUT" sin importar el hosting (Render, VPS, el que sea). Subir `--timeout` es un parche; la solución de fondo sigue siendo sacar la extracción del request HTTP (Bloque 2, cola/worker separado).
 
@@ -390,6 +409,10 @@ es específico a una materia). Label: nota ponderada del parcial (misma fórmula
 - **Features candidatas** (calculadas con datos *del propio parcial*, nunca posteriores,
   para no "ver el futuro"): % de tareas sin entregar, % ya calificadas, días de atraso
   promedio, cantidad de entregas atrasadas.
+- **Candidata nueva, todavía no integrada (10-15):** días desde el último acceso más
+  reciente del estudiante a *cualquiera* de sus materias, usando `AccesoCurso` (§1) — si
+  supera ~1 mes, señal de posible abandono. Requiere que "3b. Extraer último acceso" ya se
+  haya corrido para esas materias; `exportar_dataset_ml` todavía no la calcula.
 - **Advertencia de volumen de datos (confirmada por el usuario):** hoy hay ~80 entregas
   calificadas, de 2 cursos del año pasado. Es muy poco para un Random Forest confiable —
   el plan es dejar el pipeline listo y correrlo de nuevo a medida que más profesores usen
@@ -403,9 +426,10 @@ es específico a una materia). Label: nota ponderada del parcial (misma fórmula
 | `calcular_total_parcial()` en `services/data_utils/run_export.py` | Extraída de `generar_excel()` (antes era código inline) para que la etiqueta del dataset de entrenamiento use **la misma fórmula** que ya ve el profesor en el Excel, en vez de una paralela que podría divergir. |
 | `python manage.py exportar_dataset_ml` (nuevo comando) | Arma `data/ml/dataset_ml.csv` (gitignoreado — trae `estudiante_id` real) con una fila por `(estudiante, materia, parcial)` cerrado: features + `nota_parcial` + `en_riesgo`. Reusa `parse_date_string()` de `web/views.py` para los días de atraso en vez de reimplementar el parseo de fechas en texto libre. Informa por consola cuántas materias se saltearon y por qué (sin profesor enlazado / sin `PesosCategorias`-`FechasParciales` en `/configuracion/` / sin entregas tipo `assign`) — importante porque con tan pocos datos es más probable terminar en 0 filas que en un dataset usable, y sin ese desglose no hay forma de saber por qué. |
 
-**Pendiente de ejecutar** (lo hace el usuario, no se corrió todavía en esta sesión):
-`python manage.py migrate` + `python manage.py exportar_dataset_ml`, y confirmar cuántas
-filas salen antes de seguir con el notebook de Colab.
+**Pendiente de ejecutar** (verificado 10-15: la migración `0018` ya está aplicada, pero
+`data/ml/` sigue vacío — `exportar_dataset_ml` nunca se corrió): `python manage.py
+exportar_dataset_ml`, y confirmar cuántas filas salen antes de seguir con el notebook de
+Colab. Es el siguiente paso concreto y accionable de esta sección.
 
 ### Lo que falta (no construido todavía)
 

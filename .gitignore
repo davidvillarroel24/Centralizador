@@ -27,6 +27,10 @@ data/raw/*.json
 # Dataset del modelo de riesgo (contiene ids de estudiantes reales)
 data/ml/*.csv
 
+# Fixtures de HTML real usadas para probar el parser de participantes.py (contienen
+# nombres/emails reales de estudiantes)
+participantes_real_*.html
+
 notas*.xlsx
 notas1*.xlsx
 notas2*.xlsx

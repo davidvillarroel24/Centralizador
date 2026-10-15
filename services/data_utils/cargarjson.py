@@ -49,6 +49,13 @@ def cargar_estudiantes():
             return json.load(f)
     except Exception as e:
         raise Exception(f"Error cargando estudiante: {e}")
+
+def cargar_participantes():
+    try:
+        with open(config.JSON_PARTICIPANTES, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        raise Exception(f"Error cargando participantes: {e}")
     
     
 def cargar_asignaciones():

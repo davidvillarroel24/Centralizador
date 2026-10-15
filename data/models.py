@@ -378,7 +378,45 @@ class Entrega(models.Model):
     def __str__(self):
 
         return f"{self.estudiante} - {self.tarea}"
-    
+
+
+class AccesoCurso(models.Model):
+    """Una fila por (materia, persona), viniendo de /user/index.php?id=<curso> (padron de
+    inscritos de Moodle - a diferencia de Entrega, que solo ve a quien entrego algo en una
+    tarea, esto trae a TODOS los inscritos). No usa FK a Estudiante/Profesor porque un mismo
+    moodle_userid puede ser cualquiera de los dos segun el curso (ademas asi una sola tabla
+    sirve para ambos, en vez de duplicar columnas en los dos modelos) - el `rol` que trae
+    Moodle dice cual es en cada materia puntual, y los reportes resuelven la identidad
+    buscando ese id en Estudiante.moodle_userid o Profesor.moodle_id segun haga falta.
+
+    ultimo_acceso/fecha_inicio_matricula/fecha_matriculacion quedan como texto crudo tal
+    cual lo manda Moodle (ej. "343 dias 13 horas" o "Nunca"), igual que Tarea.apertura/
+    cierre - no se parsean a fecha real porque el formato varia (relativo vs absoluto segun
+    configuracion del sitio)."""
+
+    materia = models.ForeignKey(
+        Materia,
+        on_delete=models.CASCADE,
+        related_name='accesos'
+    )
+
+    moodle_userid = models.IntegerField()
+
+    rol = models.CharField(max_length=255, null=True, blank=True)
+
+    ultimo_acceso = models.CharField(max_length=255, null=True, blank=True)
+    fecha_inicio_matricula = models.CharField(max_length=255, null=True, blank=True)
+    fecha_matriculacion = models.CharField(max_length=255, null=True, blank=True)
+
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('materia', 'moodle_userid')
+
+    def __str__(self):
+        return f"acceso {self.moodle_userid} - {self.materia}"
+
+
 class ConfiguracionInstitucional(models.Model):
     """Fila unica (pk=1), igual que TrabajoExtraccion: parametros que no son por-profesor
     sino de la institucion entera. Hoy solo la nota minima de aprobacion (TECBA: 61/100),

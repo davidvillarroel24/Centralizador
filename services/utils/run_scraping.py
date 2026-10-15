@@ -6,6 +6,7 @@ from scraping.scrapers.detalles import obtener_detalle_tarea_async
 from scraping.scrapers.calificaciones import obtener_calificaciones_async
 from scraping.scrapers.profesores import obtener_profesores_async
 from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
+from scraping.scrapers.participantes import obtener_participantes_async, PERPAGE_MINIMO
 from scraping.scrapers.asignartareas import  auto_asignar_tareas
 from scraping.scrapers.asignartareas import  mostrar_resumen_tareas
 from scraping.scrapers.asignartareas import  generar_config_final
@@ -219,6 +220,36 @@ def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
 
     print("Estudiantes OK", estudiantes_resultado)
     return estudiantes_resultado, detenido
+
+
+def participantes(ids, cookie=None, stop_event=None, perpage=PERPAGE_MINIMO):
+    """Unico lugar para extraer el padron de inscritos (estudiantes Y profesores) de los
+    cursos seleccionados, con su ultimo acceso - via /user/index.php?id=<curso>, distinto
+    de estudiantes()/Entrega (que solo ve a quien entrego ALGO en una tarea; alguien
+    inscrito que nunca entrego nada no aparece ahi, pero si aca).
+
+    `perpage` nunca baja de PERPAGE_MINIMO (300, de sobra para cualquier curso de TECBA);
+    aun asi se sigue detectando paginacion real por si algun curso la superara."""
+    if not ids:
+        raise ValueError('Debes indicar al menos un id de curso (Materia.id) para extraer sus participantes.')
+
+    cursos = conexiondb.cargar_cursos_por_id(ids)
+    print(f"[participantes] ids solicitados: {ids} -> {len(cursos)} curso(s) resueltos en BD, perpage={perpage}")
+    for c in cursos:
+        print(f"[participantes]   Materia.id={c.get('id')} | {c.get('asignatura')} | {c.get('url')}")
+    if not cursos:
+        raise ValueError(f'No se encontró ninguna Materia con esos ids: {ids}')
+
+    moodle = MoodleSession(cookie=cookie)
+    resultado = asyncio.run(
+        obtener_participantes_async(moodle, cursos, stop_event, perpage)
+    )
+    detenido = stop_event is not None and stop_event.is_set()
+
+    exportarjson.save_participantes(resultado)
+
+    print(f"[participantes] OK: {len(resultado)} registro(s) guardados en {config.JSON_PARTICIPANTES}")
+    return resultado, detenido
 
 
 def asignacion_tareas(ids=None, config_base=None):

@@ -84,6 +84,16 @@ def save_estudiantes(estudiantes):
 
     except Exception as e:
         raise Exception(f"No se pudo guardar estudiantes: {e}")
+
+def save_participantes(participantes):
+    try:
+        with open(config.JSON_PARTICIPANTES, "w", encoding="utf-8") as f:
+            json.dump(participantes, f, indent=4, ensure_ascii=False)
+
+        print(f"Participantes guardados ({len(participantes)} registros)")
+
+    except Exception as e:
+        raise Exception(f"No se pudo guardar participantes: {e}")
     
 def save_sesskey(sesskey):
     try:

@@ -1,6 +1,6 @@
 from gatfh import config
 from services.data_utils import cargarjson
-from data.models import Facultad, Carrera, Nivel, Materia, Unidad, Tarea, Estudiante, Entrega, Profesor
+from data.models import Facultad, Carrera, Nivel, Materia, Unidad, Tarea, Estudiante, Entrega, Profesor, AccesoCurso
 from django.db import transaction
 import re
 
@@ -129,3 +129,38 @@ def import_tareas_from_json():
                     created['tareas'] += 1
 
     return created
+
+
+def import_participantes_a_accesos():
+    """Importa participantes.json (padron de /user/index.php?id=<curso>, ver
+    scraping/scrapers/participantes.py) hacia AccesoCurso - una fila por (materia,
+    moodle_userid), sirve tanto para estudiantes como para profesores (ver comentario en
+    AccesoCurso). No toca Estudiante/Profesor para nada; los reportes resuelven la
+    identidad por moodle_userid cuando hace falta."""
+    participantes = cargarjson.cargar_participantes()
+    resultado = {'actualizados': 0, 'creados': 0, 'omitidos': 0}
+
+    for p in participantes:
+        materia_id = p.get('materia_id')
+        moodle_userid = p.get('moodle_userid')
+        if not materia_id or not moodle_userid:
+            resultado['omitidos'] += 1
+            continue
+
+        _, creado = AccesoCurso.objects.update_or_create(
+            materia_id=materia_id,
+            moodle_userid=moodle_userid,
+            defaults={
+                'rol': ', '.join(p.get('roles') or []) or None,
+                'ultimo_acceso': p.get('ultimo_acceso'),
+                'fecha_inicio_matricula': p.get('fecha_inicio_matricula'),
+                'fecha_matriculacion': p.get('fecha_matriculacion'),
+            }
+        )
+        if creado:
+            resultado['creados'] += 1
+        else:
+            resultado['actualizados'] += 1
+
+    print(f"[participantes] Importados a AccesoCurso: {resultado}")
+    return resultado

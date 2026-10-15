@@ -17,7 +17,10 @@ from urllib.parse import urlencode
 
 from gatfh import config
 from services.utils import run_scraping
-from services.data_utils.import_to_db import import_tareas_from_json, import_asignacion_from_json
+from services.data_utils.import_to_db import (
+    import_tareas_from_json, import_asignacion_from_json,
+    import_participantes_a_accesos,
+)
 from services.data_utils.import_estudiantes_to_db import import_estudiantes_from_json
 from services.extraccion.trasformar import extraer_transformar
 from services.imports.facultades import importar_facultades
@@ -26,7 +29,7 @@ from services.imports.niveles import importar_niveles
 from services.imports.profesores import importar_profesores
 from services.imports.materias import importar_materias
 from services.utils import extraction_lock
-from data.models import Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias
+from data.models import Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias, AccesoCurso
 
 from collections import Counter
 from django.db.models import Count
@@ -48,10 +51,15 @@ MESES = {
     'diciembre': 12,
 }
 
-def handle_session_error(request, error_msg, next_url='/web/'):
-    """Redirige a cookie_recovery_view con mensajes de error y la URL a retornar."""
+def handle_session_error(request, error_msg, next_url=None):
+    """Redirige a cookie_recovery_view con mensajes de error y la URL a retornar.
+
+    OJO: la app esta montada en la raiz (gatfh/urls.py incluye web.urls en ''), no bajo
+    '/web/' - un redirect hardcodeado a '/web/session-cookie/' siempre daba 404."""
+    if next_url is None:
+        next_url = reverse('dashboard')
     params = urlencode({'error': error_msg, 'next': next_url})
-    return redirect(f'/web/session-cookie/?{params}')
+    return redirect(f"{reverse('session_cookie')}?{params}")
 
 
 def load_courses():
@@ -158,35 +166,42 @@ def normalize_asignatura(value):
 
 
 def filter_courses_by_role(request, courses, role='all'):
-    # Materias con al menos un profesor asignado (Materia.profesores): heurística
-    # actual para distinguir "el usuario las ve como docente" de "las ve como
-    # estudiante", ya que el modelo no registra el rol por curso del usuario logueado.
-    con_profesor_normalizadas = {
-        normalize_asignatura(m)
-        for m in Materia.objects.filter(profesores__isnull=False).values_list('moodle_nombre', flat=True)
-    }
-
     current_profesor = get_current_profesor(request)
+
+    # 'docente': Materia.profesores (M2M) ya liga de verdad al profesor logueado con sus
+    # materias (via "Importar profesores"/"Importar materias"), independiente de Moodle.
     docente_materias = {
         normalize_asignatura(m)
         for m in current_profesor.materias.values_list('moodle_nombre', flat=True)
     } if current_profesor else set()
 
-    estudiante_materias = {
-        normalize_asignatura(course.get('asignatura'))
-        for course in courses
-        if normalize_asignatura(course.get('asignatura')) not in con_profesor_normalizadas
-    }
+    # 'estudiante': antes era "cualquier materia sin profesor asignado en toda la BD",
+    # sin ninguna relacion con el usuario logueado. Ahora usa AccesoCurso (padron real de
+    # /user/index.php, ver "3b. Extraer último acceso" + "Importar último acceso"):
+    # materias donde el moodle_userid de este profesor aparece con rol de estudiante.
+    # Si todavia no se extrajo el "último acceso" de un curso, no va a aparecer aca hasta
+    # que se corra esa extraccion - no es un bug, es que falta ese dato.
+    estudiante_ids = set()
+    if current_profesor and current_profesor.moodle_id:
+        estudiante_ids = set(
+            AccesoCurso.objects.filter(
+                moodle_userid=current_profesor.moodle_id,
+                rol__icontains='estudiante',
+            ).values_list('materia_id', flat=True)
+        )
 
     if role == 'docente':
         return [course for course in courses if normalize_asignatura(course.get('asignatura')) in docente_materias]
     if role == 'estudiante':
-        return [course for course in courses if normalize_asignatura(course.get('asignatura')) in estudiante_materias]
+        return [course for course in courses if course.get('id') in estudiante_ids]
 
     # 'all': únicamente los cursos donde el usuario actual participa como
     # docente y/o como estudiante — no todas las materias de la base de datos.
-    relevantes = docente_materias | estudiante_materias
-    return [course for course in courses if normalize_asignatura(course.get('asignatura')) in relevantes]
+    return [
+        course for course in courses
+        if normalize_asignatura(course.get('asignatura')) in docente_materias
+        or course.get('id') in estudiante_ids
+    ]
 
 
 def parse_selected_course_ids(request):
@@ -445,6 +460,45 @@ def run_importar_estudiantes_web():
     }
 
 
+def run_participantes_web(selected_ids, cookie, stop_event=None):
+    """Tercer llamado real a Moodle: trae el padron de inscritos (estudiantes Y profesores)
+    de /user/index.php?id=<curso>, con su ultimo acceso - a diferencia de `estudiantes`, que
+    solo ve a quien entrego algo, esto trae a todos los inscritos. Pasa por el mismo candado
+    de extraction_lock que extraer_tareas/estudiantes en la vista `dashboard`.
+
+    La extraccion en si vive en services/utils/run_scraping.py::participantes()."""
+    if not selected_ids:
+        raise ValueError('Debes seleccionar al menos un curso para extraer sus participantes.')
+
+    resultado, detenido = run_scraping.participantes(selected_ids, cookie=cookie, stop_event=stop_event)
+
+    detalle = (
+        f'Extracción de participantes completada: {len(resultado)} registro(s) guardados en '
+        f'{config.JSON_PARTICIPANTES}. Todavía no se importó a la base de datos, para eso usá '
+        f'los botones de importación de participantes.'
+    )
+    if detenido:
+        detalle = f'Extracción detenida manualmente. Resultados parciales: {detalle}'
+    return {
+        'title': 'Último acceso extraído',
+        'detail': detalle,
+        'count': len(resultado),
+        'detenido': detenido,
+    }
+
+
+def run_importar_participantes_web():
+    """Importa participantes.json (ya extraido por 'Extraer último acceso') hacia
+    AccesoCurso, una fila por (materia, moodle_userid) que sirve tanto para estudiantes
+    como para profesores (ver comentario en el modelo AccesoCurso)."""
+    import_result = import_participantes_a_accesos()
+    return {
+        'title': 'Último acceso importado',
+        'detail': f'Importación a la base de datos completada: {import_result}.',
+        'count': None,
+    }
+
+
 @login_required
 @require_http_methods(['POST'])
 def descargar_excel(request):
@@ -517,10 +571,21 @@ def dashboard(request):
                 abrir_modal_asignacion = True
             elif action == 'importar_estudiantes':
                 action_result = run_importar_estudiantes_web()
-            elif action in ('extraer_carreras', 'extraer_tareas', 'estudiantes'):
+            elif action == 'importar_participantes':
+                action_result = run_importar_participantes_web()
+            elif action in ('extraer_carreras', 'extraer_tareas', 'estudiantes', 'extraer_participantes'):
                 # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
                 # para que no arranquen dos extracciones de usuarios distintos en paralelo.
                 cookie = request.session.get('MoodleSession')
+                if not cookie:
+                    # Sin esto, se tomaba el candado global y recien se descubria que no
+                    # habia cookie al fallar la primera request a Moodle (login redirect ->
+                    # SesionExpiradaError) - ocupando el candado para nada y tardando mas en
+                    # avisar. Frenar antes de tocar Moodle o el candado.
+                    raise ValueError(
+                        'No hay ninguna cookie de Moodle guardada en tu sesión. '
+                        'Pegala primero (botón de cookie arriba) antes de iniciar una extracción.'
+                    )
                 job_id, aviso_candado_vencido = extraction_lock.try_acquire_lock(request.user.username)
                 if job_id is None:
                     candado = extraction_lock.current_lock()
@@ -537,6 +602,8 @@ def dashboard(request):
                             action_result = run_extraer_tareas_web(
                                 selected_ids, cookie, stop_event, profesor=get_current_profesor(request)
                             )
+                        elif action == 'extraer_participantes':
+                            action_result = run_participantes_web(selected_ids, cookie, stop_event)
                         else:
                             action_result = run_estudiantes_web(
                                 selected_ids, cookie, stop_event, profesor=get_current_profesor(request)
@@ -1024,11 +1091,11 @@ def cookie_recovery_view(request):
     """Formulario para pegar el cookie `MoodleSession` en la sesión del navegador (solo server-side, en session).
     Parámetros GET opcionales:
     - error: mensaje de error (e.g., "La sesión expiró, por favor pega tu cookie")
-    - next: URL a redirigir después de guardar la cookie (default: /web/)
+    - next: URL a redirigir después de guardar la cookie (default: dashboard)
     """
     message = None
     error_msg = request.GET.get('error')
-    next_url = request.GET.get('next', '/web/')
+    next_url = request.GET.get('next', reverse('dashboard'))
 
     if request.method == 'POST':
         cookie_value = request.POST.get('moodle_cookie')

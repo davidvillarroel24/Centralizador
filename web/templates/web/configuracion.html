@@ -11,6 +11,19 @@
             </div>
         </div>
 
+        <section class="panel" style="margin-bottom:20px;">
+            <h2>Apariencia</h2>
+            <div class="note">
+                Elegí cómo se ve el panel. La preferencia se guarda en este navegador y se
+                aplica en todas las pantallas.
+            </div>
+            <button type="button" id="themeToggle" class="btn btn-secondary"
+                    style="width:auto; padding:10px 20px; display:inline-flex; align-items:center; gap:8px; margin-top:10px;">
+                <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
+                <span id="themeLabel">Modo oscuro</span>
+            </button>
+        </section>
+
         <div class="note">
             Cada docente tiene su propia configuración (se guarda en tu perfil de Profesor).
             Lo usa el paso "3. Asignar tareas" del dashboard para decidir en qué parcial cae
@@ -51,12 +64,12 @@
                                 <td style="padding: 6px 8px;">
                                     <input type="date" name="parcial_{{ rango.parcial }}_inicio"
                                            value="{{ rango.inicio|default:'' }}"
-                                           style="padding:6px; border-radius:6px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;">
+                                           class="config-input">
                                 </td>
                                 <td style="padding: 6px 8px;">
                                     <input type="date" name="parcial_{{ rango.parcial }}_fin"
                                            value="{{ rango.fin|default:'' }}"
-                                           style="padding:6px; border-radius:6px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;">
+                                           class="config-input">
                                 </td>
                             </tr>
                             {% endfor %}
@@ -85,8 +98,7 @@
                                 <td style="padding: 6px 8px;">{{ row.label }}</td>
                                 <td style="padding: 6px 8px;">
                                     <input type="number" name="peso_{{ row.cat }}" min="0" max="100"
-                                           value="{{ row.peso }}" class="peso-input"
-                                           style="width:90px; padding:6px; border-radius:6px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;">
+                                           value="{{ row.peso }}" class="peso-input">
                                 </td>
                             </tr>
                             {% endfor %}
@@ -141,6 +153,33 @@
 
 {% block scripts %}
 <script>
+    (function () {
+        var btn = document.getElementById('themeToggle');
+        var icon = document.getElementById('themeIcon');
+        var label = document.getElementById('themeLabel');
+        if (!btn || !icon || !label) return;
+
+        function aplicarEtiqueta() {
+            var esClaro = document.documentElement.getAttribute('data-theme') === 'light';
+            icon.className = esClaro ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
+            label.textContent = esClaro ? 'Modo claro' : 'Modo oscuro';
+        }
+
+        aplicarEtiqueta();
+
+        btn.addEventListener('click', function () {
+            var esClaro = document.documentElement.getAttribute('data-theme') === 'light';
+            if (esClaro) {
+                document.documentElement.removeAttribute('data-theme');
+                try { localStorage.setItem('centralizador-theme', 'dark'); } catch (e) {}
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+                try { localStorage.setItem('centralizador-theme', 'light'); } catch (e) {}
+            }
+            aplicarEtiqueta();
+        });
+    })();
+
     (function () {
         var inputs = document.querySelectorAll('.peso-input');
         var total = document.getElementById('total-pesos');

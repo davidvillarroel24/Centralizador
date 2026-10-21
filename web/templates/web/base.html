@@ -5,6 +5,18 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Centralizador{% endblock %}</title>
+    <script>
+      // Aplica el tema guardado ANTES de pintar la página, para evitar el parpadeo
+      // de oscuro -> claro (o viceversa) al cargar. Por defecto (sin preferencia
+      // guardada) se mantiene el modo oscuro actual, sin cambios para nadie.
+      (function () {
+        try {
+          if (localStorage.getItem('centralizador-theme') === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="stylesheet" href="{% static 'web/dashboard.css' %}">
     <link rel="stylesheet" href="{% static 'web/sidebar.css' %}">
     <link rel="stylesheet"

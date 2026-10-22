@@ -827,6 +827,12 @@ def dashboard(request):
             or any(q in e.lower() for e in c['estudiantes'])
         ]
 
+    # Ordenado por carrera para que el template pueda agruparlas con {% regroup %} (una
+    # cuenta Administrador, o un Decano con una facultad entera asignada, puede tener
+    # cientos de materias - como una sola grilla plana, antes había que scrollear sin fin
+    # para encontrar una). {% regroup %} necesita la lista ya ordenada por esa clave.
+    courses.sort(key=lambda c: (c['carrera_nombre'] or '', c['nombre']))
+
     selected_ids = parse_selected_course_ids(request)
     selected_ids_str = [str(cid) for cid in selected_ids]
     selected_count = len(selected_ids)
@@ -1010,6 +1016,10 @@ def dashboard(request):
         'carrera_dash': carrera_dash,
         'materia_dash': materia_dash,
         'busqueda': busqueda,
+        # Con algun filtro ya puesto el resultado es chico y conviene ver los grupos de
+        # carrera abiertos de entrada, en vez de obligar a desplegarlos para ver lo que ya
+        # se filtro a proposito.
+        'grupos_carrera_abiertos': bool(carrera_dash or materia_dash or busqueda),
     }
     return render(request, 'web/dashboard.html', context)
 

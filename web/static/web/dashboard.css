@@ -256,6 +256,41 @@ h1 {
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
 
+.carrera-group {
+    border: 1px solid rgba(var(--accent-purple-rgb), 0.15);
+    border-radius: 14px;
+    padding: 4px 14px 14px;
+    margin-bottom: 14px;
+    background: var(--panel-bg);
+}
+
+.carrera-group > summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 12px 4px;
+    font-weight: 700;
+    color: var(--accent-gold);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.carrera-group > summary::-webkit-details-marker { display: none; }
+
+.carrera-group > summary::before {
+    content: "▸";
+    display: inline-block;
+    transition: transform 0.15s ease;
+}
+
+.carrera-group[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+.carrera-group .courses-grid {
+    margin-top: 8px;
+}
+
 .course-card {
     background: var(--card-bg);
     border: 1px solid rgba(var(--accent-purple-rgb), 0.18);

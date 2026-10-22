@@ -336,7 +336,12 @@
             var datos = new FormData(form);
             datos.set('action', accion);
 
-            fetch(form.action || window.location.href, {
+            // form.action (la propiedad) queda tapada por el boton <button name="action">
+            // de ahi arriba - el propio DOM la resuelve como un RadioNodeList en vez de la
+            // URL, y fetch() termina pidiendo ".../[object RadioNodeList]" (404). El
+            // atributo HTML "action" no tiene ese problema porque no es una propiedad con
+            // nombre en colision.
+            fetch(form.getAttribute('action') || window.location.href, {
                 method: 'POST',
                 headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken },
                 body: datos,
@@ -431,7 +436,7 @@
                         Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: data.error || '', confirmButtonColor: '#9b5bf6' });
                     }
                 }).catch(function () {
-                    Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor.', confirmButtonColor: '#9b5bf6' });
+                    Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor. Intenta extraer la cookie nuevamente.', confirmButtonColor: '#9b5bf6' });
                 });
             });
         });

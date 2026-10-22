@@ -2,6 +2,32 @@
 {% block title %}Resumen - Centralizador{% endblock %}
 {% block header %}Resumen ejecutivo{% endblock %}
 {% block content %}
+  {% if es_visitante %}
+  <section class="panel" style="margin-bottom:20px;">
+    <h2>Filtro</h2>
+    <div class="note">Elegí una facultad o una carrera para ver sus indicadores. Sin elegir ninguna, no se muestra nada.</div>
+    <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px; align-items:flex-end;">
+      <div>
+        <label for="filtroFacultad" class="note" style="display:block; margin-bottom:4px;">Facultad</label>
+        <select name="facultad" id="filtroFacultad" class="config-input" onchange="this.form.carrera.value=''; this.form.submit();">
+          <option value="">— Elegir —</option>
+          {% for f in facultades_filtro %}
+            <option value="{{ f.id }}" {% if facultad_seleccionada == f.id|stringformat:"s" %}selected{% endif %}>{{ f.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label for="filtroCarrera" class="note" style="display:block; margin-bottom:4px;">Carrera</label>
+        <select name="carrera" id="filtroCarrera" class="config-input" onchange="this.form.facultad.value=''; this.form.submit();">
+          <option value="">— Elegir —</option>
+          {% for c in carreras_filtro %}
+            <option value="{{ c.id }}" {% if carrera_seleccionada == c.id|stringformat:"s" %}selected{% endif %}>{{ c.facultad.nombre }} — {{ c.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+  </section>
+  {% endif %}
   <div class="kpi-grid">
     <div class="kpi-card">Materias monitoreadas<br><strong>{{ kpis.materias }}</strong></div>
     <div class="kpi-card">Docentes monitoreados<br><strong>{{ kpis.docentes }}</strong></div>

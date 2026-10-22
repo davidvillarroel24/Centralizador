@@ -2,6 +2,13 @@
 {% block title %}Dashboard - Centralizador{% endblock %}
 {% block header %}Dashboard de extracción{% endblock %}
 {% block content %}
+    <div id="extraccionOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:2000; align-items:center; justify-content:center; flex-direction:column; gap:16px;">
+        <div style="width:48px; height:48px; border:4px solid rgba(155,91,246,0.25); border-top-color:#9b5bf6; border-radius:50%; animation: centralizador-spin 0.8s linear infinite;"></div>
+        <p id="extraccionOverlayTexto" style="color:#fff; font-size:1.05rem; max-width:480px; text-align:center; padding:0 16px;">Extrayendo...</p>
+    </div>
+    <style>
+        @keyframes centralizador-spin { to { transform: rotate(360deg); } }
+    </style>
     <div class="page-shell">
         <div class="hero">
             <div class="status-card">
@@ -15,14 +22,6 @@
                 <p class="status-value">{{ course_count }}</p>
             </div>
         </div>
-
-        {% if request.GET.detenido == '1' %}
-            <div class="message card success">Se pidió detener la extracción en curso.</div>
-        {% elif request.GET.detenido == '0' %}
-            <div class="message card">No había ninguna extracción en curso para detener.</div>
-        {% elif request.GET.detenido == 'sin_permiso' %}
-            <div class="message card error">Solo quien inició la extracción o un administrador puede detenerla.</div>
-        {% endif %}
 
         {% if extraccion_en_curso %}
             {% if user.is_staff or extraccion_en_curso.usuario == user.username %}
@@ -47,32 +46,85 @@
         <section class="panel cookie-panel" style="margin-bottom: 20px;">
             <h2>Cookie de Moodle</h2>
             {% if cookie_guardada %}
-                <p class="note">Cookie guardada en tu sesión: <code>••••••••••••••••</code></p>
-                <details>
-                    <summary style="cursor:pointer;color:#f0c75e;">Reemplazar cookie</summary>
-                    <form method="post" style="margin-top:12px;">
-                        {% csrf_token %}
-                        <input type="hidden" name="role" value="{{ role }}" />
-                        <input type="hidden" name="action" value="guardar_cookie" />
-                        <textarea name="moodle_cookie" rows="3" placeholder="Pega aquí el nuevo valor de MoodleSession..." style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;" required></textarea>
-                        <button type="submit" class="btn btn-secondary" style="margin-top:10px;width:auto;padding:10px 16px;">Actualizar cookie</button>
-                    </form>
-                </details>
+                <p class="note" id="cookieEstado">Cookie guardada y cifrada en la base de datos (vence a las 2 horas de capturarla, o al cerrar sesión).</p>
             {% else %}
-                <p class="note">Pega aquí tu cookie <code>MoodleSession</code> antes de extraer estudiantes. Se guarda solo en tu sesión de navegador (cookie firmada) y nunca en la base de datos.</p>
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="role" value="{{ role }}" />
-                    <input type="hidden" name="action" value="guardar_cookie" />
-                    <textarea name="moodle_cookie" rows="3" placeholder="Pega aquí el valor de MoodleSession..." style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(155,91,246,0.35); background:rgba(255,255,255,0.04); color:#fff;" required></textarea>
-                    <button type="submit" class="btn btn-primary" style="margin-top:10px;width:auto;padding:10px 16px;">Guardar cookie</button>
-                </form>
+                <p class="note" id="cookieEstado">Todavía no capturaste tu cookie de Moodle, o venció. Hace falta para extraer estudiantes.</p>
             {% endif %}
+            <button type="button" id="extraerCookieBtn" class="btn btn-primary" style="width:auto; padding:10px 18px;">
+                ⚡ Extraer cookie de Moodle
+            </button>
+            <p class="note" id="cookieExtensionAviso" style="display:none;">
+                No se detectó la extensión de Chrome instalada. Instalala desde
+                <a href="{% url 'configuracion' %}">Configuración</a> para poder capturar la cookie acá.
+            </p>
         </section>
 
-        <form method="post" class="dashboard-form">
+        <section class="panel role-panel" style="margin-bottom: 20px;">
+            <h2>Filtro</h2>
+            <form method="get" id="formFiltrosCursos">
+                {% if mostrar_pills_rol %}
+                <input type="hidden" name="role" id="inputRoleFiltro" value="{{ role }}">
+                <div class="role-grid" style="margin-bottom:14px;">
+                    <button type="button" class="role-pill btn-rol-pill{% if role == 'all' %} active{% endif %}" data-role="all">Todos</button>
+                    {% if mostrar_pill_estudiante %}<button type="button" class="role-pill btn-rol-pill{% if role == 'estudiante' %} active{% endif %}" data-role="estudiante">Estudiante</button>{% endif %}
+                    {% if mostrar_pill_docente %}<button type="button" class="role-pill btn-rol-pill{% if role == 'docente' %} active{% endif %}" data-role="docente">Docente</button>{% endif %}
+                </div>
+                {% endif %}
+
+                <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+                    <div style="flex:1; min-width:180px;">
+                        <label for="selectCarreraDash" class="note" style="display:block; margin-bottom:4px;">Carrera</label>
+                        <select name="carrera_dash" id="selectCarreraDash" class="form-select-custom" style="width:100%;" onchange="document.getElementById('formFiltrosCursos').submit();">
+                            <option value="">Todas</option>
+                            {% for carrera_id, carrera_nombre in carreras_disponibles %}
+                                <option value="{{ carrera_id }}" {% if carrera_dash == carrera_id|stringformat:"s" %}selected{% endif %}>{{ carrera_nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="flex:1; min-width:180px;">
+                        <label for="selectMateriaDash" class="note" style="display:block; margin-bottom:4px;">Materia</label>
+                        <select name="materia_dash" id="selectMateriaDash" class="form-select-custom" style="width:100%;" onchange="document.getElementById('formFiltrosCursos').submit();">
+                            <option value="">Todas</option>
+                            {% for m in materias_disponibles %}
+                                <option value="{{ m.id }}" {% if materia_dash == m.id|stringformat:"s" %}selected{% endif %}>{{ m.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="flex:2; min-width:220px;">
+                        <label for="inputBusqueda" class="note" style="display:block; margin-bottom:4px;">Buscar (docente, estudiante, carrera o materia)</label>
+                        <input type="text" name="q" id="inputBusqueda" class="config-input" style="width:100%;" value="{{ busqueda }}" placeholder="Ej: García, Programación Web...">
+                    </div>
+                    <button type="submit" class="btn btn-secondary" style="width:auto; padding:10px 16px;">Buscar</button>
+                    {% if carrera_dash or materia_dash or busqueda %}
+                        <a href="?role={{ role }}" class="btn btn-secondary" style="width:auto; padding:10px 16px; text-decoration:none; display:inline-flex; align-items:center;">Limpiar</a>
+                    {% endif %}
+                </div>
+            </form>
+        </section>
+
+        <form method="post" class="dashboard-form" id="formAcciones">
             {% csrf_token %}
             <input type="hidden" name="role" value="{{ role }}" />
+
+            <section class="courses-panel">
+                <div class="panel">
+                    <h2>Cursos disponibles</h2>
+                    <div class="courses-grid">
+                        {% for course in courses %}
+                            <article class="course-card{% if course.id|stringformat:'s' in selected_ids %} selected{% endif %}">
+                                <label class="course-checkbox">
+                                    <input type="checkbox" name="courses" value="{{ course.id }}" {% if course.id|stringformat:'s' in selected_ids %}checked{% endif %}>
+                                    <span class="course-checkbox-label">{{ course.asignatura }}</span>
+                                </label>
+                                <div class="course-meta">ID: {{ course.id }}</div>
+                                <a class="course-link" href="{{ course.url }}" target="_blank">Abrir</a>
+                            </article>
+                        {% empty %}
+                            <div class="empty-state">No se encontraron cursos en la base de datos. Necesitas importar materias (tabla <code>Materia</code>) antes de poder extraer.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
 
             <section class="actions-panel">
                 <div class="panel">
@@ -82,39 +134,18 @@
                         <strong>{{ selected_count }}</strong>
                     </div>
                     <div class="actions-grid">
-                        <button type="submit" name="action" value="extraer_carreras" class="btn btn-secondary">0. Extraer carreras</button>
-                        <button type="submit" name="action" value="extraer_tareas" class="btn btn-secondary">1. Extraer tareas del curso</button>
-                        <button type="submit" name="action" value="asignacion" class="btn btn-primary">2. Asignar tareas</button>
+                        {% if es_administrador %}
+                        <button type="submit" name="action" value="cargar_carreras" class="btn btn-secondary">0. Extraer e importar carreras</button>
+                        {% endif %}
+                        <button type="submit" name="action" value="cargar_tareas" class="btn btn-secondary">1. Extraer, asignar e importar tareas</button>
                         <button type="submit" name="action" value="ver_asignacion" class="btn btn-secondary">✏️ Revisar asignación del curso seleccionado</button>
-                        <button type="submit" name="action" value="estudiantes" class="btn btn-secondary">3. Extraer estudiantes</button>
-                        <button type="submit" name="action" value="extraer_participantes" class="btn btn-secondary">3b. Extraer último acceso</button>
+                        <button type="submit" name="action" value="cargar_estudiantes" class="btn btn-secondary">2. Extraer e importar estudiantes</button>
+                        <button type="submit" name="action" value="cargar_ultimo_acceso" class="btn btn-secondary">3. Extraer e importar último acceso</button>
                         <button type="submit" formaction="{% url 'descargar_excel' %}" class="btn btn-primary">4. Generar Excel y descargar</button>
                     </div>
-                    <div class="note">0. Extraer carreras recorre Moodle y genera linkcarreras.json con la jerarquía Facultad/Carrera/Materia (necesita cookie guardada); todavía no carga a la base de datos, para eso usá los botones de "Importar a la base de datos". Después selecciona cursos y ejecutá el resto en orden: primero extraer tareas del curso, importalas a la base (panel de al lado) y recién después asigná tareas. "Revisar asignación" lee y corrige directo la base de datos (necesita que "F. Importar tareas" y "G. Importar asignación" ya hayan corrido para el curso tildado). "3b. Extraer último acceso" trae el padrón completo de inscritos (estudiantes y profesores) de los cursos seleccionados, vía /user/index.php - a diferencia de "3. Extraer estudiantes", también incluye a quien nunca entregó nada.</div>
-                </div>
-
-                <div class="panel">
-                    <h2>Importar a la base de datos</h2>
-                    <div class="actions-grid">
-                        <button type="submit" name="action" value="importar_facultades" class="btn btn-secondary">A. Importar facultades</button>
-                        <button type="submit" name="action" value="importar_carreras" class="btn btn-secondary">B. Importar carreras</button>
-                        <button type="submit" name="action" value="importar_niveles" class="btn btn-secondary">C. Importar niveles</button>
-                        <button type="submit" name="action" value="importar_profesores" class="btn btn-secondary">D. Importar profesores</button>
-                        <button type="submit" name="action" value="importar_materias" class="btn btn-secondary">E. Importar materias</button>
-                        <button type="submit" name="action" value="importar_tareas" class="btn btn-secondary">F. Importar tareas</button>
-                        <button type="submit" name="action" value="importar_asignacion" class="btn btn-secondary">G. Importar asignación</button>
-                        <button type="submit" name="action" value="importar_estudiantes" class="btn btn-secondary">H. Importar estudiantes</button>
-                        <button type="submit" name="action" value="importar_participantes" class="btn btn-secondary">I. Importar último acceso</button>
-                    </div>
-                    <div class="note">A-E cargan linkcarreras.json (ejecutalos en ese orden: profesores antes que materias). F carga tareas.json a Materia/Unidad/Tarea (después de "1. Extraer tareas del curso"). G carga asignacion.json a Tarea.categoria/Tarea.parcial (después de "2. Asignar tareas"). H carga estudiantes.json a Estudiante/Entrega, con nota/nota_maxima parseados de calificacion_final (después de "3. Extraer estudiantes"). I carga participantes.json (después de "3b. Extraer último acceso") a AccesoCurso, una fila por curso y persona (estudiante o profesor), sin tocar Estudiante/Profesor.</div>
-                </div>
-
-                <div class="panel role-panel">
-                    <h2>Filtro</h2>
-                    <div class="role-grid">
-                        <a href="?role=all" class="role-pill{% if role == 'all' %} active{% endif %}">Todos</a>
-                        <a href="?role=estudiante" class="role-pill{% if role == 'estudiante' %} active{% endif %}">Estudiante</a>
-                        <a href="?role=docente" class="role-pill{% if role == 'docente' %} active{% endif %}">Docente</a>
+                    <div class="note">
+                        {% if es_administrador %}"0. Extraer e importar carreras" recorre Moodle y carga Facultad/Carrera/Nivel/Profesor/Materia a la base de datos, todo de una vez (necesita cookie guardada). Solo lo ve una cuenta Administrador.{% endif %}
+                        Seleccioná cursos y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base (necesita que "1" ya haya corrido para el curso tildado). "2" y "3" extraen e importan estudiantes y el padrón de último acceso de los cursos seleccionados — "3" trae a todos los inscritos (vía /user/index.php), a diferencia de "2" que solo ve a quien entregó algo.
                     </div>
                 </div>
             </section>
@@ -142,26 +173,6 @@
                 {% endif %}
             </section>
             {% endif %}
-
-            <section class="courses-panel">
-                <div class="panel">
-                    <h2>Cursos disponibles</h2>
-                    <div class="courses-grid">
-                        {% for course in courses %}
-                            <article class="course-card{% if course.id|stringformat:'s' in selected_ids %} selected{% endif %}">
-                                <label class="course-checkbox">
-                                    <input type="checkbox" name="courses" value="{{ course.id }}" {% if course.id|stringformat:'s' in selected_ids %}checked{% endif %}>
-                                    <span class="course-checkbox-label">{{ course.asignatura }}</span>
-                                </label>
-                                <div class="course-meta">ID: {{ course.id }}</div>
-                                <a class="course-link" href="{{ course.url }}" target="_blank">Abrir</a>
-                            </article>
-                        {% empty %}
-                            <div class="empty-state">No se encontraron cursos en la base de datos. Necesitas importar materias (tabla <code>Materia</code>) antes de poder extraer.</div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </section>
         </form>
 
         {% if asignacion_detalle %}
@@ -173,8 +184,9 @@
                 </div>
                 <p class="note">
                     Cada tarea pertenece a una sola categoría — elegí la correcta y guardá. El parcial
-                    no se edita acá (lo decide la fecha de cierre). Esto escribe directo en la base de
-                    datos, sin pasos intermedios.
+                    lo pone por defecto la fecha de cierre, pero se puede corregir acá para el caso
+                    puntual en que haga falta. Esto escribe directo en la base de datos, sin pasos
+                    intermedios.
                 </p>
                 <form method="post" class="modal-form">
                     {% csrf_token %}
@@ -190,6 +202,7 @@
                                         <tr>
                                             <th>Tarea</th>
                                             {% for cat in categorias_peso %}<th>{{ cat.label }}</th>{% endfor %}
+                                            <th>Parcial</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -201,6 +214,14 @@
                                                     <input type="radio" name="categoria_{{ tarea.id }}" value="{{ cat.key }}" {% if tarea.categoria == cat.key %}checked{% endif %} />
                                                 </td>
                                             {% endfor %}
+                                            <td style="text-align:center;">
+                                                <select name="parcial_{{ tarea.id }}" class="config-input" style="width:70px;">
+                                                    <option value="">—</option>
+                                                    {% for n in "1234" %}
+                                                        <option value="{{ n }}" {% if tarea.parcial|stringformat:"s" == n %}selected{% endif %}>{{ n }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </td>
                                         </tr>
                                         {% endfor %}
                                     </tbody>
@@ -228,13 +249,13 @@
         align-items: center; justify-content: center; z-index: 1000; padding: 20px;
     }
     .modal-box {
-        background: #1b1b24; border: 1px solid rgba(155,91,246,0.35); border-radius: 12px;
+        background: var(--bg-sidebar); border: 1px solid rgba(var(--accent-purple-rgb),0.35); border-radius: 12px;
         max-width: 900px; width: 100%; max-height: 85vh; display: flex; flex-direction: column;
-        padding: 20px; color: #fff;
+        padding: 20px; color: var(--text-primary);
     }
     .modal-header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
     .modal-close {
-        background: none; border: none; color: #fff; font-size: 18px; cursor: pointer;
+        background: none; border: none; color: var(--text-primary); font-size: 18px; cursor: pointer;
     }
     /* El <form> queda entre modal-box (flex) y modal-scroll (flex:1): sin que el propio
        form tambien sea un contenedor flex en columna, con min-height:0, el flex:1 de
@@ -245,11 +266,192 @@
     .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; flex-shrink: 0; }
     .asignacion-tabla { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 13px; }
     .asignacion-tabla th, .asignacion-tabla td {
-        border: 1px solid rgba(255,255,255,0.1); padding: 6px 8px;
+        border: 1px solid rgba(var(--accent-purple-rgb),0.15); padding: 6px 8px;
     }
-    .asignacion-tabla th { color: #f0c75e; font-weight: 600; }
+    .asignacion-tabla th { color: var(--accent-gold); font-weight: 600; }
 </style>
 <script>
+    // Pills Todos/Estudiante/Docente: ahora son parte del mismo form GET que los
+    // dropdowns de Carrera/Materia y el buscador (#formFiltrosCursos), para que cambiar
+    // uno no pierda los otros filtros ya elegidos.
+    (function () {
+        var inputRole = document.getElementById('inputRoleFiltro');
+        var form = document.getElementById('formFiltrosCursos');
+        if (!inputRole || !form) return;
+        document.querySelectorAll('.btn-rol-pill').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                inputRole.value = btn.dataset.role;
+                form.submit();
+            });
+        });
+    })();
+
+    // Botones de extracción larga ("cargar_*"): se mandan por fetch() en vez de un submit
+    // normal, para que la página NO navegue/recargue (el usuario se queda exactamente
+    // donde estaba, con la selección de cursos intacta). Mientras la respuesta no llega,
+    // se muestra un spinner cuyo texto se actualiza sondeando /extraccion/progreso/ cada
+    // 1.5s - el backend de la extracción en sí sigue siendo síncrono, sin cambios; ese
+    // sondeo lo atiende el otro worker de gunicorn (corre con --workers 2) mientras el
+    // primero sigue ocupado extrayendo.
+    (function () {
+        var ACCIONES_LARGAS = ['cargar_carreras', 'cargar_tareas', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
+        var form = document.getElementById('formAcciones');
+        var overlay = document.getElementById('extraccionOverlay');
+        var overlayTexto = document.getElementById('extraccionOverlayTexto');
+        if (!form || !overlay) return;
+
+        var csrftoken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+        var intervaloSondeo = null;
+
+        function empezarSondeo() {
+            intervaloSondeo = setInterval(function () {
+                fetch('{% url "progreso_extraccion" %}')
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.en_curso && data.paso_actual && overlayTexto) {
+                            overlayTexto.textContent = data.paso_actual;
+                        }
+                    })
+                    .catch(function () {});
+            }, 1500);
+        }
+
+        function pararSondeo() {
+            if (intervaloSondeo) {
+                clearInterval(intervaloSondeo);
+                intervaloSondeo = null;
+            }
+        }
+
+        form.addEventListener('submit', function (ev) {
+            var btnClickeado = ev.submitter;
+            var accion = btnClickeado ? btnClickeado.value : null;
+            if (!accion || ACCIONES_LARGAS.indexOf(accion) === -1) return; // deja el submit normal de siempre
+
+            ev.preventDefault();
+            overlay.style.display = 'flex';
+            overlayTexto.textContent = 'Extrayendo...';
+            empezarSondeo();
+
+            var datos = new FormData(form);
+            datos.set('action', accion);
+
+            fetch(form.action || window.location.href, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken },
+                body: datos,
+            }).then(function (r) { return r.json(); }).then(function (data) {
+                pararSondeo();
+                overlay.style.display = 'none';
+                if (data.error) {
+                    if (window.Swal) {
+                        Swal.fire({ icon: 'error', title: 'No se pudo completar', text: data.error, confirmButtonColor: '#9b5bf6' });
+                    }
+                } else if (data.action_result) {
+                    mostrarResultado(data.action_result);
+                }
+                if (data.abrir_modal_asignacion) {
+                    var params = new URLSearchParams(window.location.search);
+                    params.set('modal', 'asignacion');
+                    window.location.search = params.toString();
+                }
+            }).catch(function () {
+                pararSondeo();
+                overlay.style.display = 'none';
+                if (window.Swal) {
+                    Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor.', confirmButtonColor: '#9b5bf6' });
+                }
+            });
+        });
+    })();
+
+    // Captura de cookie vía extensión: la página pide la cookie disparando un evento
+    // custom (no llama directo a chrome.runtime, eso lo hace el content_script de la
+    // extensión, que corre en un contexto JS aislado y no puede tocar window.Swal de acá).
+    // Si nadie contesta en 1.2s, asumimos que la extensión no está instalada.
+    (function () {
+        var btn = document.getElementById('extraerCookieBtn');
+        var aviso = document.getElementById('cookieExtensionAviso');
+        var estado = document.getElementById('cookieEstado');
+        if (!btn) return;
+
+        var csrftoken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+        var esperandoRespuesta = null;
+        var textoOriginal = btn.innerHTML;
+
+        function restaurarBoton() {
+            btn.disabled = false;
+            btn.innerHTML = textoOriginal;
+        }
+
+        document.addEventListener('centralizador-cookie-capturada', function (ev) {
+            if (esperandoRespuesta) {
+                clearTimeout(esperandoRespuesta);
+                esperandoRespuesta = null;
+            }
+            restaurarBoton();
+            var detalle = ev.detail || {};
+
+            if (!detalle.ok) {
+                if (window.Swal) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'No se pudo capturar la cookie',
+                        text: detalle.error || 'Volvé a intentar.',
+                        confirmButtonColor: '#9b5bf6',
+                    });
+                }
+                return;
+            }
+
+            if (!window.Swal) return;
+            Swal.fire({
+                icon: 'question',
+                title: '¿Guardar esta cookie?',
+                text: 'Se va a cifrar y guardar para usarla en las extracciones (vence en 2 horas).',
+                showCancelButton: true,
+                confirmButtonText: 'Guardar',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#9b5bf6',
+            }).then(function (resultado) {
+                if (!resultado.isConfirmed) return;
+
+                fetch('{% url "guardar_cookie_extension" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken,
+                    },
+                    body: JSON.stringify({ cookie: detalle.value }),
+                }).then(function (r) { return r.json(); }).then(function (data) {
+                    if (data.ok) {
+                        if (estado) estado.textContent = 'Cookie guardada y cifrada en la base de datos (vence a las 2 horas de capturarla, o al cerrar sesión).';
+                        Swal.fire({ icon: 'success', title: 'Cookie guardada', confirmButtonColor: '#9b5bf6' });
+                    } else {
+                        Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: data.error || '', confirmButtonColor: '#9b5bf6' });
+                    }
+                }).catch(function () {
+                    Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor.', confirmButtonColor: '#9b5bf6' });
+                });
+            });
+        });
+
+        btn.addEventListener('click', function () {
+            btn.disabled = true;
+            btn.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:centralizador-spin 0.8s linear infinite;margin-right:6px;vertical-align:-2px;"></span> Buscando tu sesión de Moodle...';
+            if (aviso) aviso.style.display = 'none';
+            document.dispatchEvent(new CustomEvent('centralizador-pedir-cookie'));
+            // 4s, no 1.2s: un service worker de Manifest V3 recien (re)instalado o que
+            // estaba inactivo puede tardar en "despertar" al primer mensaje - con un
+            // timeout muy corto, ese primer click siempre daba "no instalada" aunque la
+            // extension si estuviera, solo que todavia no habia respondido.
+            esperandoRespuesta = setTimeout(function () {
+                restaurarBoton();
+                if (aviso) aviso.style.display = 'block';
+            }, 4000);
+        });
+    })();
+
     (function () {
         var counter = document.querySelector('.selection-summary strong');
         // type="checkbox" explicito: el modal de asignacion agrega inputs hidden del mismo
@@ -286,6 +488,12 @@
             errors: {{ action_result.errors|default_if_none:"null" }},
             {% if action_result.warning %}warning: "{{ action_result.warning|escapejs }}",{% endif %}
         });
+    {% elif request.GET.detenido == '1' %}
+        mostrarResultado({ title: 'Extracción', detail: 'Se pidió detener la extracción en curso.' });
+    {% elif request.GET.detenido == '0' %}
+        mostrarResultado({ title: 'Extracción', detail: 'No había ninguna extracción en curso para detener.', warning: 'Nada que detener.' });
+    {% elif request.GET.detenido == 'sin_permiso' %}
+        mostrarResultado({ error: 'Solo quien inició la extracción o un administrador puede detenerla.' });
     {% endif %}
 
     {% if abrir_modal_asignacion and asignacion_detalle %}

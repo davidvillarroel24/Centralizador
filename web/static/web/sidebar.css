@@ -30,6 +30,31 @@
   align-items:center;
   justify-content:space-between;
 }
+.sidebar-user{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 8px;
+  margin-bottom:14px;
+  border-radius:10px;
+  background:rgba(var(--accent-purple-rgb),0.08);
+}
+.sidebar-user i{
+  font-size:1.6rem;
+  color:var(--accent-gold);
+}
+.sidebar-user-nombre{
+  font-weight:700;
+  font-size:0.92rem;
+  line-height:1.2;
+  word-break:break-word;
+}
+.sidebar-user-rol{
+  font-size:0.78rem;
+  color:var(--text-secondary);
+  text-transform:uppercase;
+  letter-spacing:0.04em;
+}
 .sidebar-toggle{
   display:none;
   align-items:center;

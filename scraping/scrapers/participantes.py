@@ -183,6 +183,8 @@ async def obtener_participantes_async(moodle, cursos, stop_event=None, perpage=P
             moodle_course_id = m.group(1)
             url_base = f"{moodle.base_url}/user/index.php?id={moodle_course_id}"
             print(f"[participantes] === Materia.id={curso['id']} ({curso.get('asignatura')}) -> curso Moodle id={moodle_course_id} ===")
+            if stop_event is not None:
+                stop_event.set_paso(f"Extrayendo último acceso de la materia: {curso.get('asignatura')}")
             participantes = await fetch_participantes_curso(
                 session, url_base, curso["id"], perpage, stop_event
             )

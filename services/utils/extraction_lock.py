@@ -77,6 +77,21 @@ class DbStopEvent:
         hilo.join()
         return resultado.get('valor', False)
 
+    def set_paso(self, texto):
+        """Guarda un texto corto tipo 'Extrayendo tareas de la materia: X' para que el
+        endpoint de progreso lo muestre en el spinner del dashboard mientras la extraccion
+        esta en curso. Mismo motivo que is_set() para escribir en un hilo aparte (el ORM no
+        se puede tocar desde un contexto con loop de asyncio corriendo) - pero a diferencia
+        de is_set(), esto no necesita el resultado de vuelta, asi que no hace join() ni
+        bloquea el loop de scraping esperando a que la escritura termine."""
+        def escribir():
+            try:
+                TrabajoExtraccion.objects.filter(pk=1, job_id=self.job_id).update(paso_actual=texto)
+            finally:
+                connections.close_all()
+
+        threading.Thread(target=escribir, daemon=True).start()
+
 
 def try_acquire_lock(usuario):
     """Intenta tomar el candado. Devuelve (job_id, aviso): job_id es None si ya hay una
@@ -120,7 +135,7 @@ def release_lock(job_id):
     """Libera el candado si todavia pertenece a job_id (evita que un release tardio de un
     job viejo pise el lock de uno nuevo que ya lo tomo tras un timeout)."""
     TrabajoExtraccion.objects.filter(pk=1, job_id=job_id).update(
-        en_curso=False, detener=False
+        en_curso=False, detener=False, paso_actual=''
     )
 
 

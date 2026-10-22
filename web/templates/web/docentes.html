@@ -10,6 +10,9 @@
                 <th>Docente</th>
                 <th>Gestiones</th>
                 <th>Materias</th>
+                <th>Assigns publicados</th>
+                <th>Perfil</th>
+                {% if roles_choices %}<th>Rol</th>{% endif %}
             </tr>
         </thead>
 
@@ -27,10 +30,95 @@
                 </td>
 
                 <td>{{ p.total_materias }}</td>
+                <td>{{ p.total_assigns }}</td>
+                <td><a href="{{ p.url }}" target="_blank">Ver perfil</a></td>
+
+                {% if roles_choices %}
+                <td>
+                    {% if p.user %}
+                        <button type="button" class="btn btn-secondary btn-gestionar-rol"
+                                style="width:auto; padding:6px 12px; font-size:0.85rem;"
+                                data-profesor-id="{{ p.id }}"
+                                data-nombre="{{ p.nombre }}"
+                                data-rol-actual="{{ p.rol_actual|default:'docente' }}"
+                                data-facultades="{{ p.perfil_facultades_ids|join:',' }}"
+                                data-carreras="{{ p.perfil_carreras_ids|join:',' }}"
+                                data-materias="{{ p.perfil_materias_ids|join:',' }}">
+                            {% for valor, etiqueta in roles_choices %}{% if valor == p.rol_actual %}{{ etiqueta }}{% endif %}{% endfor %}
+                            {% if not p.rol_actual %}Docente{% endif %} ✏️
+                        </button>
+                    {% else %}
+                        <span class="note" style="font-size:0.85rem;">Sin cuenta registrada</span>
+                    {% endif %}
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
         </tbody>
     </table>
+
+    {% if roles_choices %}
+    <div id="modalRolOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; z-index:1000; padding:20px;">
+        <div style="background:var(--bg-sidebar); border:1px solid rgba(var(--accent-purple-rgb),0.35); border-radius:12px; max-width:560px; width:100%; max-height:85vh; overflow-y:auto; padding:22px; color:var(--text-primary);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                <h2 style="margin:0;">Gestionar rol: <span id="modalRolNombre"></span></h2>
+                <button type="button" id="modalRolCerrar" style="background:none; border:none; color:var(--text-primary); font-size:18px; cursor:pointer;">✕</button>
+            </div>
+
+            <div class="note" style="margin-bottom:14px;">
+                Administrador ve todo el sistema. Decano ve todo lo asignado abajo (facultades enteras, carreras enteras, o materias sueltas - lo que marques). Docente ve solo sus propias materias.
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label class="note" style="display:block; margin-bottom:4px;">Rol</label>
+                <select id="modalRolSelect" class="config-input" style="width:100%;">
+                    {% for valor, etiqueta in roles_choices %}
+                        <option value="{{ valor }}">{{ etiqueta }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div id="modalRolAlcance" style="display:none;">
+                <div style="margin-bottom:14px;">
+                    <label class="note" style="display:block; margin-bottom:6px;">Facultades enteras</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                        {% for f in facultades_todas %}
+                        <label style="display:inline-flex; align-items:center; gap:4px; font-size:0.9rem; background:var(--panel-bg); padding:4px 8px; border-radius:6px;">
+                            <input type="checkbox" class="chk-facultad" value="{{ f.id }}"> {{ f.nombre }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <label class="note" style="display:block; margin-bottom:6px;">Carreras enteras</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; max-height:140px; overflow-y:auto;">
+                        {% for c in carreras_todas %}
+                        <label style="display:inline-flex; align-items:center; gap:4px; font-size:0.9rem; background:var(--panel-bg); padding:4px 8px; border-radius:6px;">
+                            <input type="checkbox" class="chk-carrera" value="{{ c.id }}"> {{ c.facultad.nombre }} — {{ c.nombre }}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <label class="note" style="display:block; margin-bottom:6px;">Materias sueltas</label>
+                    <input type="text" id="modalBuscarMateria" class="config-input" placeholder="Buscar materia..." style="width:100%; margin-bottom:6px;">
+                    <select id="modalMaterias" multiple style="width:100%; height:160px;" class="config-input">
+                        {% for m in materias_todas %}
+                            <option value="{{ m.id }}" data-texto="{{ m.nombre|lower }} {{ m.carrera.nombre|lower }}">{{ m.carrera.nombre }} — {{ m.nombre }} ({{ m.gestion }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:16px;">
+                <button type="button" id="modalRolGuardar" class="btn btn-primary" style="width:auto; padding:10px 18px;">Guardar</button>
+                <button type="button" id="modalRolCancelar" class="btn btn-secondary" style="width:auto; padding:10px 18px;">Cancelar</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     {% endblock %}
 
@@ -42,5 +130,90 @@
             order: [[2, 'desc']]
         });
     });
+
+    (function () {
+        var overlay = document.getElementById('modalRolOverlay');
+        if (!overlay) return; // no es Administrador, no hay modal en la pagina
+
+        var nombreSpan = document.getElementById('modalRolNombre');
+        var rolSelect = document.getElementById('modalRolSelect');
+        var alcanceDiv = document.getElementById('modalRolAlcance');
+        var buscarMateria = document.getElementById('modalBuscarMateria');
+        var selectMaterias = document.getElementById('modalMaterias');
+        var profesorIdActual = null;
+        var csrftoken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+
+        function toggleAlcance() {
+            alcanceDiv.style.display = rolSelect.value === 'decano' ? 'block' : 'none';
+        }
+        rolSelect.addEventListener('change', toggleAlcance);
+
+        buscarMateria.addEventListener('input', function () {
+            var texto = buscarMateria.value.toLowerCase();
+            Array.prototype.forEach.call(selectMaterias.options, function (opt) {
+                opt.style.display = opt.dataset.texto.indexOf(texto) === -1 ? 'none' : '';
+            });
+        });
+
+        document.querySelectorAll('.btn-gestionar-rol').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                profesorIdActual = btn.dataset.profesorId;
+                nombreSpan.textContent = btn.dataset.nombre;
+                rolSelect.value = btn.dataset.rolActual || 'docente';
+
+                var facultadesIds = (btn.dataset.facultades || '').split(',').filter(Boolean);
+                var carrerasIds = (btn.dataset.carreras || '').split(',').filter(Boolean);
+                var materiasIds = (btn.dataset.materias || '').split(',').filter(Boolean);
+
+                document.querySelectorAll('.chk-facultad').forEach(function (chk) {
+                    chk.checked = facultadesIds.indexOf(chk.value) !== -1;
+                });
+                document.querySelectorAll('.chk-carrera').forEach(function (chk) {
+                    chk.checked = carrerasIds.indexOf(chk.value) !== -1;
+                });
+                Array.prototype.forEach.call(selectMaterias.options, function (opt) {
+                    opt.selected = materiasIds.indexOf(opt.value) !== -1;
+                });
+
+                toggleAlcance();
+                overlay.style.display = 'flex';
+            });
+        });
+
+        function cerrar() { overlay.style.display = 'none'; }
+        document.getElementById('modalRolCerrar').addEventListener('click', cerrar);
+        document.getElementById('modalRolCancelar').addEventListener('click', cerrar);
+
+        document.getElementById('modalRolGuardar').addEventListener('click', function () {
+            var datos = new FormData();
+            datos.set('profesor_id', profesorIdActual);
+            datos.set('rol', rolSelect.value);
+            document.querySelectorAll('.chk-facultad:checked').forEach(function (chk) { datos.append('facultades', chk.value); });
+            document.querySelectorAll('.chk-carrera:checked').forEach(function (chk) { datos.append('carreras', chk.value); });
+            Array.prototype.forEach.call(selectMaterias.selectedOptions, function (opt) { datos.append('materias', opt.value); });
+
+            fetch('{% url "gestionar_rol_docente" %}', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrftoken },
+                body: datos,
+            }).then(function (r) { return r.json(); }).then(function (data) {
+                if (data.ok) {
+                    cerrar();
+                    if (window.Swal) {
+                        Swal.fire({ icon: 'success', title: 'Rol actualizado', confirmButtonColor: '#9b5bf6' })
+                            .then(function () { window.location.reload(); });
+                    } else {
+                        window.location.reload();
+                    }
+                } else if (window.Swal) {
+                    Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: data.error || '', confirmButtonColor: '#9b5bf6' });
+                }
+            }).catch(function () {
+                if (window.Swal) {
+                    Swal.fire({ icon: 'error', title: 'Error de red', confirmButtonColor: '#9b5bf6' });
+                }
+            });
+        });
+    })();
 </script>
 {% endblock %}

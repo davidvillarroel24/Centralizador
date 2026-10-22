@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Centralizador TECBA - Captura cookie Moodle",
   "short_name": "Captura cookie Moodle",
-  "version": "1.0.0",
-  "description": "Captura tu cookie de sesión de Moodle (MoodleSession) y la pega en el formulario de Centralizador TECBA, sin copiarla a mano desde las herramientas de desarrollador. El pegado manual sigue funcionando igual, esta extensión solo agrega un atajo.",
+  "version": "1.0.1",
+  "description": "Captura tu cookie de sesión de Moodle (MoodleSession) y, con tu confirmación, la envía cifrada al servidor de Centralizador TECBA - sin copiarla a mano desde las herramientas de desarrollador ni mostrarla en pantalla.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

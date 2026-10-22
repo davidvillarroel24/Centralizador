@@ -211,6 +211,8 @@ def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
         if stop_event is not None and stop_event.is_set():
             detenido = True
             break
+        if stop_event is not None:
+            stop_event.set_paso(f"Extrayendo estudiantes de la materia: {curso['asignatura']}")
         curso_estudiantes = asyncio.run(
             obtener_tareas_docente_async(moodle, [curso], stop_event)
         )

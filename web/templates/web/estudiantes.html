@@ -11,6 +11,7 @@
                 <th>Gestiones</th>
                 <th>Materias</th>
                 <th>Entregas</th>
+                <th>Perfil</th>
             </tr>
         </thead>
 
@@ -18,11 +19,11 @@
             {% for e in estudiantes %}
             <tr>
 
-                <td>{{ e.moodle_id }}</td>
+                <td>{{ e.moodle_userid }}</td>
 
                 <td>{{ e.nombre }}</td>
 
-                <td>{{ e.correo }}</td>
+                <td>{{ e.email }}</td>
 
                 <td>
                     {% for gestion, cantidad in e.gestiones.items %}
@@ -33,6 +34,7 @@
 
                 <td>{{ e.total_materias }}</td>
                 <td>{{ e.total_entregas }}</td>
+                <td><a href="{{ e.perfil_url }}" target="_blank">Ver perfil</a></td>
             </tr>
             {% endfor %}
         </tbody>

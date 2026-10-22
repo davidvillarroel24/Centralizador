@@ -121,13 +121,14 @@
         <section class="panel" style="margin-top:20px;">
             <h2>Extensión de Chrome: captura automática de cookie</h2>
             <div class="note">
-                Captura tu cookie <code>MoodleSession</code> y la pega sola en el panel de
-                extracción, en vez de copiarla a mano desde las herramientas de desarrollador.
-                El pegado manual sigue funcionando igual que siempre; esto es un atajo opcional.
+                Captura tu cookie <code>MoodleSession</code> y, con tu confirmación, la envía
+                cifrada al servidor desde el botón "Extraer cookie de Moodle" del panel de
+                extracción - sin copiarla a mano desde las herramientas de desarrollador ni
+                mostrarla en pantalla.
             </div>
-            <a href="{% static 'web/downloads/centralizador-moodle-cookie.zip' %}"
+            <a href="{% static 'web/downloads/centralizador-moodle-cookie.zip' %}?v={{ extension_version }}"
                class="btn btn-primary" style="width:auto; padding:10px 16px; display:inline-block; text-decoration:none; margin-top:10px;">
-                ⬇ Descargar extensión (.zip)
+                ⬇ Descargar extensión (.zip) — v{{ extension_version }}
             </a>
             <p class="note" style="margin-top:14px;"><strong>Instalación (modo desarrollador — todavía no está en la Chrome Web Store):</strong></p>
             <ol class="note" style="padding-left:20px;">

@@ -1,22 +1,26 @@
 # Centralizador TECBA - Captura cookie Moodle
 
-Extensión de Chrome (Manifest V3) que lee la cookie `MoodleSession` del navegador y la
-pega en el campo "Cookie de Moodle" de Centralizador, en vez de tener que copiarla a mano
-desde las herramientas de desarrollador (F12 → Application → Cookies). El pegado manual
-sigue funcionando exactamente igual; el botón que agrega la extensión es un atajo
-opcional, no un reemplazo.
+Extensión de Chrome (Manifest V3) que lee la cookie `MoodleSession` del navegador y, con
+confirmación del usuario, la manda cifrada al servidor de Centralizador - en vez de tener
+que copiarla a mano desde las herramientas de desarrollador (F12 → Application →
+Cookies). Ya no existe un campo de texto donde pegarla: todo el flujo pasa por el botón
+"Extraer cookie de Moodle" del panel de extracción.
 
 ## Cómo funciona
 
 - `background.js` (service worker) es el único archivo que toca `chrome.cookies` - lee el
   valor de `MoodleSession` para el dominio de Moodle configurado, cada vez que se lo piden
   (no guarda nada).
-- `content_script.js` corre solo en las páginas de Centralizador (nunca en Moodle) y agrega
-  un botón "⚡ Capturar cookie de Moodle automáticamente" junto a cada campo de cookie que
-  ya existe en la página. Al hacer clic, le pide el valor al service worker y lo pega en el
-  campo - el usuario sigue teniendo que revisar y apretar "Guardar cookie" como siempre.
+- `content_script.js` corre solo en las páginas de Centralizador (nunca en Moodle) y
+  escucha el evento `centralizador-pedir-cookie`, que dispara el botón "⚡ Extraer cookie
+  de Moodle" de `dashboard.html` al hacer clic. Le pide el valor al service worker y lo
+  devuelve a la página con el evento `centralizador-cookie-capturada` - nunca lo escribe
+  en el DOM ni en ningún campo visible.
+- La página (no la extensión) es quien muestra el cuadro de confirmación (Guardar /
+  Cancelar) y, recién si el usuario confirma, lo envía por HTTPS al servidor, donde se
+  guarda cifrado (ver `data/cookie_crypto.py`), vence a las 2 horas o al cerrar sesión.
 - La cookie nunca sale del navegador del usuario hacia ningún servidor que no sea el propio
-  Centralizador (y eso ya pasaba antes, al pegarla a mano).
+  Centralizador.
 
 ## Probarla en modo desarrollador (mientras no está en la Web Store)
 
@@ -24,8 +28,8 @@ opcional, no un reemplazo.
 2. Activar "Modo de desarrollador" (switch arriba a la derecha).
 3. "Cargar descomprimida" → seleccionar esta carpeta (`chrome_extension/`).
 4. Iniciar sesión en Moodle en alguna pestaña (no hace falta dejarla abierta).
-5. Ir a Centralizador (dashboard o la página de recuperación de sesión) y usar el botón
-   nuevo junto al campo de cookie.
+5. Ir al dashboard de extracción de Centralizador y usar el botón "⚡ Extraer cookie de
+   Moodle".
 
 ## Antes de subirla a la Chrome Web Store (privada/no listada)
 
@@ -47,11 +51,15 @@ opcional, no un reemplazo.
 
 ## Empaquetar el .zip para descarga
 
-Desde la raíz del proyecto:
+**Importante**: correr esto SIEMPRE que se modifique `background.js`, `content_script.js`
+o `manifest.json` - el .zip es un archivo generado, no se actualiza solo. Si te olvidás de
+este paso, la extensión que la gente instala desde "Descargar extensión" en Configuración
+queda desactualizada y deja de coincidir con la página (así se rompió el 2026-10-22).
+
+Desde la raíz del repo:
 
 ```
-cd chrome_extension
-# zippear todo menos este README si se quiere, o incluirlo tambien
+python chrome_extension/empaquetar.py
 ```
 
 El .zip generado se sirve desde `web/static/web/downloads/` y se enlaza en la página de

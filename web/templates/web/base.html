@@ -17,8 +17,8 @@
         } catch (e) {}
       })();
     </script>
-    <link rel="stylesheet" href="{% static 'web/dashboard.css' %}">
-    <link rel="stylesheet" href="{% static 'web/sidebar.css' %}">
+    <link rel="stylesheet" href="{% static 'web/dashboard.css' %}?v={{ static_v }}">
+    <link rel="stylesheet" href="{% static 'web/sidebar.css' %}?v={{ static_v }}">
     <link rel="stylesheet"
       href="https://cdn.datatables.net/2.3.2/css/dataTables.dataTables.min.css">
     <link rel="stylesheet"
@@ -35,17 +35,28 @@
             <i class="bi bi-list"></i>
           </button>
         </div>
+        <div class="sidebar-user">
+          <i class="bi bi-person-circle"></i>
+          <div>
+            <div class="sidebar-user-nombre">{{ nombre_usuario_actual }}</div>
+            <div class="sidebar-user-rol">{{ rol_usuario_display }}</div>
+          </div>
+        </div>
         <nav id="sidebarNav">
           <ul>
             <li><a href="{% url 'resumen' %}"><i class="bi bi-speedometer2"></i> Resumen</a></li>
+            {% if rol_usuario != ROL_VISITANTE %}
             <li><a href="{% url 'materias' %}"><i class="bi bi-journal-bookmark"></i> Materias</a></li>
+            {% if rol_usuario == ROL_ADMINISTRADOR or rol_usuario == ROL_DECANO %}
             <li><a href="{% url 'docentes' %}"><i class="bi bi-person-badge"></i> Docentes</a></li>
+            {% endif %}
             <li><a href="{% url 'estudiantes' %}"><i class="bi bi-people-fill"></i> Estudiantes</a></li>
             <li><a href="{% url 'alertas' %}"><i class="bi bi-exclamation-triangle-fill"></i> Alertas</a></li>
             <li><a href="{% url 'predicciones' %}"><i class="bi bi-graph-up-arrow"></i> Predicciones</a></li>
             <li><a href="{% url 'reportes' %}"><i class="bi bi-file-earmark-text"></i> Reportes</a></li>
             <li><a href="{% url 'dashboard' %}"><i class="bi bi-cloud-arrow-down-fill"></i> Extraccion</a></li>
             <li><a href="{% url 'configuracion' %}"><i class="bi bi-gear-fill"></i> Configuración</a></li>
+            {% endif %}
             <li><a href="{% url 'logout' %}"><i class="bi bi-box-arrow-right"></i> Cerrar sesión</a></li>
           </ul>
         </nav>
@@ -80,7 +91,6 @@
               icon: 'error',
               title: 'Ocurrió un error',
               text: opts.error,
-              footer: 'Detalle completo en la consola del navegador (F12).',
               confirmButtonColor: '#9b5bf6',
             });
           }

@@ -111,6 +111,8 @@ async def obtener_tareas_async(moodle, courses, stop_event=None):
             course_url = c["url"]
             asignatura = c["asignatura"]
             print("Extrayendo secciones de:", asignatura)
+            if stop_event is not None:
+                stop_event.set_paso(f"Extrayendo tareas de la materia: {asignatura}")
 
             num_secciones = await detectar_num_secciones(session, course_url)
             print("secciones totales",num_secciones)

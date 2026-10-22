@@ -324,6 +324,32 @@ h1 {
     color: var(--input-color);
 }
 
+.form-select-custom {
+    padding: 9px 36px 9px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--input-border);
+    background-color: var(--input-bg);
+    color: var(--input-color);
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23b9a9d8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M2 5l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 14px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-select-custom:hover {
+    border-color: rgba(var(--accent-purple-rgb), 0.5);
+}
+
+.form-select-custom:focus {
+    outline: none;
+    border-color: var(--accent-gold-strong);
+    box-shadow: 0 0 0 3px rgba(var(--accent-purple-rgb), 0.2);
+}
+
 .peso-input {
     padding: 6px;
     border-radius: 6px;
@@ -408,4 +434,80 @@ h1 {
     .courses-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Login / registro: panel partido, con el patron de hexagonos del lado izquierdo en
+   SVG (no imagen) para que tome el color del tema via currentColor, igual que cualquier
+   otro acento de la paleta. */
+.auth-shell {
+    display: flex;
+    width: 100%;
+    max-width: 960px;
+    min-height: 560px;
+    margin: 24px auto;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    background: var(--bg-sidebar);
+    border: 1px solid rgba(var(--accent-purple-rgb), 0.15);
+}
+
+.auth-visual {
+    position: relative;
+    flex: 1 1 46%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 40px;
+    background: linear-gradient(160deg, var(--accent-gold-strong), rgba(var(--accent-purple-rgb), 0.9));
+}
+
+.auth-hex-pattern {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.auth-brand {
+    position: relative;
+    text-align: center;
+    color: #fff;
+}
+
+.auth-brand-title {
+    font-size: 2.6rem;
+    font-weight: 800;
+    letter-spacing: 4px;
+}
+
+.auth-brand-subtitle {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    letter-spacing: 2px;
+    opacity: 0.92;
+}
+
+.auth-panel {
+    flex: 1 1 54%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    background: var(--bg-main);
+}
+
+.auth-card { width: 100%; max-width: 360px; }
+.auth-card-title { margin: 0 0 22px; }
+.auth-field { margin-bottom: 14px; }
+.auth-field label { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 0.9rem; }
+.auth-hint { display: block; margin-top: 4px; color: var(--text-muted); font-size: 0.78rem; }
+.auth-switch { margin-top: 18px; text-align: center; color: var(--text-secondary); }
+
+@media (max-width: 760px) {
+    .auth-visual { display: none; }
+    .auth-shell { margin: 0; border-radius: 0; min-height: 100vh; box-shadow: none; border: none; }
+    .auth-panel { padding: 28px 20px; }
 }

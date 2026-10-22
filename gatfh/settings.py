@@ -102,6 +102,8 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'data.roles.rol_usuario',
+                'web.context_processors.static_version',
             ],
         },
     },

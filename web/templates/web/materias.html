@@ -20,7 +20,7 @@
             <tr>
                 <td>{{ m.gestion }}</td>
                 <td>{{ m.sigla }}</td>
-                <td>{{ m.nombre }}</td>
+                <td><a href="{{ m.moodle_url }}" target="_blank">{{ m.nombre }}</a></td>
                 <td>{{ m.carrera.nombre }}</td>
                 <td>
                     {% if m.nivel %}

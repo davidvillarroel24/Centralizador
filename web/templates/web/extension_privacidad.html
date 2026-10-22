@@ -11,12 +11,13 @@
             <p class="note">
                 La extensión de Chrome <strong>"Centralizador TECBA - Captura cookie Moodle"</strong>
                 lee el valor de una única cookie del navegador, <code>MoodleSession</code>, del
-                dominio del campus virtual de Moodle de TECBA, y lo pega automáticamente en el
-                campo "Cookie de Moodle" del panel de extracción de Centralizador. Reemplaza el
-                copiado manual de esa cookie desde las herramientas de desarrollador del
-                navegador (F12 → Application → Cookies); <strong>no reemplaza la posibilidad de
-                pegar la cookie a mano</strong> — ese campo sigue siendo editable como siempre,
-                la extensión solo ofrece un atajo opcional.
+                dominio del campus virtual de Moodle de TECBA, cuando el usuario hace clic en el
+                botón "Extraer cookie de Moodle" del panel de extracción de Centralizador.
+                Reemplaza el copiado manual de esa cookie desde las herramientas de
+                desarrollador del navegador (F12 → Application → Cookies). El valor capturado ya
+                no se muestra ni se pega en ningún campo de texto visible de la página: se pide
+                confirmación mediante un cuadro de diálogo ("¿Guardar esta cookie?") y, recién si
+                el usuario confirma, se envía al servidor de Centralizador para guardarse cifrada.
             </p>
         </section>
 
@@ -26,17 +27,19 @@
                 <li>Accede únicamente al valor de la cookie <code>MoodleSession</code> del
                     dominio de Moodle configurado — ninguna otra cookie, ni de ningún otro
                     sitio.</li>
-                <li>Esa lectura ocurre solo cuando el usuario hace clic en el botón "Capturar
-                    cookie de Moodle automáticamente" dentro de una página de Centralizador; la
-                    extensión no se ejecuta ni lee nada en segundo plano ni en otras páginas.</li>
-                <li>El valor se pega directamente en el campo de texto de la página de
-                    Centralizador que el propio usuario tiene abierta. La extensión no lo envía
-                    a ningún servidor propio ni de terceros, ni lo guarda en ningún
-                    almacenamiento (ni local ni remoto) — no persiste nada entre usos.</li>
-                <li>Una vez pegado, el usuario revisa y confirma con el botón "Guardar cookie"
-                    ya existente en Centralizador. A partir de ahí, el manejo de esa cookie
-                    sigue las mismas reglas que si se hubiera pegado a mano: se guarda solo en
-                    la sesión de navegador firmada del servidor, nunca en la base de datos.</li>
+                <li>Esa lectura ocurre solo cuando el usuario hace clic en el botón "Extraer
+                    cookie de Moodle" dentro de una página de Centralizador; la extensión no se
+                    ejecuta ni lee nada en segundo plano ni en otras páginas.</li>
+                <li>El valor nunca se muestra en pantalla ni se pega en ningún campo de texto.
+                    Se le pasa directamente a la página de Centralizador, que pide confirmación
+                    al usuario (Guardar / Cancelar) antes de hacer nada con él.</li>
+                <li>Si el usuario confirma, la página lo envía (por una conexión cifrada HTTPS)
+                    al servidor de Centralizador, donde se guarda <strong>cifrado</strong> —
+                    nunca en texto plano — asociado a su cuenta de docente, para reutilizarlo en
+                    extracciones futuras sin tener que repetir este paso cada vez. Ese valor
+                    cifrado deja de ser válido automáticamente a las 2 horas de guardado, o antes
+                    si el usuario cierra sesión.</li>
+                <li>Si el usuario cancela, el valor no se envía a ningún lado y se descarta.</li>
             </ul>
         </section>
 

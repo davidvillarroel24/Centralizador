@@ -2,6 +2,149 @@
 {% block title %}Reportes - Centralizador{% endblock %}
 {% block header %}Reportes{% endblock %}
 {% block content %}
-  <p>{{ mensaje }}</p>
-  <div class="note">Filtros: Docente, Carrera, Materia, Gestión, Fecha (por implementar).</div>
+    <div class="page-shell">
+
+        <section class="panel" style="margin-bottom:20px;">
+            <h2>Último acceso</h2>
+            <div class="note">
+                Última conexión de docentes y/o estudiantes a Moodle, de forma general o filtrada
+                por materia. La fecha es aproximada: se calcula restando el "hace cuánto" que
+                informa Moodle (ej. "343 días 13 horas") al momento en que se corrió "3. Extraer
+                e importar último acceso" para esa materia - no es la hora exacta de la conexión.
+            </div>
+            <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
+                <div style="min-width:180px;">
+                    <label class="note" style="display:block; margin-bottom:4px;">Rol</label>
+                    <select name="rol_acceso" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
+                        <option value="todos" {% if rol_acceso == 'todos' %}selected{% endif %}>Docentes y estudiantes</option>
+                        <option value="docente" {% if rol_acceso == 'docente' %}selected{% endif %}>Solo docentes</option>
+                        <option value="estudiante" {% if rol_acceso == 'estudiante' %}selected{% endif %}>Solo estudiantes</option>
+                    </select>
+                </div>
+                <div style="min-width:220px;">
+                    <label class="note" style="display:block; margin-bottom:4px;">Materia</label>
+                    <select name="materia_acceso" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
+                        <option value="">Todas</option>
+                        {% for m in materias_disponibles %}
+                            <option value="{{ m.id }}" {% if materia_acceso == m.id|stringformat:"s" %}selected{% endif %}>{{ m.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   href="{% url 'reportes_descargar' tipo='acceso' formato='excel' %}?rol_acceso={{ rol_acceso }}&materia_acceso={{ materia_acceso }}">⬇ Excel</a>
+                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   href="{% url 'reportes_descargar' tipo='acceso' formato='pdf' %}?rol_acceso={{ rol_acceso }}&materia_acceso={{ materia_acceso }}">⬇ PDF</a>
+            </form>
+
+            <table id="tblReporteAcceso" class="display" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th>Nombre</th><th>Rol</th><th>Materia</th><th>Último acceso</th><th>Fecha aproximada</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in filas_acceso %}
+                    <tr>
+                        <td>{{ f.nombre }}</td>
+                        <td>{{ f.rol }}</td>
+                        <td>{{ f.materia }}</td>
+                        <td>{{ f.ultimo_acceso_texto }}</td>
+                        <td>{{ f.fecha_aprox|date:"d/m/Y H:i"|default:"—" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="note">Sin datos: corré "3. Extraer e importar último acceso" para algún curso primero.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="panel" style="margin-bottom:20px;">
+            <h2>Tareas asignadas por docente</h2>
+            <div class="note">Tareas con entrega (Tarea.tipo = "assign") que cada docente publicó, agrupadas por materia y tema.</div>
+            <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
+                <div style="min-width:220px;">
+                    <label class="note" style="display:block; margin-bottom:4px;">Docente</label>
+                    <select name="docente_tareas" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
+                        <option value="">Todos</option>
+                        {% for d in docentes_disponibles %}
+                            <option value="{{ d.id }}" {% if docente_tareas == d.id|stringformat:"s" %}selected{% endif %}>{{ d.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   href="{% url 'reportes_descargar' tipo='tareas' formato='excel' %}?docente_tareas={{ docente_tareas }}">⬇ Excel</a>
+                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   href="{% url 'reportes_descargar' tipo='tareas' formato='pdf' %}?docente_tareas={{ docente_tareas }}">⬇ PDF</a>
+            </form>
+
+            <table id="tblReporteTareas" class="display" style="width:100%;">
+                <thead>
+                    <tr><th>Docente</th><th>Materia</th><th>Tema/Unidad</th><th>Tarea</th><th>Cierre</th></tr>
+                </thead>
+                <tbody>
+                    {% for f in filas_tareas %}
+                    <tr>
+                        <td>{{ f.docente }}</td>
+                        <td>{{ f.materia }}</td>
+                        <td>{{ f.unidad }}</td>
+                        <td>{{ f.titulo }}</td>
+                        <td>{{ f.extra|default:"—" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="note">Sin tareas importadas todavía.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="panel">
+            <h2>Material de apoyo subido por docente</h2>
+            <div class="note">Enlaces y archivos que no son tareas con entrega (Tarea.tipo = "url"): Drive, recursos, avisos, etc.</div>
+            <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
+                <div style="min-width:220px;">
+                    <label class="note" style="display:block; margin-bottom:4px;">Docente</label>
+                    <select name="docente_material" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
+                        <option value="">Todos</option>
+                        {% for d in docentes_disponibles %}
+                            <option value="{{ d.id }}" {% if docente_material == d.id|stringformat:"s" %}selected{% endif %}>{{ d.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   href="{% url 'reportes_descargar' tipo='material' formato='excel' %}?docente_material={{ docente_material }}">⬇ Excel</a>
+                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   href="{% url 'reportes_descargar' tipo='material' formato='pdf' %}?docente_material={{ docente_material }}">⬇ PDF</a>
+            </form>
+
+            <table id="tblReporteMaterial" class="display" style="width:100%;">
+                <thead>
+                    <tr><th>Docente</th><th>Materia</th><th>Tema/Unidad</th><th>Material</th><th>Enlace</th></tr>
+                </thead>
+                <tbody>
+                    {% for f in filas_material %}
+                    <tr>
+                        <td>{{ f.docente }}</td>
+                        <td>{{ f.materia }}</td>
+                        <td>{{ f.unidad }}</td>
+                        <td>{{ f.titulo }}</td>
+                        <td>{% if f.extra %}<a href="{{ f.extra }}" target="_blank">Abrir</a>{% else %}—{% endif %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="note">Sin material importado todavía.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function () {
+        $('#tblReporteAcceso').DataTable({ pageLength: 25, order: [] });
+        $('#tblReporteTareas').DataTable({ pageLength: 25, order: [] });
+        $('#tblReporteMaterial').DataTable({ pageLength: 25, order: [] });
+    });
+</script>
 {% endblock %}

@@ -1,12 +1,21 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
+
+COOKIE_VENCE_DESPUES = timedelta(hours=2)
 
 
 class Profesor(models.Model):
     moodle_id = models.IntegerField(unique=True)
     nombre = models.CharField(max_length=255)
     url = models.URLField()
-    moodle_session_hash = models.CharField(max_length=255, blank=True, null=True)
+    # Cookie MoodleSession cifrada (ver data/cookie_crypto.py) - reemplaza al viejo
+    # moodle_session_hash, que guardaba un hash de un solo sentido (make_password) y nunca
+    # se podia volver a leer para usarla de verdad en una extraccion.
+    moodle_cookie_cifrada = models.TextField(blank=True, null=True)
+    moodle_cookie_guardada_en = models.DateTimeField(blank=True, null=True)
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -23,6 +32,19 @@ class Profesor(models.Model):
 
     def __str__(self):
         return self.nombre
+
+    def cookie_vigente(self):
+        """'Expiracion perezosa': no hay ningun proceso en segundo plano borrando cookies
+        vencidas - simplemente, cada vez que se la necesita, se compara cuanto hace que se
+        guardo. Si pasaron mas de 2 horas (o nunca se guardo), se la trata como vencida."""
+        if not self.moodle_cookie_cifrada or not self.moodle_cookie_guardada_en:
+            return False
+        return timezone.now() - self.moodle_cookie_guardada_en < COOKIE_VENCE_DESPUES
+
+    def borrar_cookie(self):
+        self.moodle_cookie_cifrada = None
+        self.moodle_cookie_guardada_en = None
+        self.save(update_fields=['moodle_cookie_cifrada', 'moodle_cookie_guardada_en'])
 
 
 class FechasParciales(models.Model):
@@ -456,6 +478,12 @@ class TrabajoExtraccion(models.Model):
     # - con mas de un worker de gunicorn, el click de "Detener" podia caer en un worker
     # distinto al que la corria y no hacer nada. En la base, cualquier worker lo ve.
     detener = models.BooleanField(default=False)
+    # Texto corto tipo "Extrayendo tareas de la materia: X", actualizado por el scraper a
+    # medida que avanza (ver services/utils/extraction_lock.py::DbStopEvent.set_paso). Lo
+    # lee el endpoint de progreso (/extraccion/progreso/) via polling, para el spinner del
+    # dashboard - gunicorn corre con 2 workers (ver deploy/web/entrypoint.sh), asi que ese
+    # polling lo atiende el worker libre mientras el otro sigue bloqueado extrayendo.
+    paso_actual = models.CharField(max_length=255, blank=True, default='')
 
     def __str__(self):
         if self.en_curso:
@@ -488,3 +516,67 @@ class ArchivoTarea(models.Model):
     def __str__(self):
 
         return self.nombre
+
+
+class PerfilUsuario(models.Model):
+    """Un perfil por cada User de Django, con su rol en el sistema. No se le agrega el
+    campo 'rol' directo a auth_user porque esa tabla es de la app django.contrib.auth:
+    Django no deja que otra app le agregue un campo ahi de forma soportada (sin recurrir a
+    SQL crudo + parches en tiempo de arranque, fragil ante cambios de Django). Esta tabla
+    aparte, mostrada como seccion dentro de la misma pantalla de edicion del User en el
+    admin (ver data/admin.py), da el mismo resultado practico sin ese riesgo.
+
+    ADMINISTRADOR: ve todo, sin restriccion.
+    DECANO: ve todo lo que caiga bajo CUALQUIERA de sus 3 asignaciones (facultades, carreras
+        o materias sueltas) - la union de las tres, no una jerarquia excluyente. Puede
+        ademas ser Docente de sus propias materias al mismo tiempo (no es un rol exclusivo,
+        solo agrega visualizacion extra sobre lo que ya veria como Docente).
+    DOCENTE: rol por defecto: ve unicamente lo propio (sus materias).
+    VISITANTE: cuenta con acceso minimo (Resumen + filtro de facultad/carrera); se crea
+        asociada a un Profesor ficticio (moodle_id reservado, sin materias reales) para
+        no tener que relajar la validacion de login/registro existente, que hoy exige que
+        el username coincida con un Profesor."""
+
+    ADMINISTRADOR = 'administrador'
+    DECANO = 'decano'
+    DOCENTE = 'docente'
+    VISITANTE = 'visitante'
+    ROLES = [
+        (ADMINISTRADOR, 'Administrador'),
+        (DECANO, 'Decano'),
+        (DOCENTE, 'Docente'),
+        (VISITANTE, 'Visitante'),
+    ]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='perfil'
+    )
+
+    rol = models.CharField(max_length=20, choices=ROLES, default=DOCENTE)
+
+    # Alcance del Decano: union de estas 3 (solo se usan cuando rol == DECANO).
+    facultades = models.ManyToManyField(
+        Facultad,
+        blank=True,
+        related_name='decanos',
+        help_text='Solo para rol Decano: ve todas las carreras/materias de estas facultades.',
+    )
+    carreras = models.ManyToManyField(
+        Carrera,
+        blank=True,
+        related_name='decanos',
+        help_text='Solo para rol Decano: ve todas las materias de estas carreras.',
+    )
+    materias = models.ManyToManyField(
+        Materia,
+        blank=True,
+        related_name='decanos',
+        help_text='Solo para rol Decano: ve estas materias sueltas, sin asignar toda la carrera.',
+    )
+
+    actualizado = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username} ({self.get_rol_display()})"

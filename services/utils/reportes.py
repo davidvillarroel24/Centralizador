@@ -137,6 +137,7 @@ def datos_reporte_contenido(materias_qs, tipo, docente_id=''):
                         'unidad': unidad.nombre,
                         'titulo': tarea.titulo,
                         'extra': tarea.cierre if tipo == 'assign' else tarea.url,
+                        'url': tarea.url,
                     })
     return filas
 
@@ -153,7 +154,7 @@ REPORTES = {
         'titulo': 'Tareas asignadas por docente',
         'columnas': [
             ('docente', 'Docente'), ('materia', 'Materia'), ('unidad', 'Tema/Unidad'),
-            ('titulo', 'Tarea'), ('extra', 'Cierre'),
+            ('titulo', 'Tarea'), ('extra', 'Cierre'), ('url', 'Enlace'),
         ],
     },
     'material': {

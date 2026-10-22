@@ -135,7 +135,9 @@
                     </div>
                     <div class="actions-grid">
                         {% if es_administrador %}
-                        <button type="submit" name="action" value="cargar_carreras" class="btn btn-secondary">0. Extraer e importar carreras</button>
+                        <button type="button" id="btnCargarCarrerasPrompt" class="btn btn-secondary">0. Extraer e importar carreras</button>
+                        <button type="submit" name="action" value="cargar_carreras" id="btnCargarCarrerasReal" style="display:none;"></button>
+                        <button type="submit" name="action" value="importar_carreras_completo" id="btnImportarCarrerasCompleto" style="display:none;"></button>
                         {% endif %}
                         <button type="submit" name="action" value="cargar_tareas" class="btn btn-secondary">1. Extraer, asignar e importar tareas</button>
                         <button type="submit" name="action" value="ver_asignacion" class="btn btn-secondary">✏️ Revisar asignación del curso seleccionado</button>
@@ -144,7 +146,7 @@
                         <button type="submit" formaction="{% url 'descargar_excel' %}" class="btn btn-primary">4. Generar Excel y descargar</button>
                     </div>
                     <div class="note">
-                        {% if es_administrador %}"0. Extraer e importar carreras" recorre Moodle y carga Facultad/Carrera/Nivel/Profesor/Materia a la base de datos, todo de una vez (necesita cookie guardada). Solo lo ve una cuenta Administrador.{% endif %}
+                        {% if es_administrador %}"0. Extraer e importar carreras" pregunta si hace falta recorrer Moodle de nuevo (necesita cookie guardada) o si alcanza con re-importar lo último ya extraído; en ambos casos carga Facultad/Carrera/Nivel/Profesor/Materia a la base de datos. Solo lo ve una cuenta Administrador.{% endif %}
                         Seleccioná cursos y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base (necesita que "1" ya haya corrido para el curso tildado). "2" y "3" extraen e importan estudiantes y el padrón de último acceso de los cursos seleccionados — "3" trae a todos los inscritos (vía /user/index.php), a diferencia de "2" que solo ve a quien entregó algo.
                     </div>
                 </div>
@@ -271,6 +273,42 @@
     .asignacion-tabla th { color: var(--accent-gold); font-weight: 600; }
 </style>
 <script>
+    // "0. Extraer e importar carreras" pregunta primero si hace falta volver a recorrer
+    // Moodle entero (pesado) o si alcanza con re-importar linkcarreras.json tal cual quedó
+    // de la última extracción (ej. después de arreglar un bug de parseo, sin tener que
+    // esperar de nuevo los varios minutos que tarda extraer). Dos botones <submit> ocultos
+    // (uno por cada action) reciben el submit real: así el interceptor de ACCIONES_LARGAS
+    // de más abajo sigue viendo un submit normal, con su ev.submitter de siempre.
+    (function () {
+        var btnPrompt = document.getElementById('btnCargarCarrerasPrompt');
+        var btnExtraer = document.getElementById('btnCargarCarrerasReal');
+        var btnSoloImportar = document.getElementById('btnImportarCarrerasCompleto');
+        if (!btnPrompt || !btnExtraer || !btnSoloImportar || !window.Swal) return;
+
+        btnPrompt.addEventListener('click', function () {
+            Swal.fire({
+                icon: 'question',
+                title: 'Carreras: ¿extraer o solo importar?',
+                html: 'Extraer recorre Moodle entero de nuevo (pesado, puede tardar varios minutos). ' +
+                      'Si ya extrajiste hace poco y solo hace falta que la base tome esos datos otra ' +
+                      'vez (ej. después de corregir un error de importación), elegí "Solo importar".',
+                showDenyButton: true,
+                showCancelButton: true,
+                confirmButtonText: 'Extraer y luego importar',
+                denyButtonText: 'Solo importar (ya extraje)',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#9b5bf6',
+                denyButtonColor: '#d9a441',
+            }).then(function (resultado) {
+                if (resultado.isConfirmed) {
+                    btnExtraer.form.requestSubmit(btnExtraer);
+                } else if (resultado.isDenied) {
+                    btnSoloImportar.form.requestSubmit(btnSoloImportar);
+                }
+            });
+        });
+    })();
+
     // Pills Todos/Estudiante/Docente: ahora son parte del mismo form GET que los
     // dropdowns de Carrera/Materia y el buscador (#formFiltrosCursos), para que cambiar
     // uno no pierda los otros filtros ya elegidos.
@@ -294,7 +332,10 @@
     // sondeo lo atiende el otro worker de gunicorn (corre con --workers 2) mientras el
     // primero sigue ocupado extrayendo.
     (function () {
-        var ACCIONES_LARGAS = ['cargar_carreras', 'cargar_tareas', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
+        var ACCIONES_LARGAS = ['cargar_carreras', 'importar_carreras_completo', 'cargar_tareas', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
+        var TEXTO_INICIAL_POR_ACCION = {
+            importar_carreras_completo: 'Importando (sin re-extraer)...',
+        };
         var form = document.getElementById('formAcciones');
         var overlay = document.getElementById('extraccionOverlay');
         var overlayTexto = document.getElementById('extraccionOverlayTexto');
@@ -330,7 +371,7 @@
 
             ev.preventDefault();
             overlay.style.display = 'flex';
-            overlayTexto.textContent = 'Extrayendo...';
+            overlayTexto.textContent = TEXTO_INICIAL_POR_ACCION[accion] || 'Extrayendo...';
             empezarSondeo();
 
             var datos = new FormData(form);

@@ -19,29 +19,44 @@ def parsear_materia(texto):
 
     en:
     gestion, grupo, turno, sigla, nombre
+
+    Moodle no usa un unico formato para el encabezado (todo lo que va antes del
+    sigla-nombre): ademas del viejo "GESTION/GRUPO-TURNO" tambien aparece
+    "GESTION-GRUPO-TURNO" (sin la primera barra) y, en cursos de intersemestral,
+    un marcador de periodo en numeros romanos antes o en medio ("II-2026-GB-TM",
+    "2025-II-G2-TM"). Si se asumia que la barra "/" dividia siempre en 3 partes
+    fijas, estos formatos nuevos tiraban un IndexError (atrapado por el except de
+    mas abajo) y la materia se saltaba en silencio - nunca llegaba a la base,
+    aunque linkcarreras.json si la tuviera (confirmado 2026-10-22 con las
+    materias 2026 de Sharon Sarabia). Por eso ahora se parte solo por la ULTIMA
+    barra (el sigla-nombre nunca lleva barras) y el encabezado se tokeniza por
+    "/" o "-" sin asumir una cantidad fija de partes.
     """
 
     try:
 
-        partes = texto.split("/")
+        encabezado, _sep, resto = texto.rpartition("/")
 
-        gestion_texto = partes[0]
-
-        match_gestion = re.search(r'(\d{4})', gestion_texto)
-
-        if not match_gestion:
+        if not resto:
             return None
 
-        gestion = int(match_gestion.group(1))
+        tokens = [t for t in re.split(r'[/-]', encabezado) if t]
 
-        codigo = partes[1]
+        # Marcador de periodo ("I"/"II"/"III", intersemestral) - Materia no tiene
+        # columna para esto, se descarta sin afectar el resto del parseo.
+        tokens = [t for t in tokens if not re.fullmatch(r'I{1,3}|IV', t)]
 
-        resto = partes[2]
+        gestion = None
+        for i, t in enumerate(tokens):
+            if re.fullmatch(r'\d{4}', t):
+                gestion = int(t)
+                del tokens[i]
+                break
 
-        codigo_partes = codigo.split("-")
+        if gestion is None or len(tokens) < 2:
+            return None
 
-        grupo = codigo_partes[0]
-        turno = codigo_partes[1]
+        grupo, turno = tokens[0], tokens[1]
 
         match = re.match(
             r'^([A-Z]+(?:-[A-Z]+)?-\d+)-(.*)$',

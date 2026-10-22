@@ -79,7 +79,7 @@
 
             <table id="tblReporteTareas" class="display" style="width:100%;">
                 <thead>
-                    <tr><th>Docente</th><th>Materia</th><th>Tema/Unidad</th><th>Tarea</th><th>Cierre</th></tr>
+                    <tr><th>Docente</th><th>Materia</th><th>Tema/Unidad</th><th>Tarea</th><th>Cierre</th><th>Enlace</th></tr>
                 </thead>
                 <tbody>
                     {% for f in filas_tareas %}
@@ -89,9 +89,10 @@
                         <td>{{ f.unidad }}</td>
                         <td>{{ f.titulo }}</td>
                         <td>{{ f.extra|default:"—" }}</td>
+                        <td>{% if f.url %}<a href="{{ f.url }}" target="_blank">Abrir</a>{% else %}—{% endif %}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="5" class="note">Sin tareas importadas todavía.</td></tr>
+                    <tr><td colspan="6" class="note">Sin tareas importadas todavía.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

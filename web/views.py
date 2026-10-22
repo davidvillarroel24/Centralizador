@@ -667,13 +667,10 @@ def progreso_extraccion(request):
 # su cadena de una sola vez - si un paso intermedio falla, se corta ahí (no sigue con datos
 # a medio importar) y el mensaje dice hasta dónde llegó.
 
-def run_cargar_carreras_web(cookie, stop_event):
-    """'0. Extraer carreras' + importadores A-E, en el orden del README. Solo lo dispara
-    quien tiene rol Administrador (chequeado en la vista, antes de llamar a esto)."""
-    pasos = []
-    resultado = run_extraer_carreras_web(cookie, stop_event)
-    pasos.append(resultado['detail'])
-
+def importar_carreras_az(pasos):
+    """Corre los importadores A-E en el orden del README, acumulando el detalle de cada
+    paso en `pasos` (lista, mutada in-place) para que el mensaje de error diga hasta dónde
+    llegó si alguno falla a mitad de camino."""
     for action in ('importar_facultades', 'importar_carreras', 'importar_niveles',
                    'importar_profesores', 'importar_materias'):
         try:
@@ -684,7 +681,24 @@ def run_cargar_carreras_web(cookie, stop_event):
                 f"Se detuvo en \"{action}\" después de completar: {' | '.join(pasos)}. Error: {exc}"
             ) from exc
 
+
+def run_cargar_carreras_web(cookie, stop_event):
+    """'0. Extraer carreras' + importadores A-E, en el orden del README. Solo lo dispara
+    quien tiene rol Administrador (chequeado en la vista, antes de llamar a esto)."""
+    pasos = []
+    resultado = run_extraer_carreras_web(cookie, stop_event)
+    pasos.append(resultado['detail'])
+    importar_carreras_az(pasos)
     return {'title': 'Carreras extraídas e importadas', 'detail': ' | '.join(pasos), 'count': None}
+
+
+def run_importar_carreras_completo_web():
+    """Solo los importadores A-E, sin volver a tocar Moodle - para cuando ya se extrajo
+    (linkcarreras.json ya está actualizado, ej. tras arreglar un bug de parseo) y alcanza
+    con re-importar sin pagar de nuevo el costo de una extracción completa."""
+    pasos = []
+    importar_carreras_az(pasos)
+    return {'title': 'Carreras importadas (sin re-extraer)', 'detail': ' | '.join(pasos), 'count': None}
 
 
 def run_cargar_tareas_web(selected_ids, cookie, stop_event, profesor):
@@ -912,6 +926,14 @@ def dashboard(request):
                             action_result['warning'] = aviso_candado_vencido
                     finally:
                         extraction_lock.release_lock(job_id)
+            elif action == 'importar_carreras_completo':
+                # "Solo importar" del cuadro de confirmación de "0.": no toca Moodle, no
+                # necesita cookie ni el candado - mismo gate de Administrador que
+                # "cargar_carreras" porque también escribe Facultad/Carrera/Nivel/Profesor/
+                # Materia para todo el sistema.
+                if not es_administrador(request.user):
+                    raise ValueError('Solo una cuenta Administrador puede importar carreras.')
+                action_result = run_importar_carreras_completo_web()
             elif action in IMPORTADORES_CARRERAS:
                 action_result = run_importar_web(action)
             else:

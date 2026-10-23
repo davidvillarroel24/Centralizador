@@ -166,6 +166,13 @@ def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
     filtro que decida que tareas pedir, solo una validacion fail-fast antes de llamar a
     Moodle. Configurar los pesos es responsabilidad de /configuracion/.
 
+    `profesor_id` tambien protege estudiantes.json igual que ya hace tareas() (ver su
+    docstring, mismo patron): sin esto, si el profesor A extrae estudiantes de un curso y
+    el profesor B extrae estudiantes de otro antes de que A llegue a importar los suyos,
+    el guardado de B pisaba entero el archivo y el trabajo de A se perdia sin aviso (C12,
+    README). El marcador de tareas() usa `asignatura`; aca se usa el `id` de tarea
+    (moodle_id) porque cada entrada de estudiantes.json es por-tarea, no por-curso.
+
     Antes leia tareas.json (matcheando por texto de `asignatura`, igual de fragil que el
     viejo asignacion_tareas()); tareas.json se sigue generando igual en tareas() para
     inspeccion manual, pero ya no es la fuente de esta funcion - ahora lee Tarea (BD),
@@ -180,6 +187,7 @@ def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
     _cursos_seleccionados_o_falla(ids, 'extraer sus estudiantes')
 
     tareas_por_materia = {}
+    ids_tareas_seleccionadas = set()
     tareas_qs = (
         Tarea.objects.filter(tipo='assign', unidad__materia_id__in=ids)
         .select_related('unidad__materia')
@@ -192,6 +200,7 @@ def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
         )
         unidad_entry = curso_entry['tareas'].setdefault(t.unidad_id, {'unidad': t.unidad.nombre, 'contenido': []})
         unidad_entry['contenido'].append({'url': t.url, 'Titulo': t.titulo})
+        ids_tareas_seleccionadas.add(str(t.moodle_id))
 
     tareas_filtradas = [
         {'asignatura': entry['asignatura'], 'tareas': list(entry['tareas'].values())}
@@ -218,7 +227,22 @@ def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
         )
         estudiantes_resultado.extend(curso_estudiantes)
 
-    exportarjson.save_estudiantes(estudiantes_resultado)
+    # Mismo patron de marcador + merge que tareas() (ver su docstring y el de arriba,
+    # C12): conserva lo ya guardado de otras tareas del mismo profesor, descarta todo si
+    # el ultimo guardado es de otro profesor, y siempre reemplaza las tareas que se
+    # acaban de volver a extraer (nunca se duplican).
+    estudiantes_guardados = cargarjson.cargar_estudiantes()
+    marcador = next((e for e in estudiantes_guardados if 'profesor' in e), None)
+    entradas_previas = [e for e in estudiantes_guardados if 'id' in e]
+    if marcador is not None and marcador.get('profesor') != profesor_id:
+        print(f"Estudiantes guardados pertenecen a otro profesor ({marcador.get('profesor')}); se descartan.")
+        entradas_previas = []
+    estudiantes_previos = [
+        e for e in entradas_previas
+        if str(e.get('id')) not in ids_tareas_seleccionadas
+    ]
+
+    exportarjson.save_estudiantes([{'profesor': profesor_id}] + estudiantes_previos + estudiantes_resultado)
 
     print("Estudiantes OK", estudiantes_resultado)
     return estudiantes_resultado, detenido

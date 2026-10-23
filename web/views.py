@@ -894,6 +894,23 @@ def dashboard(request):
                         'No hay ninguna cookie de Moodle guardada, o venció (dura 2 horas). '
                         'Extraela de nuevo con el botón de cookie arriba antes de iniciar una extracción.'
                     )
+                if (
+                    action not in ('cargar_carreras', 'extraer_carreras')
+                    and len(selected_ids) != 1
+                ):
+                    # C11 (README): estas acciones llaman a Moodle de verdad, de forma
+                    # sincrona dentro del request. Sin este limite, una seleccion grande
+                    # encadenaba muchos requests secuenciales en un solo POST, con riesgo
+                    # de WORKER TIMEOUT y, si se cortaba a la mitad, mezclando cursos de
+                    # distintas corridas. La grilla de cursos sigue siendo multi-select
+                    # (la necesitan "Generar Excel"/"Revisar asignación", que no llaman a
+                    # Moodle); dashboard.html ya avisa antes de enviar si hay mas de uno
+                    # tildado para estas acciones - esta es la validacion real del lado
+                    # del servidor, por si llega un POST armado a mano con varios.
+                    raise ValueError(
+                        'Elegí un solo curso para esta acción (no se puede extraer de '
+                        'Moodle más de uno a la vez).'
+                    )
                 job_id, aviso_candado_vencido = extraction_lock.try_acquire_lock(request.user.username)
                 if job_id is None:
                     candado = extraction_lock.current_lock()

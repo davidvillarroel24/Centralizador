@@ -44,9 +44,19 @@ def cargar_fechas():
         raise Exception(f"Error cargando fechas: {e}")
     
 def cargar_estudiantes():
+    # Mismo criterio que cargar_tareas(): sin archivo o con JSON corrupto, se trata como
+    # "todavia no hay nada guardado" en vez de reventar - necesario para que el merge por
+    # profesor de estudiantes() (C12, README) no se caiga en la primera extraccion de un
+    # VPS nuevo (data/raw/estudiantes.json no existe hasta la primera vez que se guarda).
     try:
         with open(config.JSON_ESTUDIANTES, "r", encoding="utf-8") as f:
             return json.load(f)
+    except FileNotFoundError:
+        print("No existe el archivo estudiantes.json")
+        return []
+    except json.JSONDecodeError:
+        print("Error: JSON corrupto")
+        return []
     except Exception as e:
         raise Exception(f"Error cargando estudiante: {e}")
 

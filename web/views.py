@@ -3,7 +3,7 @@ import os
 import re
 import json
 from datetime import datetime, timezone, date
-from io import BytesIO
+from io import BytesIO, StringIO
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -1564,10 +1564,64 @@ def alertas_view(request):
 
 @login_required
 @requiere_rol(*ROLES_STAFF)
+@require_http_methods(['GET', 'POST'])
 def predicciones_view(request):
-    # estructura inicial para ML
-    context = {'mensaje': 'Predicciones: espacio reservado para ML.'}
+    error = None
+
+    if request.method == 'POST':
+        if not es_administrador(request.user):
+            error = 'Solo una cuenta Administrador puede generar el dataset.'
+        else:
+            try:
+                from django.core.management import call_command
+                salida = StringIO()
+                call_command('exportar_dataset_ml', stdout=salida)
+                request.session['predicciones_flash'] = {'detalle': salida.getvalue()}
+            except Exception as exc:
+                error = str(exc)
+                traceback.print_exc()
+        if error:
+            request.session['predicciones_flash'] = {'error': error}
+        return redirect('predicciones')
+
+    flash = request.session.pop('predicciones_flash', None) or {}
+
+    dataset_existe = os.path.exists(config.CSV_DATASET_ML)
+    dataset_filas = None
+    dataset_generado_en = None
+    if dataset_existe:
+        with open(config.CSV_DATASET_ML, encoding='utf-8') as archivo:
+            dataset_filas = max(sum(1 for _ in archivo) - 1, 0)  # -1 por el encabezado
+        dataset_generado_en = dj_timezone.make_aware(
+            datetime.fromtimestamp(os.path.getmtime(config.CSV_DATASET_ML))
+        )
+
+    context = {
+        'es_administrador': es_administrador(request.user),
+        'dataset_existe': dataset_existe,
+        'dataset_filas': dataset_filas,
+        'dataset_generado_en': dataset_generado_en,
+        'flash_detalle': flash.get('detalle'),
+        'flash_error': flash.get('error'),
+    }
     return render(request, 'web/predicciones.html', context)
+
+
+@login_required
+@requiere_rol(PerfilUsuario.ADMINISTRADOR)
+@require_http_methods(['GET'])
+def predicciones_descargar_csv(request):
+    if not os.path.exists(config.CSV_DATASET_ML):
+        request.session['predicciones_flash'] = {
+            'error': 'Todavía no se generó el dataset. Usá "Generar dataset" primero.'
+        }
+        return redirect('predicciones')
+    return FileResponse(
+        open(config.CSV_DATASET_ML, 'rb'),
+        as_attachment=True,
+        filename='dataset_ml.csv',
+        content_type='text/csv',
+    )
 
 
 def _materias_qs_reportes(request):

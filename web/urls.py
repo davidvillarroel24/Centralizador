@@ -19,6 +19,7 @@ urlpatterns = [
     path('register/', views.register_view, name='register'),
     path('logout/', views.logout_view, name='logout'),
     path('predicciones/', views.predicciones_view, name='predicciones'),
+    path('predicciones/descargar/', views.predicciones_descargar_csv, name='predicciones_descargar_csv'),
     path('reportes/', views.reportes_view, name='reportes'),
     path('reportes/descargar/<str:tipo>/<str:formato>/', views.reportes_descargar, name='reportes_descargar'),
     path('configuracion/', views.configuracion_view, name='configuracion'),

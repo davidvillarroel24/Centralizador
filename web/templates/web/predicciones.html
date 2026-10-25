@@ -2,5 +2,55 @@
 {% block title %}Predicciones - Centralizador{% endblock %}
 {% block header %}Predicciones{% endblock %}
 {% block content %}
-  <p>{{ mensaje }}</p>
+    <div class="page-shell">
+        <section class="panel">
+            <h2>Dataset para entrenar el modelo de riesgo (Random Forest)</h2>
+            <div class="note">
+                Una fila por (estudiante, materia, parcial) ya cerrado, con el comportamiento
+                durante ese parcial (entregas, atrasos, último acceso) y si terminó "en riesgo"
+                según la nota mínima de aprobación configurada. Es el insumo para entrenar en
+                Colab el modelo de riesgo de esta sección — todavía no hay nada acá que use el
+                dataset para predecir, solo lo genera y lo deja listo para descargar.
+            </div>
+
+            {% if dataset_existe %}
+                <div class="note" style="margin-top:10px;">
+                    Último generado: {{ dataset_generado_en|date:"d/m/Y H:i" }} — {{ dataset_filas }} fila{{ dataset_filas|pluralize }}.
+                    {% if dataset_filas < 50 %}
+                        <strong style="color:var(--accent-gold);">Menos de 50 filas: todavía no alcanza para un modelo confiable.</strong>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="note" style="margin-top:10px;">Todavía no se generó ningún dataset.</div>
+            {% endif %}
+
+            {% if es_administrador %}
+                <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:16px;">
+                    <form method="post" id="formGenerarDataset">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-secondary" style="width:auto; padding:10px 18px;">
+                            🔄 Generar dataset
+                        </button>
+                    </form>
+                    {% if dataset_existe %}
+                        <a href="{% url 'predicciones_descargar_csv' %}" class="btn btn-primary" style="width:auto; padding:10px 18px; text-decoration:none; display:inline-flex; align-items:center;">
+                            ⬇ Descargar dataset_ml.csv
+                        </a>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="note" style="margin-top:16px;">Solo una cuenta Administrador puede generar o descargar el dataset.</div>
+            {% endif %}
+        </section>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    {% if flash_error %}
+        mostrarResultado({ error: "{{ flash_error|escapejs }}" });
+    {% elif flash_detalle %}
+        mostrarResultado({ title: "Dataset generado", detail: "{{ flash_detalle|escapejs }}" });
+    {% endif %}
+</script>
 {% endblock %}

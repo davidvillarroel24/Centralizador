@@ -1600,6 +1600,44 @@ def _archivos_lista(qs):
     return [{'nombre': a.nombre, 'url': a.url} for a in qs]
 
 
+def _rango_fechas_de(request):
+    """Lee fecha_inicio/fecha_fin (?fecha_inicio=YYYY-MM-DD, de un <input type="date">) y
+    los devuelve como date, o None si no vinieron/no son validos."""
+    def parsear(nombre):
+        valor = request.GET.get(nombre)
+        if not valor:
+            return None
+        try:
+            return date.fromisoformat(valor)
+        except ValueError:
+            return None
+    return parsear('fecha_inicio'), parsear('fecha_fin')
+
+
+def _una_fecha_en_rango(texto, inicio, fin):
+    fecha = parse_date_string(texto) if texto else None
+    if fecha is None:
+        return False
+    if inicio and fecha < inicio:
+        return False
+    if fin and fecha > fin:
+        return False
+    return True
+
+
+def _fecha_texto_en_rango(*textos, inicio, fin):
+    """Cada texto es una fecha cruda de Moodle (ej. "sábado, 17 de mayo de 2025, 00:00",
+    de Tarea.apertura/cierre o Entrega.ultima_mod_entrega) - no hay filtro de rango sin
+    parsearla primero (parse_date_string, la misma que usa el export del dataset de ML).
+    Sin rango pedido, todo pasa. Con rango pedido, alcanza con que UNA de las fechas caiga
+    adentro (ej. para una tarea: apertura o cierre, lo que el usuario haya querido decir al
+    elegir ese rango) - una fila sin ninguna fecha interpretable queda afuera en vez de
+    mostrarse como si estuviera dentro (no hay forma de confirmarlo)."""
+    if not inicio and not fin:
+        return True
+    return any(_una_fecha_en_rango(texto, inicio, fin) for texto in textos)
+
+
 @login_required
 @requiere_rol(*ROLES_STAFF)
 def estudiante_avances(request, estudiante_id):
@@ -1632,16 +1670,19 @@ def estudiante_avances(request, estudiante_id):
     if materia_id:
         entregas = entregas.filter(tarea__unidad__materia_id=materia_id)
 
+    fecha_inicio, fecha_fin = _rango_fechas_de(request)
+
     filas = [{
         'materia': e.tarea.unidad.materia.nombre,
         'tarea': e.tarea.titulo,
         'tarea_url': e.tarea.url,
         'estado': e.estado or '—',
         'nota': f'{e.nota}/{e.nota_maxima}' if e.nota is not None else '—',
+        'fecha_entrega': e.ultima_mod_entrega or '—',
         'archivos_entrega': _archivos_lista(e.archivos_entrega.all()),
         'tarea_descripcion': e.tarea.descripcion,
         'archivos_tarea': _archivos_lista(e.tarea.archivos_tarea.all()),
-    } for e in entregas]
+    } for e in entregas if _fecha_texto_en_rango(e.ultima_mod_entrega, inicio=fecha_inicio, fin=fecha_fin)]
 
     return JsonResponse({
         'estudiante': estudiante.nombre,
@@ -1674,15 +1715,28 @@ def docente_avances(request, profesor_id):
         .order_by('unidad__materia__nombre', 'unidad__nombre', 'titulo')
     )
 
+    fecha_inicio, fecha_fin = _rango_fechas_de(request)
+    # Qué fecha de la tarea usa el filtro de rango - elegible por el usuario en vez de
+    # chequear siempre las dos: 'apertura' o 'cierre' miran solo ese campo, 'ambos' (default)
+    # pasa si cualquiera de las dos cae adentro.
+    campo_fecha = request.GET.get('campo_fecha', 'ambos')
+    if campo_fecha == 'apertura':
+        campos_a_chequear = lambda t: (t.apertura,)
+    elif campo_fecha == 'cierre':
+        campos_a_chequear = lambda t: (t.cierre,)
+    else:
+        campos_a_chequear = lambda t: (t.apertura, t.cierre)
+
     filas = [{
         'materia': t.unidad.materia.nombre,
         'unidad': t.unidad.nombre,
         'tarea': t.titulo,
         'tarea_url': t.url,
+        'apertura': t.apertura or '—',
         'cierre': t.cierre or '—',
         'descripcion': t.descripcion,
         'archivos_tarea': _archivos_lista(t.archivos_tarea.all()),
-    } for t in tareas]
+    } for t in tareas if _fecha_texto_en_rango(*campos_a_chequear(t), inicio=fecha_inicio, fin=fecha_fin)]
 
     materias_filtro = [
         {'id': m.id, 'nombre': m.nombre}

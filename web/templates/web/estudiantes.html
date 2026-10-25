@@ -54,17 +54,30 @@
                 <h2>Avances de <span id="avancesNombre"></span></h2>
                 <button type="button" class="modal-close" id="avancesCerrar">✕</button>
             </div>
-            <div style="margin:10px 0;">
-                <label class="note" style="display:block; margin-bottom:4px;">Materia</label>
-                <select id="avancesFiltroMateria" class="form-select-custom" style="width:100%; max-width:360px;">
-                    <option value="">Todas</option>
-                </select>
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin:10px 0;">
+                <div style="min-width:220px;">
+                    <label class="note" style="display:block; margin-bottom:4px;">Materia</label>
+                    <select id="avancesFiltroMateria" class="form-select-custom" style="width:100%;">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="note" style="display:block; margin-bottom:4px;">Entregado desde</label>
+                    <input type="date" id="avancesFechaInicio" class="config-input">
+                </div>
+                <div>
+                    <label class="note" style="display:block; margin-bottom:4px;">Hasta</label>
+                    <input type="date" id="avancesFechaFin" class="config-input">
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                    <button type="button" id="avancesBorrarFiltro" class="btn btn-secondary" style="width:auto; padding:9px 16px;">Borrar filtro</button>
+                </div>
             </div>
             <div class="modal-scroll">
                 <table class="asignacion-tabla">
                     <thead>
                         <tr>
-                            <th>Materia</th><th>Tarea</th><th>Estado</th><th>Nota</th>
+                            <th>Materia</th><th>Tarea</th><th>Estado</th><th>Fecha de entrega</th><th>Nota</th>
                             <th>Ver entrega</th><th>Detalle de tarea</th>
                         </tr>
                     </thead>
@@ -89,6 +102,8 @@ $(document).ready(function () {
     var overlay = document.getElementById('modalAvancesOverlay');
     var nombreSpan = document.getElementById('avancesNombre');
     var selectMateria = document.getElementById('avancesFiltroMateria');
+    var inputInicio = document.getElementById('avancesFechaInicio');
+    var inputFin = document.getElementById('avancesFechaFin');
     var tbody = document.getElementById('avancesTbody');
     var vacio = document.getElementById('avancesVacio');
     var urlActual = null;
@@ -112,6 +127,7 @@ $(document).ready(function () {
                 '<td>' + e.materia + '</td>' +
                 '<td>' + e.tarea + '</td>' +
                 '<td>' + e.estado + '</td>' +
+                '<td>' + e.fecha_entrega + '</td>' +
                 '<td>' + e.nota + '</td>' +
                 '<td>' + enlaceArchivos(e.archivos_entrega, 'Sin archivo') + '</td>' +
                 '<td>' + detalleTarea + '</td>';
@@ -119,14 +135,18 @@ $(document).ready(function () {
         });
     }
 
-    function cargar(materiaId) {
-        var url = urlActual + (materiaId ? '?materia_id=' + encodeURIComponent(materiaId) : '');
+    function cargar(incluirMaterias) {
+        var params = [];
+        if (selectMateria.value) params.push('materia_id=' + encodeURIComponent(selectMateria.value));
+        if (inputInicio.value) params.push('fecha_inicio=' + encodeURIComponent(inputInicio.value));
+        if (inputFin.value) params.push('fecha_fin=' + encodeURIComponent(inputFin.value));
+        var url = urlActual + (params.length ? '?' + params.join('&') : '');
         fetch(url).then(function (r) { return r.json(); }).then(function (data) {
             if (data.error) {
                 if (window.Swal) Swal.fire({ icon: 'error', title: 'No se pudo cargar', text: data.error, confirmButtonColor: '#9b5bf6' });
                 return;
             }
-            if (!materiaId) {
+            if (incluirMaterias) {
                 selectMateria.innerHTML = '<option value="">Todas</option>' + data.materias_filtro.map(function (m) {
                     return '<option value="' + m.id + '">' + m.nombre + '</option>';
                 }).join('');
@@ -142,13 +162,22 @@ $(document).ready(function () {
             urlActual = btn.dataset.url;
             nombreSpan.textContent = btn.dataset.nombre;
             selectMateria.value = '';
+            inputInicio.value = '';
+            inputFin.value = '';
             overlay.style.display = 'flex';
-            cargar('');
+            cargar(true);
         });
     });
 
-    selectMateria.addEventListener('change', function () {
-        cargar(selectMateria.value);
+    selectMateria.addEventListener('change', function () { cargar(false); });
+    inputInicio.addEventListener('change', function () { cargar(false); });
+    inputFin.addEventListener('change', function () { cargar(false); });
+
+    document.getElementById('avancesBorrarFiltro').addEventListener('click', function () {
+        selectMateria.value = '';
+        inputInicio.value = '';
+        inputFin.value = '';
+        cargar(true);
     });
 
     function cerrar() { overlay.style.display = 'none'; }

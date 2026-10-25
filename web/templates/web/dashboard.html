@@ -154,7 +154,7 @@
                     </div>
                     <div class="note">
                         {% if es_administrador %}"0. Extraer e importar carreras" pregunta si hace falta recorrer Moodle de nuevo (necesita cookie guardada) o si alcanza con re-importar lo último ya extraído; en ambos casos carga Facultad/Carrera/Nivel/Profesor/Materia a la base de datos. Solo lo ve una cuenta Administrador.{% endif %}
-                        Seleccioná cursos y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "2" trae la descripción y los archivos que subió el docente en cada tarea (necesita que "1" ya haya corrido para el curso tildado) — es otra vuelta completa por Moodle, úsalo solo si hace falta ese detalle. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base. "3" y "4" extraen e importan estudiantes y el padrón de último acceso de los cursos seleccionados — "4" trae a todos los inscritos (vía /user/index.php), a diferencia de "3" que solo ve a quien entregó algo.
+                        Seleccioná un curso (uno solo a la vez para "1"/"2"/"3"/"4", que llaman a Moodle) y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "2" trae la descripción y los archivos que subió el docente en cada tarea (necesita que "1" ya haya corrido para el curso) — es otra vuelta completa por Moodle, usalo solo si hace falta ese detalle. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base. "3" y "4" extraen e importan estudiantes y el padrón de último acceso del curso seleccionado — "4" trae a todos los inscritos (vía /user/index.php), a diferencia de "3" que solo ve a quien entregó algo. "5. Generar Excel" sí acepta varios cursos tildados a la vez (no llama a Moodle, solo lee de la base).
                     </div>
                 </div>
             </section>
@@ -313,6 +313,13 @@
     // primero sigue ocupado extrayendo.
     (function () {
         var ACCIONES_LARGAS = ['cargar_carreras', 'importar_carreras_completo', 'cargar_tareas', 'cargar_detalle', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
+        // C11 (README): estas acciones llaman a Moodle de verdad y solo aceptan 1 curso a
+        // la vez (a diferencia de "5. Generar Excel"/"Revisar asignación", que sí son
+        // multi-select porque no tocan Moodle). "cargar_detalle" se suma a esta lista por
+        // el mismo motivo que las otras: visita Moodle una vez por tarea. El servidor ya lo
+        // rechaza igual si llega un POST armado a mano con varios; esto solo evita el viaje
+        // al servidor para avisar al instante.
+        var ACCIONES_UN_SOLO_CURSO = ['cargar_tareas', 'cargar_detalle', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
         var TEXTO_INICIAL_POR_ACCION = {
             importar_carreras_completo: 'Importando (sin re-extraer)...',
         };
@@ -348,6 +355,24 @@
             var btnClickeado = ev.submitter;
             var accion = btnClickeado ? btnClickeado.value : null;
             if (!accion || ACCIONES_LARGAS.indexOf(accion) === -1) return; // deja el submit normal de siempre
+
+            if (ACCIONES_UN_SOLO_CURSO.indexOf(accion) !== -1) {
+                var marcados = form.querySelectorAll('input[type="checkbox"][name="courses"]:checked');
+                if (marcados.length !== 1) {
+                    ev.preventDefault();
+                    if (window.Swal) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'Elegí un solo curso',
+                            text: marcados.length === 0
+                                ? 'Tildá un curso antes de extraer de Moodle.'
+                                : 'Esta acción extrae de Moodle en vivo: no se puede hacer para varios cursos a la vez. Dejá tildado uno solo.',
+                            confirmButtonColor: '#9b5bf6',
+                        });
+                    }
+                    return;
+                }
+            }
 
             ev.preventDefault();
             overlay.style.display = 'flex';
@@ -479,6 +504,11 @@
     })();
 
     (function () {
+        // La grilla se mantiene multi-select: "4. Generar Excel" y "Revisar asignación"
+        // sí tienen sentido con varios cursos tildados a la vez (no llaman a Moodle, solo
+        // leen de la base). El límite de 1 curso para las acciones que sí llaman a Moodle
+        // (C11, README) se valida más abajo, al enviar el formulario - no acá, para no
+        // perderle la selección múltiple a los botones que no la necesitan.
         var counter = document.querySelector('.selection-summary strong');
         // type="checkbox" explicito: el modal de asignacion agrega inputs hidden del mismo
         // name="courses" para arrastrar la seleccion actual, no son parte de esta grilla.

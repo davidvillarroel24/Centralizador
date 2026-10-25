@@ -1,7 +1,7 @@
 from decimal import Decimal, InvalidOperation
 from gatfh import config
 from services.data_utils import cargarjson
-from data.models import Tarea, Estudiante, Entrega
+from data.models import Tarea, Estudiante, Entrega, ArchivoEntrega
 import re
 
 
@@ -116,8 +116,26 @@ def import_estudiantes_from_json():
                     entrega.calificacion_final = calificacion_final_raw
                     entrega.save()
                     created['updated'] += 1
+
+                guardar_archivos_entrega(entrega, est_data.get('archivos') or [], est_data.get('archivosurl') or [])
             except Exception as e:
                 created['skipped'] += 1
                 continue
 
     return created
+
+
+def guardar_archivos_entrega(entrega, nombres, urls):
+    """archivos/archivosurl vienen del scraper como 2 listas paralelas (mismo indice =
+    mismo archivo, ver detallesprofesores.py) en vez de una lista de dicts como
+    ArchivoTarea - se emparejan acá. update_or_create por (entrega, nombre) en vez de
+    borrar y recrear, para no perder el id de un archivo que ya estaba si se vuelve a
+    importar la misma entrega (ej. una re-extracción)."""
+    for nombre, url in zip(nombres, urls):
+        if not nombre or not url:
+            continue
+        ArchivoEntrega.objects.update_or_create(
+            entrega=entrega,
+            nombre=nombre,
+            defaults={'url': url},
+        )

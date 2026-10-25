@@ -28,6 +28,7 @@ from services.imports.carreras import importar_carreras
 from services.imports.niveles import importar_niveles
 from services.imports.profesores import importar_profesores
 from services.imports.materias import importar_materias
+from services.imports.detalles_tareas import importar_detalles_tareas
 from services.utils import extraction_lock
 from services.utils.reportes import datos_reporte_acceso, datos_reporte_contenido, generar_excel_reporte, generar_pdf_reporte
 
@@ -763,6 +764,61 @@ def run_cargar_ultimo_acceso_web(selected_ids, cookie, stop_event):
     return {'title': 'Último acceso extraído e importado', 'detail': ' | '.join(pasos), 'count': None}
 
 
+def run_extraer_detalle_web(selected_ids, cookie, stop_event=None):
+    """Descripción + archivos adjuntos por el DOCENTE en cada tarea tipo 'assign' de los
+    cursos seleccionados (ArchivoTarea) - separado de "1" a propósito: es otra vuelta
+    completa por Moodle, una visita por tarea, mismo costo que "2. Extraer estudiantes".
+    Solo tiene sentido después de que "1" ya haya importado esas tareas a la base - ver
+    run_scraping.detalle_tarea(), que revienta con un mensaje claro si no encuentra
+    ninguna."""
+    if not selected_ids:
+        raise ValueError('Debes seleccionar al menos un curso para extraer el detalle de sus tareas.')
+
+    resultado, detenido = run_scraping.detalle_tarea(selected_ids, cookie=cookie, stop_event=stop_event)
+
+    detalle = (
+        f'Extracción de detalle de tareas completada: {len(resultado)} tarea(s) procesada(s), '
+        f'guardadas en {config.JSON_DETALLES}.'
+    )
+    if detenido:
+        detalle = f'Extracción detenida manualmente. Resultados parciales: {detalle}'
+    return {
+        'title': 'Detalle de tareas extraído',
+        'detail': detalle,
+        'count': len(resultado),
+        'detenido': detenido,
+    }
+
+
+def run_importar_detalle_web():
+    """Importa detalle.json (ya extraido por 'Extraer detalle de tareas') hacia
+    Tarea.descripcion/url_entrega y ArchivoTarea (los archivos que subió el docente en la
+    descripción)."""
+    importar_detalles_tareas()
+    return {
+        'title': 'Detalle de tareas importado',
+        'detail': 'Importación a la base de datos completada.',
+        'count': None,
+    }
+
+
+def run_cargar_detalle_web(selected_ids, cookie, stop_event):
+    """'2. Extraer detalle de tareas' -> 'Importar detalle de tareas'."""
+    pasos = []
+    resultado = run_extraer_detalle_web(selected_ids, cookie, stop_event)
+    pasos.append(resultado['detail'])
+    if resultado.get('detenido'):
+        return {'title': 'Detalle de tareas extraído (detenido)', 'detail': ' | '.join(pasos), 'count': resultado['count']}
+
+    try:
+        resultado = run_importar_detalle_web()
+        pasos.append(resultado['detail'])
+    except Exception as exc:
+        raise ValueError(f"Se detuvo después de: {' | '.join(pasos)}. Error: {exc}") from exc
+
+    return {'title': 'Detalle de tareas extraído e importado', 'detail': ' | '.join(pasos), 'count': None}
+
+
 def cursos_base_por_rol(request, role):
     """Set de cursos de partida para el selector de extracción, según el rol de
     PerfilUsuario - antes de aplicar los filtros de Carrera/Materia/búsqueda. Administrador
@@ -864,8 +920,9 @@ def dashboard(request):
                 action_result = run_importar_estudiantes_web()
             elif action == 'importar_participantes':
                 action_result = run_importar_participantes_web()
-            elif action in ('cargar_carreras', 'cargar_tareas', 'cargar_estudiantes', 'cargar_ultimo_acceso',
-                             'extraer_carreras', 'extraer_tareas', 'estudiantes', 'extraer_participantes'):
+            elif action in ('cargar_carreras', 'cargar_tareas', 'cargar_detalle', 'cargar_estudiantes',
+                             'cargar_ultimo_acceso', 'extraer_carreras', 'extraer_tareas', 'estudiantes',
+                             'extraer_participantes'):
                 # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
                 # para que no arranquen dos extracciones de usuarios distintos en paralelo.
                 # "cargar_carreras" ademas es la unica que solo puede disparar un Administrador
@@ -922,6 +979,8 @@ def dashboard(request):
                                 if action == 'cargar_ultimo_acceso'
                                 else run_participantes_web(selected_ids, cookie, stop_event)
                             )
+                        elif action == 'cargar_detalle':
+                            action_result = run_cargar_detalle_web(selected_ids, cookie, stop_event)
                         else:
                             action_result = (
                                 run_cargar_estudiantes_web(selected_ids, cookie, stop_event, profesor_actual)
@@ -1518,6 +1577,107 @@ def estudiantes_view(request):
         'web/estudiantes.html',
         context
     )
+
+
+def _archivos_lista(qs):
+    return [{'nombre': a.nombre, 'url': a.url} for a in qs]
+
+
+@login_required
+@requiere_rol(*ROLES_STAFF)
+def estudiante_avances(request, estudiante_id):
+    """JSON para el modal "Ver avances" de estudiantes.html: todas las entregas de este
+    estudiante (opcionalmente filtradas por materia), con el archivo que el estudiante
+    adjuntó (ArchivoEntrega) y el detalle/archivos de la tarea en sí (ArchivoTarea) uno al
+    lado del otro, para comparar "qué entregó" contra "qué pedía la tarea"."""
+    estudiante = Estudiante.objects.filter(pk=estudiante_id).first()
+    if not estudiante:
+        return JsonResponse({'error': 'No se encontró ese estudiante.'}, status=404)
+
+    materias_qs = materias_visibles(request.user) if not es_administrador(request.user) else Materia.objects.all()
+    entregas = (
+        Entrega.objects.filter(estudiante=estudiante, tarea__unidad__materia__in=materias_qs)
+        .select_related('tarea__unidad__materia')
+        .prefetch_related('archivos_entrega', 'tarea__archivos_tarea')
+        .order_by('tarea__unidad__materia__nombre', 'tarea__titulo')
+    )
+
+    # Para el dropdown del modal: todas las materias donde este estudiante tiene al menos
+    # una entrega, sin aplicar el filtro de materia_id (si no, la opcion elegida seria la
+    # unica que queda en la lista una vez filtrado).
+    materias_filtro = sorted(
+        Materia.objects.filter(unidades__tareas__entregas__estudiante=estudiante, pk__in=materias_qs)
+        .distinct().values_list('id', 'nombre'),
+        key=lambda par: par[1],
+    )
+
+    materia_id = request.GET.get('materia_id')
+    if materia_id:
+        entregas = entregas.filter(tarea__unidad__materia_id=materia_id)
+
+    filas = [{
+        'materia': e.tarea.unidad.materia.nombre,
+        'tarea': e.tarea.titulo,
+        'tarea_url': e.tarea.url,
+        'estado': e.estado or '—',
+        'nota': f'{e.nota}/{e.nota_maxima}' if e.nota is not None else '—',
+        'archivos_entrega': _archivos_lista(e.archivos_entrega.all()),
+        'tarea_descripcion': e.tarea.descripcion,
+        'archivos_tarea': _archivos_lista(e.tarea.archivos_tarea.all()),
+    } for e in entregas]
+
+    return JsonResponse({
+        'estudiante': estudiante.nombre,
+        'materias_filtro': [{'id': mid, 'nombre': nombre} for mid, nombre in materias_filtro],
+        'entregas': filas,
+    })
+
+
+@login_required
+@requiere_rol(*ROLES_GESTION)
+def docente_avances(request, profesor_id):
+    """JSON para el modal "Ver avances" de docentes.html: las tareas tipo 'assign' que este
+    docente asignó (opcionalmente filtradas por materia), con la descripción y los archivos
+    que subió en cada una (ArchivoTarea)."""
+    docente = Profesor.objects.filter(pk=profesor_id).first()
+    if not docente:
+        return JsonResponse({'error': 'No se encontró ese docente.'}, status=404)
+
+    materias_qs = materias_visibles(request.user) if not es_administrador(request.user) else Materia.objects.all()
+    materias_docente = docente.materias.filter(pk__in=materias_qs).order_by('nombre')
+
+    materia_id = request.GET.get('materia_id')
+    if materia_id:
+        materias_docente = materias_docente.filter(pk=materia_id)
+
+    tareas = (
+        Tarea.objects.filter(tipo='assign', unidad__materia__in=materias_docente)
+        .select_related('unidad__materia')
+        .prefetch_related('archivos_tarea')
+        .order_by('unidad__materia__nombre', 'unidad__nombre', 'titulo')
+    )
+
+    filas = [{
+        'materia': t.unidad.materia.nombre,
+        'unidad': t.unidad.nombre,
+        'tarea': t.titulo,
+        'tarea_url': t.url,
+        'cierre': t.cierre or '—',
+        'descripcion': t.descripcion,
+        'archivos_tarea': _archivos_lista(t.archivos_tarea.all()),
+    } for t in tareas]
+
+    materias_filtro = [
+        {'id': m.id, 'nombre': m.nombre}
+        for m in docente.materias.filter(pk__in=materias_qs).order_by('nombre')
+    ]
+
+    return JsonResponse({
+        'docente': docente.nombre,
+        'materias_filtro': materias_filtro,
+        'tareas': filas,
+    })
+
 
 @login_required
 @requiere_rol(*ROLES_STAFF)

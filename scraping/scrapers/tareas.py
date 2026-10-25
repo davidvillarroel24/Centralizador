@@ -8,7 +8,6 @@ import random
 
 from urllib.parse import urlparse, parse_qs
 
-semaphore = asyncio.Semaphore(5)
 CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
@@ -16,7 +15,7 @@ class SesionExpiradaError(Exception):
     """La cookie de Moodle vencio: la respuesta es la pagina de login, no el curso (C4)."""
 
 
-async def fetch_section(session, course_url, Nsec, stop_event=None):
+async def fetch_section(session, course_url, Nsec, semaphore, stop_event=None):
     if stop_event is not None and stop_event.is_set():
         raise asyncio.CancelledError()
 
@@ -100,6 +99,13 @@ async def detectar_num_secciones(session, course_url, minimo=1):
 
 
 async def obtener_tareas_async(moodle, courses, stop_event=None):
+    """Crea el Semaphore ACA (no a nivel de modulo) porque esta funcion es la que siempre
+    corre via asyncio.run() (ver run_scraping.tareas) - un Semaphore de modulo queda atado
+    al primer event loop donde tiene que esperar turno, y una corrida posterior en el mismo
+    proceso de gunicorn/runserver (nuevo loop, modulo ya importado) revienta con
+    "RuntimeError: ... is bound to a different event loop" apenas se agota su cupo inicial
+    (mismo bug encontrado y arreglado en detalles.py, 2026-10-25)."""
+    semaphore = asyncio.Semaphore(5)
 
     print("obtener_tareas_async", courses)
     tareas = []
@@ -117,7 +123,7 @@ async def obtener_tareas_async(moodle, courses, stop_event=None):
             num_secciones = await detectar_num_secciones(session, course_url)
             print("secciones totales",num_secciones)
             results = await asyncio.gather(*[
-                fetch_section(session, course_url, Nsec, stop_event)
+                fetch_section(session, course_url, Nsec, semaphore, stop_event)
                 for Nsec in range(1, num_secciones + 1)
             ], return_exceptions=True)
             errores = [r for r in results if isinstance(r, SesionExpiradaError)]

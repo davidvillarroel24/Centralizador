@@ -3,17 +3,29 @@ import asyncio
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 
-semaphore = asyncio.Semaphore(5)
+from .tareas import SesionExpiradaError
+
 CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
-async def fetch(session, url):
+async def fetch(session, url, semaphore):
 
     """Descarga HTML con aiohttp"""
     async with semaphore:
         async with session.get(url) as resp:
-            return await resp.text()
+            text = await resp.text()
+            # Moodle responde 200 con la pagina de login cuando la cookie vencio - sin este
+            # chequeo esa pagina se parseaba como si fuera la planilla de calificacion (sin
+            # encontrar ninguna fila, 0 estudiantes) en vez de avisar que hay que volver a
+            # capturar la cookie. Mismo bug/arreglo que tareas.py (C4), participantes.py y
+            # detalles.py.
+            if "/login/" in str(resp.url):
+                raise SesionExpiradaError("La sesión de Moodle expiró (la cookie ya no es válida).")
+            return text
 
 async def obtener_tareas_docente_async(moodle, tareas, stop_event=None):
+    """Semaphore creado aca (no a nivel de modulo) - ver el comentario equivalente en
+    scraping/scrapers/tareas.py::obtener_tareas_async, mismo bug (2026-10-25)."""
+    semaphore = asyncio.Semaphore(5)
     resultados = []
     cookies = moodle.session.cookies.get_dict()
 
@@ -36,16 +48,20 @@ async def obtener_tareas_docente_async(moodle, tareas, stop_event=None):
                                 grading_url,
                                 t0["unidad"],
                                 t1["Titulo"],
+                                semaphore,
                                 stop_event
                             )
                         )
 
         data = await asyncio.gather(*tasks, return_exceptions=True)
+        errores_sesion = [r for r in data if isinstance(r, SesionExpiradaError)]
+        if errores_sesion:
+            raise errores_sesion[0]
         resultados.extend(item for item in data if not isinstance(item, BaseException))
 
     return resultados
 
-async def procesar_tarea_docente(session, url, unidad, titulo, stop_event=None):
+async def procesar_tarea_docente(session, url, unidad, titulo, semaphore, stop_event=None):
 
     if stop_event is not None and stop_event.is_set():
         raise asyncio.CancelledError()
@@ -54,7 +70,7 @@ async def procesar_tarea_docente(session, url, unidad, titulo, stop_event=None):
 
     id_tarea = parse_qs(query).get("id", [None])[0]
 
-    html = await fetch(session, url)
+    html = await fetch(session, url, semaphore)
 
     soup = BeautifulSoup(html, "html.parser")
 

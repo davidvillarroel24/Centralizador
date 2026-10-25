@@ -146,14 +146,15 @@
                         <button type="submit" name="action" value="importar_carreras_completo" id="btnImportarCarrerasCompleto" style="display:none;"></button>
                         {% endif %}
                         <button type="submit" name="action" value="cargar_tareas" class="btn btn-secondary">1. Extraer, asignar e importar tareas</button>
+                        <button type="submit" name="action" value="cargar_detalle" class="btn btn-secondary">2. Extraer e importar detalle de tareas</button>
                         <button type="submit" name="action" value="ver_asignacion" class="btn btn-secondary">✏️ Revisar asignación del curso seleccionado</button>
-                        <button type="submit" name="action" value="cargar_estudiantes" class="btn btn-secondary">2. Extraer e importar estudiantes</button>
-                        <button type="submit" name="action" value="cargar_ultimo_acceso" class="btn btn-secondary">3. Extraer e importar último acceso</button>
-                        <button type="submit" formaction="{% url 'descargar_excel' %}" class="btn btn-primary">4. Generar Excel y descargar</button>
+                        <button type="submit" name="action" value="cargar_estudiantes" class="btn btn-secondary">3. Extraer e importar estudiantes</button>
+                        <button type="submit" name="action" value="cargar_ultimo_acceso" class="btn btn-secondary">4. Extraer e importar último acceso</button>
+                        <button type="submit" formaction="{% url 'descargar_excel' %}" class="btn btn-primary">5. Generar Excel y descargar</button>
                     </div>
                     <div class="note">
                         {% if es_administrador %}"0. Extraer e importar carreras" pregunta si hace falta recorrer Moodle de nuevo (necesita cookie guardada) o si alcanza con re-importar lo último ya extraído; en ambos casos carga Facultad/Carrera/Nivel/Profesor/Materia a la base de datos. Solo lo ve una cuenta Administrador.{% endif %}
-                        Seleccioná cursos y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base (necesita que "1" ya haya corrido para el curso tildado). "2" y "3" extraen e importan estudiantes y el padrón de último acceso de los cursos seleccionados — "3" trae a todos los inscritos (vía /user/index.php), a diferencia de "2" que solo ve a quien entregó algo.
+                        Seleccioná cursos y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "2" trae la descripción y los archivos que subió el docente en cada tarea (necesita que "1" ya haya corrido para el curso tildado) — es otra vuelta completa por Moodle, úsalo solo si hace falta ese detalle. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base. "3" y "4" extraen e importan estudiantes y el padrón de último acceso de los cursos seleccionados — "4" trae a todos los inscritos (vía /user/index.php), a diferencia de "3" que solo ve a quien entregó algo.
                     </div>
                 </div>
             </section>
@@ -251,33 +252,6 @@
 {% endblock %}
 
 {% block scripts %}
-<style>
-    .modal-overlay {
-        position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-        align-items: center; justify-content: center; z-index: 1000; padding: 20px;
-    }
-    .modal-box {
-        background: var(--bg-sidebar); border: 1px solid rgba(var(--accent-purple-rgb),0.35); border-radius: 12px;
-        max-width: 900px; width: 100%; max-height: 85vh; display: flex; flex-direction: column;
-        padding: 20px; color: var(--text-primary);
-    }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-    .modal-close {
-        background: none; border: none; color: var(--text-primary); font-size: 18px; cursor: pointer;
-    }
-    /* El <form> queda entre modal-box (flex) y modal-scroll (flex:1): sin que el propio
-       form tambien sea un contenedor flex en columna, con min-height:0, el flex:1 de
-       modal-scroll no tiene efecto y la tabla larga empuja todo el modal hacia afuera
-       en vez de scrollear adentro. */
-    .modal-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .modal-scroll { overflow-y: auto; flex: 1; min-height: 0; margin: 12px 0; }
-    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; flex-shrink: 0; }
-    .asignacion-tabla { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 13px; }
-    .asignacion-tabla th, .asignacion-tabla td {
-        border: 1px solid rgba(var(--accent-purple-rgb),0.15); padding: 6px 8px;
-    }
-    .asignacion-tabla th { color: var(--accent-gold); font-weight: 600; }
-</style>
 <script>
     // "0. Extraer e importar carreras" pregunta primero si hace falta volver a recorrer
     // Moodle entero (pesado) o si alcanza con re-importar linkcarreras.json tal cual quedó
@@ -338,7 +312,7 @@
     // sondeo lo atiende el otro worker de gunicorn (corre con --workers 2) mientras el
     // primero sigue ocupado extrayendo.
     (function () {
-        var ACCIONES_LARGAS = ['cargar_carreras', 'importar_carreras_completo', 'cargar_tareas', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
+        var ACCIONES_LARGAS = ['cargar_carreras', 'importar_carreras_completo', 'cargar_tareas', 'cargar_detalle', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
         var TEXTO_INICIAL_POR_ACCION = {
             importar_carreras_completo: 'Importando (sin re-extraer)...',
         };

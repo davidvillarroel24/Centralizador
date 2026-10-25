@@ -518,6 +518,39 @@ class ArchivoTarea(models.Model):
         return self.nombre
 
 
+class ArchivoEntrega(models.Model):
+    """Archivos que el ESTUDIANTE adjuntó a una entrega puntual (no confundir con
+    ArchivoTarea, que son los archivos que el DOCENTE subió en la descripción de la tarea).
+    1 Entrega -> N archivos - existió como JSONField en Entrega (migración 0008), se quitó
+    en la 0009 sin reemplazo (se perdía el dato igual, el scraper nunca dejó de traerlo) y
+    se repone acá como tabla aparte, igual que ArchivoTarea, para no romper 3FN con un
+    array dentro de una columna."""
+
+    entrega = models.ForeignKey(
+        Entrega,
+        on_delete=models.CASCADE,
+        related_name="archivos_entrega"
+    )
+
+    nombre = models.CharField(
+        max_length=500
+    )
+
+    url = models.URLField(
+        max_length=1500
+    )
+
+    fecha = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True
+    )
+
+    def __str__(self):
+
+        return self.nombre
+
+
 class PerfilUsuario(models.Model):
     """Un perfil por cada User de Django, con su rol en el sistema. No se le agrega el
     campo 'rol' directo a auth_user porque esa tabla es de la app django.contrib.auth:

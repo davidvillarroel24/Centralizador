@@ -108,15 +108,54 @@ def tareas(ids, cookie=None, stop_event=None, profesor_id=None):
     print("Tareas OK", tareas_nuevas)
     return tareas_nuevas, detenido
 
-def detalle_tarea():
-    moodle = MoodleSession()
-    tareas=cargarjson.cargar_tareas()
+def detalle_tarea(ids, cookie=None, stop_event=None):
+    """Extrae la descripción + archivos adjuntos (los que sube el DOCENTE en la tarea, no
+    los que entrega el estudiante - ver ArchivoTarea vs ArchivoEntrega) de cada tarea tipo
+    'assign' de los cursos seleccionados. Antes releía tareas.json entero sin filtrar por
+    curso y reclasificaba a mano con `"/assign/view" in url` (ver scraping/scrapers/
+    detalles.py); ahora lee Tarea directo de la base, ya filtrada por tipo='assign' (lo que
+    `import_tareas_from_json` ya clasificó al importar "1"), así que no hace falta repetir
+    esa clasificación ni depender de que tareas.json siga existiendo/actualizado.
 
+    Solo tiene sentido correrla después de "1. Extraer, asignar e importar tareas" para los
+    mismos cursos (si no hay ninguna Tarea tipo 'assign' todavía, revienta con un mensaje
+    claro en vez de silenciosamente no hacer nada - mismo criterio que estudiantes())."""
+    _cursos_seleccionados_o_falla(ids, 'extraer el detalle de sus tareas')
+
+    tareas_qs = (
+        Tarea.objects.filter(tipo='assign', unidad__materia_id__in=ids)
+        .select_related('unidad__materia')
+        .order_by('unidad__materia_id', 'unidad_id')
+    )
+    if not tareas_qs.exists():
+        raise ValueError(
+            'No se encontraron tareas (tipo assign) importadas para los cursos '
+            'seleccionados. Corré primero "1. Extraer, asignar e importar tareas" para '
+            'esos mismos cursos.'
+        )
+
+    por_materia = {}
+    for t in tareas_qs:
+        materia = t.unidad.materia
+        entrada = por_materia.setdefault(materia.id, {'asignatura': materia.moodle_nombre, 'tareas': {}})
+        unidad_entrada = entrada['tareas'].setdefault(t.unidad_id, {'unidad': t.unidad.nombre, 'contenido': []})
+        unidad_entrada['contenido'].append({'id': t.moodle_id, 'Titulo': t.titulo, 'url': t.url})
+
+    tareas_filtradas = [
+        {'asignatura': entrada['asignatura'], 'tareas': list(entrada['tareas'].values())}
+        for entrada in por_materia.values()
+    ]
+
+    moodle = MoodleSession(cookie=cookie)
     detalle = asyncio.run(
-        obtener_detalle_tarea_async(moodle, tareas)
-    )    
-    print("Detalles OK",tareas)
-    return detalle
+        obtener_detalle_tarea_async(moodle, tareas_filtradas, stop_event)
+    )
+    detenido = stop_event is not None and stop_event.is_set()
+
+    exportarjson.save_detalles(detalle)
+
+    print("Detalles OK", detalle)
+    return detalle, detenido
 
 def calificacion_tarea():
     moodle = MoodleSession()

@@ -10,7 +10,6 @@ from bs4 import BeautifulSoup
 
 from .tareas import SesionExpiradaError
 
-semaphore = asyncio.Semaphore(5)
 CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 # Piso acordado: de sobra para cualquier curso de TECBA, sin inflar el HTML de mas (Moodle
@@ -129,7 +128,7 @@ def _buscar_siguiente_pagina(html):
     return paginas
 
 
-async def fetch_participantes_curso(session, url_base, materia_id, perpage, stop_event=None):
+async def fetch_participantes_curso(session, url_base, materia_id, perpage, semaphore, stop_event=None):
     if stop_event is not None and stop_event.is_set():
         raise asyncio.CancelledError()
 
@@ -168,7 +167,11 @@ async def fetch_participantes_curso(session, url_base, materia_id, perpage, stop
 
 async def obtener_participantes_async(moodle, cursos, stop_event=None, perpage=PERPAGE_MINIMO):
     """cursos: lista de dicts {'id': Materia.id, 'url': url de .../course/view.php?id=N}
-    (el shape que ya devuelve conexiondb.cargar_cursos_por_id)."""
+    (el shape que ya devuelve conexiondb.cargar_cursos_por_id).
+
+    Semaphore creado aca (no a nivel de modulo) - ver el comentario equivalente en
+    scraping/scrapers/tareas.py::obtener_tareas_async, mismo bug (2026-10-25)."""
+    semaphore = asyncio.Semaphore(5)
     perpage = max(perpage, PERPAGE_MINIMO)
     resultados = []
     cookies = moodle.session.cookies.get_dict()
@@ -186,7 +189,7 @@ async def obtener_participantes_async(moodle, cursos, stop_event=None, perpage=P
             if stop_event is not None:
                 stop_event.set_paso(f"Extrayendo último acceso de la materia: {curso.get('asignatura')}")
             participantes = await fetch_participantes_curso(
-                session, url_base, curso["id"], perpage, stop_event
+                session, url_base, curso["id"], perpage, semaphore, stop_event
             )
             print(f"[participantes] Materia.id={curso['id']}: {len(participantes)} participante(s) en total")
             resultados.extend(participantes)

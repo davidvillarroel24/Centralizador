@@ -19,6 +19,14 @@
   padding:20px;
   border-right:1px solid rgba(var(--accent-purple-rgb),0.06);
   transition: background-color 0.2s ease, color 0.2s ease;
+  /* Se queda clavado en la ventana (en vez de scrollear junto con el contenido
+     principal, que suele ser mas alto que la pantalla) - solo en el layout de
+     escritorio: en el breakpoint de abajo (<900px) el sidebar pasa a ser una
+     barra horizontal arriba del contenido, donde "pegado a la ventana" no aplica. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 .sidebar .brand{
   font-weight:800;
@@ -99,6 +107,9 @@ table.dataTable{
     border-right:none;
     border-bottom:1px solid rgba(var(--accent-purple-rgb),0.12);
     padding:14px 16px;
+    position: static;
+    height: auto;
+    overflow-y: visible;
   }
   .sidebar .brand{
     margin-bottom:0;

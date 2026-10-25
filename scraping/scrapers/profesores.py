@@ -2,14 +2,15 @@ import aiohttp
 import asyncio
 from bs4 import BeautifulSoup
 
-semaphore = asyncio.Semaphore(5)
-
-async def fetch(session, url):
+async def fetch(session, url, semaphore):
     async with semaphore:
         async with session.get(url) as resp:
             return await resp.text()
 
 async def obtener_profesores_async(moodle,course):
+    """Semaphore creado aca (no a nivel de modulo) - ver el comentario equivalente en
+    scraping/scrapers/tareas.py::obtener_tareas_async, mismo bug (2026-10-25)."""
+    semaphore = asyncio.Semaphore(5)
     Profesores = []
     cookies = moodle.session.cookies.get_dict()
 
@@ -23,7 +24,7 @@ async def obtener_profesores_async(moodle,course):
             urlprofesor = Urloriginal.replace(direccioncurso, direccionUsuarios)
 
             # cada curso se procesa en paralelo
-            tasks.append(procesar_profesor(session, curso["asignatura"], urlprofesor))
+            tasks.append(procesar_profesor(session, curso["asignatura"], urlprofesor, semaphore))
 
         resultados = await asyncio.gather(*tasks)
         Profesores.extend(resultados)
@@ -31,10 +32,10 @@ async def obtener_profesores_async(moodle,course):
     return Profesores
 
 
-async def procesar_profesor(session, asignatura, urlprofesor):
+async def procesar_profesor(session, asignatura, urlprofesor, semaphore):
     """Extrae el nombre del primer profesor en la página de participantes"""
     url = f"{urlprofesor}&perpage=100"
-    html = await fetch(session, url)
+    html = await fetch(session, url, semaphore)
     soup = BeautifulSoup(html, "html.parser")
 
     profesor = None

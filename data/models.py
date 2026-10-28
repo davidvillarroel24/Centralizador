@@ -16,6 +16,9 @@ class Profesor(models.Model):
     # se podia volver a leer para usarla de verdad en una extraccion.
     moodle_cookie_cifrada = models.TextField(blank=True, null=True)
     moodle_cookie_guardada_en = models.DateTimeField(blank=True, null=True)
+    # Cuándo terminó (o cerró) la guía de uso. Vacío = se le muestra al entrar; se puede
+    # repetir cuando quiera desde "Guía de uso" en el menú (ver web/static/web/tour.js).
+    tour_visto_en = models.DateTimeField(blank=True, null=True)
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

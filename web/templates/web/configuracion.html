@@ -19,9 +19,10 @@
         </section>
 
         <div class="note">
-            Cada docente tiene su propia configuración (se guarda en tu perfil de Profesor).
-            Lo usa el paso "3. Asignar tareas" del dashboard para decidir en qué parcial cae
-            cada tarea (según su fecha de cierre) y con qué peso cuenta cada categoría.
+            Cada docente tiene su propia configuración (se guarda en tu perfil de Profesor) y
+            hace falta antes de extraer: el botón "1. Extraer, asignar e importar tareas" usa
+            las fechas para decidir en qué parcial cae cada tarea, y los pesos se usan para
+            calcular la nota de cada parcial ("3. Extraer estudiantes" y "5. Generar Excel").
         </div>
 
         {% if saved %}
@@ -36,12 +37,13 @@
             {% csrf_token %}
 
             <section class="actions-panel">
-                <div class="panel">
-                    <h2>Rangos de parciales</h2>
+                <div class="panel" id="fechas">
+                    <h2>Fechas de los parciales (del Centralizador)</h2>
                     <div class="note">
-                        Fechas de inicio y fin de cada parcial (formato AAAA-MM-DD). Una tarea
-                        cae en el parcial cuyo rango contiene su fecha de cierre. Dejá vacío un
-                        parcial que todavía no tenga fechas definidas.
+                        <strong>No son fechas de Moodle:</strong> indicá cuándo empieza y termina
+                        cada parcial; esto será para todas tus materias. Cada tarea extraída cae en el parcial cuyo
+                        rango contiene su fecha de cierre. Dejá vacío un parcial que todavía no
+                        tenga fechas definidas (hace falta al menos uno completo).
                     </div>
                     <table style="width:100%; border-collapse: collapse; margin-top: 12px;">
                         <thead>
@@ -71,7 +73,7 @@
                     </table>
                 </div>
 
-                <div class="panel">
+                <div class="panel" id="pesos">
                     <h2>Pesos por categoría</h2>
                     <div class="note">
                         Peso (%) de cada tipo de tarea dentro de un parcial. La categoría se
@@ -118,7 +120,7 @@
         </form>
         {% endif %}
 
-        <section class="panel" style="margin-top:20px;">
+        <section class="panel" id="extension" style="margin-top:20px;">
             <h2>Extensión de Chrome: captura automática de cookie</h2>
             <div class="note">
                 Captura tu cookie <code>MoodleSession</code> y, con tu confirmación, la envía

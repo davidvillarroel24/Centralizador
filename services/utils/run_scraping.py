@@ -27,6 +27,30 @@ from data.models import Tarea, PesosCategorias
 
 from services.utils.timing import medir_tiempo
 
+
+class ConfiguracionIncompleta(ValueError):
+    """Falta algo que el usuario configura en /configuracion/ (fechas de parciales o pesos).
+    Subclase de ValueError para que los manejadores existentes la sigan atrapando igual; la
+    vista la distingue para ofrecer un botón "Ir a Configuración" junto al mensaje."""
+
+
+MENSAJE_FALTAN_FECHAS = (
+    'Faltan las fechas de tus parciales. Son fechas del Centralizador, no de Moodle: '
+    'indicá en Configuración cuándo empieza y termina cada parcial, así cada tarea se '
+    'asigna al parcial que contiene su fecha de cierre.'
+)
+MENSAJE_FALTAN_PESOS = (
+    'Faltan los pesos de las categorías (Mi-Tek, E-Tek, Training, Design Lab, Examen). '
+    'Guardalos en Configuración: con ellos se calcula la nota de cada parcial.'
+)
+
+
+def tiene_fechas_parciales(config_base):
+    """True si al menos un parcial tiene inicio y fin. Sin ninguno, auto_asignar_tareas()/
+    obtener_parcial() descartan todos los rangos y cada tarea queda sin parcial."""
+    return any(r.get('inicio') and r.get('fin') for r in config_base.get('rangos_parciales', []))
+
+
 def scraping():
     moodle = MoodleSession()
     moodle.get()
@@ -217,10 +241,7 @@ def estudiantes(ids, cookie=None, stop_event=None, profesor_id=None):
     inspeccion manual, pero ya no es la fuente de esta funcion - ahora lee Tarea (BD),
     filtrado por Materia.id real via unidad__materia_id, igual que asignacion_tareas()."""
     if not PesosCategorias.objects.filter(profesor_id=profesor_id).exists():
-        raise ValueError(
-            'Tu cuenta no tiene pesos de categorías guardados. Configuralos primero en '
-            '/configuracion/ antes de extraer estudiantes.'
-        )
+        raise ConfiguracionIncompleta(MENSAJE_FALTAN_PESOS)
 
     # Solo valida que los ids resuelvan a Materias reales; la lista en si viene de Tarea.
     _cursos_seleccionados_o_falla(ids, 'extraer sus estudiantes')
@@ -342,16 +363,11 @@ def asignacion_tareas(ids=None, config_base=None):
         config_base = cargarjson.cargar_fechas()
 
     rangos_parciales = config_base.get('rangos_parciales', [])
-    if not any(r.get('inicio') and r.get('fin') for r in rangos_parciales):
-        # Sin esto, auto_asignar_tareas()/obtener_parcial() descartan TODOS los rangos (sin
-        # inicio/fin no hay con que comparar la fecha de cierre), y cada tarea termina sin
-        # parcial - generar_config_final() las manda en bloque a `errores`, sin explicar
-        # por que. Candado de validacion previa, mismo criterio que PesosCategorias en
-        # estudiantes().
-        raise ValueError(
-            'Tu cuenta no tiene fechas de parciales configuradas. Configuralas primero en '
-            '/configuracion/ antes de asignar tareas.'
-        )
+    if not tiene_fechas_parciales(config_base):
+        # Sin esto, cada tarea termina sin parcial y generar_config_final() las manda en
+        # bloque a `errores`, sin explicar por que. El boton web "1." ya valida esto antes
+        # de ir a Moodle (ver dashboard); esto cubre el comando CLI y cualquier otro camino.
+        raise ConfiguracionIncompleta(MENSAJE_FALTAN_FECHAS)
 
     tareas_qs = Tarea.objects.filter(
         tipo='assign', unidad__materia_id__in=ids

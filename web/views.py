@@ -168,8 +168,9 @@ def register_view(request):
                 profesor.save(update_fields=['user'])
             login(request, user)
             # La cookie de Moodle ya no se pide acá: se captura con la extensión
-            # desde la pantalla de extracción, la primera vez que haga falta.
-            return redirect('dashboard')
+            # desde la pantalla de extracción, la primera vez que haga falta. Primero se
+            # muestra la guía de uso, que empieza en Configuración.
+            return redirect(url_guia_uso())
     context = {'message': message, 'error': error, 'nombres_profesores': nombres_profesores}
     return render(request, 'web/register.html', context)
 
@@ -186,8 +187,45 @@ def login_view(request):
             error = 'El usuario debe coincidir con un docente registrado.'
         else:
             login(request, user)
+            if tour_pendiente(request):
+                return redirect(url_guia_uso())
             return redirect('resumen')
     return render(request, 'web/login.html', {'error': error})
+
+
+def url_guia_uso():
+    return f"{reverse('configuracion')}?tour=1"
+
+
+def tour_pendiente(request):
+    """La guía de uso se muestra sola mientras el usuario no la haya terminado o cerrado.
+    Solo para roles que pueden extraer (un Visitante no ve Configuración ni Extracción)."""
+    if get_rol(request.user) not in ROLES_STAFF:
+        return False
+    profesor = get_current_profesor(request)
+    return bool(profesor) and profesor.tour_visto_en is None
+
+
+def contexto_tour(iniciar):
+    """Datos para web/static/web/tour.js. `iniciar`: 'configuracion' (pasos 1-4),
+    'extraccion' (pasos 5-10) o None (la página no arranca la guía)."""
+    return {
+        'iniciar': iniciar,
+        'url_visto': reverse('tour_visto'),
+        'url_extraccion': f"{reverse('dashboard')}?tour=extraccion",
+        'url_configuracion': url_guia_uso(),
+    }
+
+
+@login_required
+@require_http_methods(['POST'])
+def tour_visto(request):
+    """La guía se terminó o se cerró: no se vuelve a mostrar sola (sí desde el menú)."""
+    profesor = get_current_profesor(request)
+    if profesor:
+        profesor.tour_visto_en = dj_timezone.now()
+        profesor.save(update_fields=['tour_visto_en'])
+    return JsonResponse({'ok': True})
 
 
 def logout_view(request):
@@ -295,8 +333,9 @@ def run_asignacion_web(selected_ids, profesor):
     archivo global compartido."""
     if profesor is None:
         raise ValueError(
-            'Tu cuenta no está vinculada a ningún Profesor, así que no hay una config de '
-            'parciales/pesos de dónde partir. Configurala primero en /configuracion/.'
+            'Tu cuenta no está vinculada a ningún docente, así que no tiene fechas de '
+            'parciales ni pesos propios. Iniciá sesión con un usuario que coincida con un '
+            'docente registrado.'
         )
     config_base = config_tareas_de(profesor)
     asignaciones, errores, warning = run_scraping.asignacion_tareas(selected_ids, config_base=config_base)
@@ -894,6 +933,7 @@ def dashboard(request):
     selected_count = len(selected_ids)
     action_result = None
     error = None
+    error_link = None
     abrir_modal_asignacion = False
 
     if request.method == 'POST':
@@ -929,6 +969,13 @@ def dashboard(request):
                 # (toca Facultad/Carrera/Nivel/Profesor para TODO el sistema, no solo lo propio).
                 if action == 'cargar_carreras' and not es_administrador(request.user):
                     raise ValueError('Solo una cuenta Administrador puede extraer e importar carreras.')
+                if action == 'cargar_tareas':
+                    # "1." asigna cada tarea a un parcial al final de la cadena: sin fechas
+                    # de parciales fallaria recien despues de extraer todo el curso de
+                    # Moodle (lo mas lento). Se valida antes de tocar Moodle o el candado.
+                    profesor_actual = get_current_profesor(request)
+                    if profesor_actual and not run_scraping.tiene_fechas_parciales(config_tareas_de(profesor_actual)):
+                        raise run_scraping.ConfiguracionIncompleta(run_scraping.MENSAJE_FALTAN_FECHAS)
                 cookie = request.session.get('MoodleSession')
                 if not cookie:
                     # "Expiracion perezosa", paso previo a extraer: si la sesion del
@@ -1027,7 +1074,16 @@ def dashboard(request):
             # durante una extracción la detiene del todo (el candado ya se libera en el
             # finally de arriba) y se muestra acá mismo, como cualquier otro error - nada
             # de intentar seguir a mitad de camino.
-            if any(word in error_str.lower() for word in ['cookie', 'sesión', 'session', 'autenticación', 'moodlesession']):
+            # Puede llegar envuelta por run_cargar_*_web ("Se detuvo después de: ...");
+            # se muestra el mensaje original, que es el que explica qué falta.
+            falta_config = next(
+                (e for e in (exc, exc.__cause__) if isinstance(e, run_scraping.ConfiguracionIncompleta)),
+                None,
+            )
+            if falta_config:
+                error_str = str(falta_config)
+                error_link = {'url': reverse('configuracion'), 'texto': 'Ir a Configuración'}
+            elif any(word in error_str.lower() for word in ['cookie', 'sesión', 'session', 'autenticación', 'moodlesession']):
                 error_str = f"Sesión expirada: {error_str}"
             error = error_str
             traceback.print_exc()
@@ -1040,6 +1096,7 @@ def dashboard(request):
             return JsonResponse({
                 'action_result': action_result,
                 'error': error,
+                'error_link': error_link,
                 'abrir_modal_asignacion': bool(abrir_modal_asignacion and not error),
             })
 
@@ -1049,7 +1106,7 @@ def dashboard(request):
         # incluido (extraction_lock no protege esto: ya se libero para cuando se llega a
         # refrescar). El resultado/error se guarda un instante en sesion ("flash") y se
         # consume en el GET de abajo, para poder mostrarlo despues del redirect.
-        request.session['dashboard_flash'] = {'action_result': action_result, 'error': error}
+        request.session['dashboard_flash'] = {'action_result': action_result, 'error': error, 'error_link': error_link}
         redirect_params = [('role', role)] + [('courses', cid) for cid in selected_ids_str]
         if carrera_dash:
             redirect_params.append(('carrera_dash', carrera_dash))
@@ -1064,12 +1121,23 @@ def dashboard(request):
     flash = request.session.pop('dashboard_flash', None) or {}
     action_result = flash.get('action_result')
     error = flash.get('error')
+    error_link = flash.get('error_link')
 
     candado_actual = extraction_lock.current_lock()
     profesor_actual = get_current_profesor(request)
     cookie_guardada = bool(request.session.get('MoodleSession')) or bool(
         profesor_actual and profesor_actual.cookie_vigente()
     )
+    # Lista "Antes de extraer": lo que hace falta para que los botones 1/3 no fallen.
+    config_actual = config_tareas_de(profesor_actual) if profesor_actual else None
+    total_pesos = sum(config_actual['pesos_default'].values()) if config_actual else 0
+    preparacion = {
+        'fechas_ok': bool(config_actual) and run_scraping.tiene_fechas_parciales(config_actual),
+        'pesos_ok': bool(profesor_actual) and PesosCategorias.objects.filter(profesor=profesor_actual).exists(),
+        'pesos_total': total_pesos,
+        'cookie_ok': cookie_guardada,
+    }
+    preparacion['todo_ok'] = preparacion['fechas_ok'] and preparacion['pesos_ok'] and cookie_guardada
     context = {
         'courses': courses,
         'course_count': len(courses),
@@ -1078,8 +1146,12 @@ def dashboard(request):
         'role': role,
         'action_result': action_result,
         'error': error,
+        'error_link': error_link,
         'extraccion_en_curso': candado_actual,
         'cookie_guardada': cookie_guardada,
+        'preparacion': preparacion,
+        # Pasos 5-10 de la guía: llega desde el paso 4 (Configuración) con ?tour=extraccion.
+        'tour': contexto_tour('extraccion' if request.GET.get('tour') == 'extraccion' else None),
         'asignacion_detalle': construir_asignacion_detalle(selected_ids),
         'abrir_modal_asignacion': request.GET.get('modal') == 'asignacion',
         'categorias_peso': [{'key': cat, 'label': CATEGORIA_LABELS[cat]} for cat in CATEGORIAS_PESO],
@@ -1954,6 +2026,10 @@ def configuracion_view(request):
     usa para construir asignacion.json."""
     error = None
     saved = False
+    # La guía arranca sola mientras esté pendiente, o a pedido desde "Guía de uso" (?tour=1).
+    tour = contexto_tour(
+        'configuracion' if request.GET.get('tour') == '1' or tour_pendiente(request) else None
+    )
 
     profesor = get_current_profesor(request)
     if profesor is None:
@@ -1968,6 +2044,7 @@ def configuracion_view(request):
             'total_pesos': 0,
             'saved': False,
             'extension_version': extension_version(),
+            'tour': tour,
         }
         return render(request, 'web/configuracion.html', context)
 
@@ -2016,6 +2093,7 @@ def configuracion_view(request):
         'saved': saved,
         'error': error,
         'extension_version': extension_version(),
+        'tour': tour,
     }
     return render(request, 'web/configuracion.html', context)
 

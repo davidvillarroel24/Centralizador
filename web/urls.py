@@ -25,5 +25,6 @@ urlpatterns = [
     path('reportes/', views.reportes_view, name='reportes'),
     path('reportes/descargar/<str:tipo>/<str:formato>/', views.reportes_descargar, name='reportes_descargar'),
     path('configuracion/', views.configuracion_view, name='configuracion'),
+    path('guia/visto/', views.tour_visto, name='tour_visto'),
     path('extension/privacidad/', views.extension_privacidad_view, name='extension_privacidad'),
 ]

@@ -23,6 +23,9 @@
       href="https://cdn.datatables.net/2.3.2/css/dataTables.dataTables.min.css">
     <link rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    {% if user.is_authenticated and rol_usuario != ROL_VISITANTE %}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css">
+    {% endif %}
   </head>
   <body>
     <div class="app-shell{% if not user.is_authenticated %} no-sidebar{% endif %}">
@@ -56,6 +59,7 @@
             <li><a href="{% url 'reportes' %}"><i class="bi bi-file-earmark-text"></i> Reportes</a></li>
             <li><a href="{% url 'dashboard' %}"><i class="bi bi-cloud-arrow-down-fill"></i> Extraccion</a></li>
             <li><a href="{% url 'configuracion' %}"><i class="bi bi-gear-fill"></i> Configuración</a></li>
+            <li><a href="{% url 'configuracion' %}?tour=1"><i class="bi bi-signpost-2"></i> Guía de uso</a></li>
             {% endif %}
             <li><a href="{% url 'logout' %}"><i class="bi bi-box-arrow-right"></i> Cerrar sesión</a></li>
           </ul>
@@ -82,16 +86,24 @@
       // guardado de config) como un popup de SweetAlert2 y, ademas, en la consola del
       // navegador con el detalle completo - pensado para cuando la app corre en Docker
       // y no hay forma rapida de ver los print()/logs del servidor sin entrar por SSH.
+      // opts.link = {url, texto}: agrega un botón que lleva a donde se arregla el error
+      // (ej. "Ir a Configuración" cuando faltan fechas de parciales o pesos).
       function mostrarResultado(opts) {
         opts = opts || {};
         if (opts.error) {
           console.error('[Centralizador] Error:', opts.error);
           if (window.Swal) {
+            var link = opts.link;
             Swal.fire({
-              icon: 'error',
-              title: 'Ocurrió un error',
+              icon: link ? 'warning' : 'error',
+              title: opts.errorTitle || (link ? 'Falta configurar algo' : 'Ocurrió un error'),
               text: opts.error,
               confirmButtonColor: '#9b5bf6',
+              confirmButtonText: link ? link.texto : 'OK',
+              showCancelButton: !!link,
+              cancelButtonText: 'Cerrar',
+            }).then(function (r) {
+              if (link && r.isConfirmed) window.location.href = link.url;
             });
           }
         } else if (opts.title || opts.detail) {
@@ -128,6 +140,11 @@
         });
       })();
     </script>
+    {% if user.is_authenticated and rol_usuario != ROL_VISITANTE %}
+    <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
+    <script src="{% static 'web/tour.js' %}?v={{ static_v }}"></script>
+    {% if tour %}{{ tour|json_script:"tourConfig" }}{% endif %}
+    {% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>

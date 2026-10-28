@@ -20,6 +20,7 @@
     --error-bg: rgba(210, 60, 60, 0.12);
     --error-border: rgba(210, 60, 60, 0.25);
     --error-text: #ff8080;
+    --success-text: #6fd34f;
 }
 
 [data-theme="light"] {
@@ -44,6 +45,7 @@
     --error-bg: rgba(198, 40, 40, 0.08);
     --error-border: rgba(198, 40, 40, 0.3);
     --error-text: #c62828;
+    --success-text: #2e7d32;
 }
 
 * {
@@ -575,3 +577,59 @@ h1 {
     border: 1px solid rgba(var(--accent-purple-rgb),0.15); padding: 6px 8px;
 }
 .asignacion-tabla th { color: var(--accent-gold); font-weight: 600; }
+
+/* Botones que necesitan cookie de Moodle: se ven apagados hasta capturarla. */
+.btn:disabled,
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.btn:disabled:hover,
+.btn[disabled]:hover { transform: none; box-shadow: none; }
+
+/* Lista "Antes de extraer" del panel de extraccion. */
+.preparacion-lista { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 8px; }
+.preparacion-lista li { display: flex; align-items: flex-start; gap: 10px; }
+.preparacion-lista li > i { font-size: 1.1rem; line-height: 1.3; }
+.preparacion-lista .ok > i { color: var(--success-text); }
+.preparacion-lista .pendiente > i { color: var(--accent-gold); }
+.preparacion-lista a { color: var(--accent-gold); }
+.preparacion-aviso-cookie { margin-top: 10px; color: var(--accent-gold); }
+.preparacion-aviso-cookie a { color: inherit; }
+
+/* Guia de uso (Driver.js, ver web/static/web/tour.js): globo con los colores del tema. */
+.driver-popover.centralizador-guia {
+    background: var(--bg-sidebar);
+    color: var(--text-primary);
+    border: 1px solid rgba(var(--accent-purple-rgb), 0.45);
+    border-radius: 12px;
+    max-width: 360px;
+    padding: 16px 18px;
+}
+.centralizador-guia .driver-popover-title { color: var(--accent-gold); font-size: 16px; }
+.centralizador-guia .driver-popover-description { color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+.centralizador-guia .driver-popover-close-btn { color: var(--text-muted); }
+.centralizador-guia .driver-popover-close-btn:hover { color: var(--text-primary); }
+.centralizador-guia .driver-popover-footer button {
+    text-shadow: none;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    padding: 7px 12px;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid rgba(var(--accent-purple-rgb), 0.45);
+}
+.centralizador-guia .driver-popover-footer .driver-popover-next-btn {
+    background: rgb(var(--accent-purple-rgb));
+    border-color: rgb(var(--accent-purple-rgb));
+    color: #fff;
+}
+.centralizador-guia .driver-popover-footer button:hover,
+.centralizador-guia .driver-popover-footer button:focus { filter: brightness(1.12); }
+/* Solo el lado visible de la flecha (los otros los deja transparentes driver.css). */
+.centralizador-guia .driver-popover-arrow-side-left { border-left-color: var(--bg-sidebar); }
+.centralizador-guia .driver-popover-arrow-side-right { border-right-color: var(--bg-sidebar); }
+.centralizador-guia .driver-popover-arrow-side-top { border-top-color: var(--bg-sidebar); }
+.centralizador-guia .driver-popover-arrow-side-bottom { border-bottom-color: var(--bg-sidebar); }
+.centralizador-guia .guia-lista { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.centralizador-guia .guia-ok { color: var(--success-text); margin: 0 0 6px; font-weight: 600; }

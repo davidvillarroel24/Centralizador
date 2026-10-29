@@ -257,6 +257,61 @@ revisión; resumen accionable acá.
 | C10 | **Redirect de error de sesión rompía con 404.** `handle_session_error`/`cookie_recovery_view` y `session_recovery.html` tenían hardcodeado el prefijo `/web/` (`/web/session-cookie/`, `/web/dashboard/`, `/web/resumen/`), pero la app está montada en la raíz (`gatfh/urls.py` incluye `web.urls` en `''`). Cualquier extracción con la cookie vencida o sin guardar terminaba en un 404 en vez de mostrar el formulario para pegarla de nuevo | `web/views.py`, `web/templates/web/session_recovery.html` | ✅ Reemplazados todos los hardcodeos por `reverse('dashboard')`/`reverse('session_cookie')`/`reverse('resumen')`/`{% url %}`. Además, las acciones que llaman a Moodle (`extraer_carreras`/`extraer_tareas`/`estudiantes`/`extraer_participantes`) ahora frenan con un mensaje claro si no hay cookie guardada **antes** de tomar el candado, en vez de ocuparlo para nada y descubrirlo recién al fallar contra Moodle |
 | C11 | **Selección de cursos sin límite en `/extraccion/`.** Los checkboxes (`name="courses"`, grilla de materias) permitían marcar cualquier cantidad para las acciones que llaman a Moodle de verdad, síncronas dentro del request (hoy combinadas en "1. Extraer, asignar e importar tareas" / "2. Extraer e importar estudiantes" / "3. Extraer e importar último acceso" — `cargar_tareas`/`cargar_estudiantes`/`cargar_ultimo_acceso`). Una selección grande encadena muchos requests secuenciales (con sleeps entre ellas) en un solo POST, con riesgo de WORKER TIMEOUT de gunicorn (bullet ya documentado en "Importantes" más abajo) | `web/templates/web/dashboard.html`, `web/views.py:dashboard` | ✅ Corregido (2026-10-23), a propósito **sin** convertir la grilla en selección única: "4. Generar Excel" y "Revisar asignación" no llaman a Moodle y sí tiene sentido pedirles varios cursos a la vez, así que la grilla sigue siendo multi-select. En su lugar: (1) `dashboard.html` avisa con SweetAlert *antes* de enviar el formulario si hay más de un curso tildado para `cargar_tareas`/`cargar_estudiantes`/`cargar_ultimo_acceso`; (2) `dashboard()` rechaza con un `ValueError` esas mismas acciones si `len(selected_ids) != 1` — la validación real, por si llega un POST armado a mano saltándose el JS |
 | C12 | **`estudiantes()` sobrescribía `estudiantes.json` entero, sin el candado de profesor que sí tiene `tareas()`.** `tareas()` (`services/utils/run_scraping.py:49-106`) guarda un marcador `{"profesor": id}` como primer elemento del JSON: si el `profesor_id` de la corrida actual coincide, conserva/mergea lo de otros cursos del mismo profesor; si no coincide (otro usuario), descarta todo y arranca de cero. `estudiantes()` no tenía ningún chequeo equivalente: llamaba a `exportarjson.save_estudiantes(estudiantes_resultado)` con *solo* el resultado de la corrida actual | `services/utils/run_scraping.py` (función `estudiantes()`), `services/data_utils/cargarjson.py` | ✅ Corregido (2026-10-23): portado a `estudiantes()` el mismo patrón de marcador + merge que ya tenía `tareas()` (acá la clave de merge es el `id` de tarea, no `asignatura`, porque cada entrada de `estudiantes.json` es por-tarea). De paso se arregló `cargar_estudiantes()`, que no manejaba archivo inexistente/corrupto (a diferencia de `cargar_tareas()`) y hubiera roto el merge en la primera extracción de un VPS nuevo. **Importante — esto es defensa en profundidad, no el único mecanismo:** al revisar el código vigente se confirmó que `cargar_tareas`/`cargar_estudiantes`/`cargar_ultimo_acceso` ya ejecutan extracción **e importación** dentro de la misma función (`run_cargar_tareas_web`/`run_cargar_estudiantes_web`/`run_cargar_ultimo_acceso_web`), bajo un único `try/finally` que retiene el candado de `extraction_lock` hasta que *todo* termina (`web/views.py:704-934`) — no solo durante el scraping. Eso ya cerraba el caso principal (nadie más puede extraer mientras el actual no terminó de importar); el marcador de esta fila cubre lo que ese candado no cubre: si la extracción tiene éxito pero el *import* falla a mitad de camino, el candado ya se liberó con datos sin importar en el JSON |
+| C13 | **"Guardar cambios" del modal de asignación perdía el listener del spinner de extracción.** El modal (`#modalAsignacion`) tenía su propio `<form>` aparte de `#formAcciones`, con submit normal: al guardar, recargaba la página entera (Post-Redirect-Get). Eso reinicia todo el `<script>` de `dashboard.html` desde cero, y si algo fallaba al reconstruirlo (se vio un `Uncaught SyntaxError` en la consola del navegador, pero no se logró aislar su causa exacta), ningún listener volvía a engancharse — incluido el de `#formAcciones` que muestra el spinner. Reproducido en 2 laptops distintas con los mismos pasos: abrir "Revisar asignación" → "Guardar cambios" → cualquier botón de extracción después hacía un submit nativo del navegador (se veía como `302` en el log en vez del `200` JSON esperado) en lugar de pasar por `fetch()`, sin mostrar spinner ni sondear el progreso | `web/templates/web/dashboard.html`, `web/views.py:dashboard` | ✅ Corregido (2026-10-29): "Revisar asignación" y "Guardar cambios" pasan a `fetch()`, igual que "1"–"4" — la vista ya devolvía JSON por ese camino para esas acciones, solo le faltaba incluir `asignacion_detalle`/`categorias_peso` en la respuesta para poder pintar el modal en JS sin ningún GET de por medio. Ninguno de los dos vuelve a navegar la página, así que el script nunca se reinicia y el bug deja de poder pasar, sin depender de haber encontrado la causa exacta del `SyntaxError` original |
+
+**Antes/después de C13** — el cambio central fue mover "Guardar cambios" de un `<form>` con submit normal a uno interceptado por `fetch()`, y que el backend entregara el contenido del modal como JSON en vez de HTML server-rendered:
+
+```html
+<!-- ANTES: web/templates/web/dashboard.html -->
+<form method="post" class="modal-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="guardar_asignacion_manual" />
+    {% for cid in selected_ids %}<input type="hidden" name="courses" value="{{ cid }}" />{% endfor %}
+    ...
+</form>
+<!-- submit nativo -> recarga TODA la página, reinicia el <script> entero -->
+```
+
+```html
+<!-- DESPUÉS -->
+<form id="formAsignacionManual" class="modal-form">...</form>
+```
+```javascript
+formAsignacionManual.addEventListener('submit', function (ev) {
+    ev.preventDefault();  // nunca navega
+    var datos = new FormData(formAsignacionManual);
+    datos.set('action', 'guardar_asignacion_manual');
+    cursosDelModal.forEach(function (id) { datos.append('courses', id); });
+    fetch(window.location.pathname, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken },
+        body: datos,
+    }).then(function (r) { return r.json(); }).then(function (data) {
+        mostrarResultado(data.action_result);
+        pintarAsignacion(data.asignacion_detalle, data.categorias_peso);  // repinta sin recargar
+    });
+});
+```
+
+```python
+# ANTES: web/views.py::dashboard, rama X-Requested-With
+return JsonResponse({
+    'action_result': action_result,
+    'error': error,
+    'abrir_modal_asignacion': bool(abrir_modal_asignacion and not error),
+})
+```
+```python
+# DESPUÉS
+respuesta = {
+    'action_result': action_result, 'error': error, 'error_link': error_link,
+    'abrir_modal_asignacion': bool(abrir_modal_asignacion and not error),
+}
+if abrir_modal_asignacion and not error:
+    respuesta['asignacion_detalle'] = construir_asignacion_detalle(selected_ids)
+    respuesta['categorias_peso'] = [{'key': c, 'label': CATEGORIA_LABELS[c]} for c in CATEGORIAS_PESO]
+return JsonResponse(respuesta)
+```
 
 ### Importantes
 

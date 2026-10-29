@@ -1089,16 +1089,25 @@ def dashboard(request):
             traceback.print_exc()
 
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            # Pedido por fetch() desde JS (los botones "cargar_*" de extracción, ver
-            # dashboard.html): nada de Post-Redirect-Get ni de mover al usuario de donde
-            # está - se devuelve el resultado tal cual y la página lo muestra en el lugar
-            # (SweetAlert2), sin recargar ni perder la selección de cursos ni el scroll.
-            return JsonResponse({
+            # Pedido por fetch() desde JS (los botones "cargar_*" de extracción, y también
+            # "ver_asignacion"/"guardar_asignacion_manual", ver dashboard.html): nada de
+            # Post-Redirect-Get ni de mover al usuario de donde está - se devuelve el
+            # resultado tal cual y la página lo muestra en el lugar (SweetAlert2 + el
+            # contenido del modal de asignación armado en JS), sin recargar ni perder la
+            # selección de cursos, el scroll, ni los listeners ya enganchados a la página
+            # (una recarga completa los perdía - bug encontrado 2026-10-29).
+            respuesta = {
                 'action_result': action_result,
                 'error': error,
                 'error_link': error_link,
                 'abrir_modal_asignacion': bool(abrir_modal_asignacion and not error),
-            })
+            }
+            if abrir_modal_asignacion and not error:
+                respuesta['asignacion_detalle'] = construir_asignacion_detalle(selected_ids)
+                respuesta['categorias_peso'] = [
+                    {'key': cat, 'label': CATEGORIA_LABELS[cat]} for cat in CATEGORIAS_PESO
+                ]
+            return JsonResponse(respuesta)
 
         # Post-Redirect-Get: sin esto, la ultima peticion del navegador queda como el POST
         # de la accion. Si el usuario recarga (F5) y confirma "reenviar formulario", el

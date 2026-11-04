@@ -330,6 +330,57 @@
             });
         }
 
+        // --- Carga perezosa de docx-preview/pptxjs (~1MB entre las dos) -----------------
+        // Antes se cargaban SIEMPRE en estudiantes.html/docentes.html, aunque nadie abriera
+        // una vista previa - hacia lenta de entrar cualquiera de esas 2 paginas. Ahora se
+        // piden recien la primera vez que hace falta cada una, y quedan en cache (la
+        // promesa resuelta) para las siguientes veces en la misma visita.
+        var scriptsCargados = {};
+        function cargarScript(src) {
+            if (!scriptsCargados[src]) {
+                scriptsCargados[src] = new Promise(function (resolve, reject) {
+                    var s = document.createElement('script');
+                    s.src = src;
+                    s.onload = resolve;
+                    s.onerror = function () { reject(new Error('No se pudo cargar ' + src)); };
+                    document.head.appendChild(s);
+                });
+            }
+            return scriptsCargados[src];
+        }
+        function cargarCSS(href) {
+            if (!document.querySelector('link[href="' + href + '"]')) {
+                var l = document.createElement('link');
+                l.rel = 'stylesheet';
+                l.href = href;
+                document.head.appendChild(l);
+            }
+        }
+        function asegurarDocx() {
+            if (window.docx) return Promise.resolve();
+            // docx-preview lee window.JSZip UNA SOLA VEZ al cargarse (la captura en su
+            // closure, no la vuelve a leer despues) - por eso esta JSZip real (v3, con
+            // loadAsync) tiene que cargar ANTES, en la misma cadena .then().
+            return cargarScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js')
+                .then(function () { return cargarScript('https://cdn.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js'); });
+        }
+        function asegurarPptx() {
+            if (window.jQuery && window.jQuery.fn.pptxToHtml) return Promise.resolve();
+            cargarCSS('{% static "web/vendor/pptxjs/css/pptxjs.css" %}');
+            cargarCSS('{% static "web/vendor/pptxjs/css/nv.d3.min.css" %}');
+            // El jszip.min.js de aca es v2 (API distinta, sin loadAsync) y pisa
+            // window.JSZip - no afecta a docx-preview, que ya se habra quedado con la v3
+            // real si se cargo antes (asegurarDocx se ejecuta sola siempre primero que esta
+            // cadena, nunca al reves, por el orden de los .then() de abajo).
+            return cargarScript('{% static "web/vendor/pptxjs/js/jszip.min.js" %}')
+                .then(function () { return cargarScript('{% static "web/vendor/pptxjs/js/filereader.js" %}'); })
+                .then(function () { return cargarScript('{% static "web/vendor/pptxjs/js/d3.min.js" %}'); })
+                .then(function () { return cargarScript('{% static "web/vendor/pptxjs/js/nv.d3.min.js" %}'); })
+                .then(function () { return cargarScript('{% static "web/vendor/pptxjs/js/dingbat.js" %}'); })
+                .then(function () { return cargarScript('{% static "web/vendor/pptxjs/js/pptxjs.min.js" %}'); })
+                .then(function () { return cargarScript('{% static "web/vendor/pptxjs/js/divs2slides.min.js" %}'); });
+        }
+
         function abrir(tipo, id, nombre, urlOriginal) {
             var url = '/archivos/' + tipo + '/' + id + '/previsualizar/';
             var ext = (nombre.split('.').pop() || '').toLowerCase();
@@ -380,36 +431,33 @@
                 return;
             }
             if (ext === 'doc' || ext === 'docx') {
-                if (!window.docx) {
-                    mostrarError('La vista previa de Word no está disponible en esta página.');
-                    return;
-                }
-                pedirArchivo(url).then(function (blob) {
-                    var contenedor = document.createElement('div');
-                    contenedor.className = 'preview-modal-docx';
-                    return window.docx.renderAsync(blob, contenedor).then(function () {
-                        spinner.hidden = true;
-                        cuerpo.appendChild(contenedor);
-                        activarZoomPara(contenedor);
+                asegurarDocx().then(function () {
+                    return pedirArchivo(url).then(function (blob) {
+                        var contenedor = document.createElement('div');
+                        contenedor.className = 'preview-modal-docx';
+                        return window.docx.renderAsync(blob, contenedor).then(function () {
+                            spinner.hidden = true;
+                            cuerpo.appendChild(contenedor);
+                            activarZoomPara(contenedor);
+                        });
                     });
                 }).catch(function (err) { mostrarError(err.message || 'No se pudo generar la vista previa.'); });
                 return;
             }
             if (ext === 'ppt' || ext === 'pptx') {
-                if (!window.jQuery || !window.jQuery.fn.pptxToHtml) {
-                    mostrarError('La vista previa de PowerPoint no está disponible en esta página.');
-                    return;
-                }
-                // pptxjs no soporta pedirle el blob ya descargado (solo pptxFileUrl o
-                // fileInputId): acepta la URL del relay directo, asi que el 413/cookie
-                // vencida/etc no se detecta aca como en los otros 3 - queda como limitacion
-                // conocida de esta libreria, el peor caso es que no muestre nada.
-                var divPptx = document.createElement('div');
-                divPptx.className = 'preview-modal-pptx';
-                spinner.hidden = true;
-                cuerpo.appendChild(divPptx);
-                activarZoomPara(divPptx);
-                window.jQuery(divPptx).pptxToHtml({ pptxFileUrl: url, slideMode: false, keyBoardShortCut: false });
+                asegurarPptx().then(function () {
+                    // pptxjs no soporta pedirle el blob ya descargado (solo pptxFileUrl o
+                    // fileInputId): acepta la URL del relay directo, asi que el 413/cookie
+                    // vencida/etc no se detecta aca como en los otros 3 - queda como
+                    // limitacion conocida de esta libreria, el peor caso es que no muestre
+                    // nada.
+                    var divPptx = document.createElement('div');
+                    divPptx.className = 'preview-modal-pptx';
+                    spinner.hidden = true;
+                    cuerpo.appendChild(divPptx);
+                    activarZoomPara(divPptx);
+                    window.jQuery(divPptx).pptxToHtml({ pptxFileUrl: url, slideMode: false, keyBoardShortCut: false });
+                }).catch(function (err) { mostrarError('La vista previa de PowerPoint no está disponible ahora mismo.'); });
                 return;
             }
             mostrarError('Este tipo de archivo no tiene vista previa.');

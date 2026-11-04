@@ -91,21 +91,10 @@
 {% endblock %}
 
 {% block scripts %}
-<link rel="stylesheet" href="{% static 'web/vendor/pptxjs/css/pptxjs.css' %}">
-<link rel="stylesheet" href="{% static 'web/vendor/pptxjs/css/nv.d3.min.css' %}">
-<!-- docx-preview lee window.JSZip UNA SOLA VEZ al cargarse (lo captura en su closure, no
-     lo vuelve a leer despues) - por eso esta version real de JSZip (v3, con loadAsync) va
-     ANTES. El jszip.min.js de pptxjs de mas abajo es v2 (API distinta, sin loadAsync) y
-     pisa window.JSZip despues - no afecta a docx-preview porque ya se quedo con esta. -->
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
-<script src="{% static 'web/vendor/pptxjs/js/jszip.min.js' %}"></script>
-<script src="{% static 'web/vendor/pptxjs/js/filereader.js' %}"></script>
-<script src="{% static 'web/vendor/pptxjs/js/d3.min.js' %}"></script>
-<script src="{% static 'web/vendor/pptxjs/js/nv.d3.min.js' %}"></script>
-<script src="{% static 'web/vendor/pptxjs/js/dingbat.js' %}"></script>
-<script src="{% static 'web/vendor/pptxjs/js/pptxjs.min.js' %}"></script>
-<script src="{% static 'web/vendor/pptxjs/js/divs2slides.min.js' %}"></script>
+{# docx-preview/pptxjs y sus dependencias (~1MB entre todas) ya NO se cargan aca: se
+   cargaban en cada visita a esta pagina aunque nadie abriera una vista previa, haciendola
+   lenta de entrar. Ahora se cargan solo la primera vez que hace falta, desde
+   window.AvancesPreview en base.html (ver asegurarDocx/asegurarPptx). #}
 <script>
 $(document).ready(function () {
     $('#tblEstudiantes').DataTable({

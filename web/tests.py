@@ -132,6 +132,42 @@ class GuiaDeUsoTests(TestCase):
         self.assertIsNotNone(self.profesor.tour_visto_en)
 
 
+@override_settings(STORAGES=SIN_MANIFIESTO)
+class ExtraccionDecanoTests(TestCase):
+    """Un Decano que además es Docente ve en Extracción su alcance asignado + lo que enseña.
+    Antes daba error 500: el alcance del Decano usa .distinct() y Django no deja unir con
+    `|` una consulta distinct con otra que no lo es."""
+
+    def setUp(self):
+        from data.models import Facultad, Carrera, Materia, PerfilUsuario
+        facultad = Facultad.objects.create(nombre='Tecnología')
+        sistemas = Carrera.objects.create(facultad=facultad, nombre='Sistemas')
+        contaduria = Carrera.objects.create(facultad=facultad, nombre='Contaduría')
+
+        def materia(nombre, carrera):
+            return Materia.objects.create(
+                gestion=2026, nombre=nombre, moodle_nombre=nombre, moodle_url='https://moodle.example/c', carrera=carrera,
+            )
+        self.de_su_carrera = materia('Base de Datos', sistemas)
+        self.que_dicta = materia('Contabilidad I', contaduria)
+        self.ajena = materia('Auditoría', contaduria)
+
+        self.user = User.objects.create_user(username='decano.prueba', password='clave-123')
+        profesor = Profesor.objects.create(
+            moodle_id=919191, nombre='decano.prueba', url='https://moodle.example/u/919191', user=self.user,
+        )
+        self.que_dicta.profesores.add(profesor)
+        perfil = PerfilUsuario.objects.create(user=self.user, rol=PerfilUsuario.DECANO)
+        perfil.carreras.add(sistemas)
+        self.client.force_login(self.user)
+
+    def test_decano_docente_abre_extraccion_sin_error(self):
+        respuesta = self.client.get(reverse('dashboard'))
+        self.assertEqual(respuesta.status_code, 200)
+        ids = {c['id'] for c in respuesta.context['courses']}
+        self.assertEqual(ids, {self.de_su_carrera.id, self.que_dicta.id})
+
+
 class ConfiguracionIncompletaTests(TestCase):
     def test_asignar_sin_fechas_lanza_configuracion_incompleta(self):
         with self.assertRaises(run_scraping.ConfiguracionIncompleta):

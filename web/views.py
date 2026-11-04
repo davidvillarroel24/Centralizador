@@ -35,7 +35,7 @@ from services.utils.reportes import datos_reporte_acceso, datos_reporte_contenid
 REPORTES_DISPONIBLES = ('acceso', 'tareas', 'material')
 from data.models import Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias, AccesoCurso
 from data.cookie_crypto import cifrar_cookie, descifrar_cookie
-from data.roles import es_administrador, requiere_rol, materias_visibles, get_rol
+from data.roles import es_administrador, requiere_rol, materias_visibles, materias_visibles_decano, get_rol
 from data.models import PerfilUsuario, Facultad, Carrera
 from django.utils import timezone as dj_timezone
 
@@ -872,11 +872,12 @@ def cursos_base_por_rol(request, role):
         return todos, False
 
     if rol_actual == PerfilUsuario.DECANO:
-        materias_qs = materias_visibles_decano(request.user)
+        # Unión de ids, no de querysets: materias_visibles_decano() usa .distinct() y Django
+        # no deja combinar con `|` una consulta distinct con otra que no lo es (TypeError).
+        ids_decano = set(materias_visibles_decano(request.user).values_list('id', flat=True))
         profesor_actual = get_current_profesor(request)
         if profesor_actual:
-            materias_qs = materias_qs | profesor_actual.materias.all()
-        ids_decano = set(materias_qs.values_list('id', flat=True))
+            ids_decano |= set(profesor_actual.materias.values_list('id', flat=True))
         return [c for c in todos if c['id'] in ids_decano], False
 
     return filter_courses_by_role(request, todos, role), True

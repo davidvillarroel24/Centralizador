@@ -122,9 +122,11 @@
             <i class="bi bi-text-wrap"></i> Ajustar línea
           </button>
         </div>
-        {# Fuera de previewModalCuerpo (que es lo único con scroll): si el aviso y las
-           pestañas de hoja vivieran adentro, se perdían de vista al scrollear una tabla
-           larga o ancha - acá quedan fijos siempre, arriba de la zona que sí scrollea. #}
+        {% comment %}
+        Fuera de previewModalCuerpo (que es lo único con scroll): si el aviso y las
+        pestañas de hoja vivieran adentro, se perdían de vista al scrollear una tabla
+        larga o ancha - acá quedan fijos siempre, arriba de la zona que sí scrollea.
+        {% endcomment %}
         <div class="preview-modal-xlsx-barra" id="previewXlsxBarra" hidden>
           <p class="preview-modal-xlsx-aviso">
             <i class="bi bi-info-circle"></i> Esta vista previa solo muestra los datos de las celdas:

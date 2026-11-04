@@ -59,9 +59,11 @@
             </div>
 
             {# --- Nivel 2: entregas de UNA actividad puntual --- #}
-            {# Título, "Volver" y el resumen ("7/15 entregaron") FUERA del modal-scroll: con
-               muchos estudiantes la tabla scrollea pero el encabezado queda fijo arriba, no
-               se pierde de vista al bajar. #}
+            {% comment %}
+            Título, "Volver" y el resumen ("7/15 entregaron") FUERA del modal-scroll: con
+            muchos estudiantes la tabla scrollea pero el encabezado queda fijo arriba, no
+            se pierde de vista al bajar.
+            {% endcomment %}
             <div id="avmDetalle" class="modal-form" style="display:none;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px; flex-shrink:0;">
                     <strong id="avmDetalleTitulo"></strong>

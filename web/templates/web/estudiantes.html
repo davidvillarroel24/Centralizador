@@ -91,10 +91,12 @@
 {% endblock %}
 
 {% block scripts %}
-{# docx-preview/pptxjs y sus dependencias (~1MB entre todas) ya NO se cargan aca: se
-   cargaban en cada visita a esta pagina aunque nadie abriera una vista previa, haciendola
-   lenta de entrar. Ahora se cargan solo la primera vez que hace falta, desde
-   window.AvancesPreview en base.html (ver asegurarDocx/asegurarPptx). #}
+{% comment %}
+docx-preview/pptxjs y sus dependencias (~1MB entre todas) ya NO se cargan aca: se
+cargaban en cada visita a esta pagina aunque nadie abriera una vista previa, haciendola
+lenta de entrar. Ahora se cargan solo la primera vez que hace falta, desde
+window.AvancesPreview en base.html (ver asegurarDocx/asegurarPptx).
+{% endcomment %}
 <script>
 $(document).ready(function () {
     $('#tblEstudiantes').DataTable({

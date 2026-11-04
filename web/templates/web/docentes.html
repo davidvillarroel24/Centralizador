@@ -135,9 +135,11 @@
                 <h2>Avances de <span id="avancesNombre"></span></h2>
                 <button type="button" class="modal-close" id="avancesCerrar">✕</button>
             </div>
-            {# Título + "Volver" FUERA del modal-scroll: si la descripción es larga, antes
-               se perdían de vista al bajar - ahora solo el texto scrollea, el encabezado
-               queda fijo arriba siempre. #}
+            {% comment %}
+            Título + "Volver" FUERA del modal-scroll: si la descripción es larga, antes
+            se perdían de vista al bajar - ahora solo el texto scrollea, el encabezado
+            queda fijo arriba siempre.
+            {% endcomment %}
             <div id="avancesDetalleCompleto" class="modal-form" style="display:none;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-shrink:0;">
                     <strong id="avancesDetalleTitulo"></strong>
@@ -191,10 +193,12 @@
     {% endblock %}
 
     {% block scripts %}
-    {# docx-preview/pptxjs y sus dependencias (~1MB entre todas) ya NO se cargan aca: se
-       cargaban en cada visita a esta pagina aunque nadie abriera una vista previa,
-       haciendola lenta de entrar. Ahora se cargan solo la primera vez que hace falta,
-       desde window.AvancesPreview en base.html (ver asegurarDocx/asegurarPptx). #}
+    {% comment %}
+    docx-preview/pptxjs y sus dependencias (~1MB entre todas) ya NO se cargan aca: se
+    cargaban en cada visita a esta pagina aunque nadie abriera una vista previa,
+    haciendola lenta de entrar. Ahora se cargan solo la primera vez que hace falta,
+    desde window.AvancesPreview en base.html (ver asegurarDocx/asegurarPptx).
+    {% endcomment %}
     <script>
     $(document).ready(function () {
         $('#tblDocentes').DataTable({

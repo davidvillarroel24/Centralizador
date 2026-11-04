@@ -224,11 +224,13 @@
             {% endif %}
         </form>
 
-        {# El modal vive siempre en el DOM (no solo cuando asignacion_detalle ya trae algo
-           server-side) para poder abrirlo/llenarlo por fetch() sin recargar la página - ver
-           el IIFE "Revisar asignación" más abajo. El contenido que Django renderiza acá
-           abajo es solo el respaldo para quien entra directo con ?modal=asignacion&courses=
-           en la URL (sin haber pasado por el botón); en el uso normal, JS lo reemplaza. #}
+        {% comment %}
+        El modal vive siempre en el DOM (no solo cuando asignacion_detalle ya trae algo
+        server-side) para poder abrirlo/llenarlo por fetch() sin recargar la página - ver
+        el IIFE "Revisar asignación" más abajo. El contenido que Django renderiza acá
+        abajo es solo el respaldo para quien entra directo con ?modal=asignacion&courses=
+        en la URL (sin haber pasado por el botón); en el uso normal, JS lo reemplaza.
+        {% endcomment %}
         <div id="modalAsignacion" class="modal-overlay" style="display:none;">
             <div class="modal-box">
                 <div class="modal-header">

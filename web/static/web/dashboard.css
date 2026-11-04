@@ -571,7 +571,11 @@ h1 {
 }
 .modal-box {
     background: var(--bg-sidebar); border: 1px solid rgba(var(--accent-purple-rgb),0.35); border-radius: 12px;
-    max-width: 900px; width: 100%; max-height: 85vh; display: flex; flex-direction: column;
+    /* Mismo motivo que .preview-modal (ver mas abajo): clamp() en vez de un max-width fijo
+       en px, para que escale con el ancho real de la ventana en vez de quedar chico en
+       pantallas grandes. "100%" (no "92vw") para que respete el padding:20px propio de
+       .modal-overlay en vez de medirse contra el viewport entero. */
+    max-width: clamp(320px, 100%, 1300px); width: 100%; max-height: 90vh; display: flex; flex-direction: column;
     padding: 20px; color: var(--text-primary);
 }
 .modal-header { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
@@ -668,8 +672,17 @@ h1 {
     background: var(--bg-main);
     color: var(--text-primary);
     border-radius: 12px;
-    width: min(900px, 100%);
-    height: min(80vh, 760px);
+    /* clamp(), no min() con un tope fijo en px: antes el modal quedaba pegado a 900x760
+       sin importar el tamaño real de la ventana (en una laptop chica se notaba bien
+       porque 80vh daba justo cerca de 760px, pero en un monitor grande se quedaba
+       chico y en uno chico de alto se pasaba). clamp(minimo, preferido, maximo) escala
+       con la ventana real entre esos dos limites. El termino del medio es "100%" (del
+       content-box de .preview-modal-overlay, que ya tiene padding:24px) y no "92vw": vw
+       mide contra el viewport entero sin restar ese padding, asi que en una pantalla
+       angosta el modal se pasaba un poco por encima del margen que el overlay ya
+       reservaba. 100% respeta ese padding solo. */
+    width: clamp(320px, 100%, 1400px);
+    height: clamp(420px, 100%, 1100px);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -755,6 +768,58 @@ h1 {
    dentro del flex de antes, pptxjs arma su propio stage interno de ancho fijo. */
 .preview-modal-pptx { width: 100%; padding: 10px; }
 
+/* Excel (SheetJS): el aviso de "no hay graficos/imagenes" y las pestañas de hoja viven en
+   su propia barra FIJA (previewXlsxBarra en base.html), fuera de .preview-modal-cuerpo -
+   que es el unico que scrollea. Asi no se pierden de vista al scrollear una tabla larga o
+   ancha, ni se agrandan con el zoom/pan de la tabla (eso solo afecta a
+   .preview-modal-xlsx-tabla, lo unico que se le pasa a activarZoomPara). */
+.preview-modal-xlsx-barra {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(var(--accent-purple-rgb), 0.15);
+    flex-shrink: 0;
+    background: var(--bg-main);
+}
+.preview-modal-xlsx-barra[hidden] { display: none; }
+.preview-modal-xlsx-aviso {
+    margin: 0;
+    padding: 8px 12px;
+    background: rgba(var(--accent-purple-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-purple-rgb), 0.25);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.preview-modal-xlsx-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.preview-modal-xlsx-tabs button {
+    background: transparent;
+    border: 1px solid rgba(var(--accent-purple-rgb), 0.3);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.preview-modal-xlsx-tabs button:hover { background: rgba(var(--accent-purple-rgb), 0.1); }
+.preview-modal-xlsx-tabs button[aria-pressed="true"] {
+    background: rgb(var(--accent-purple-rgb));
+    color: #fff;
+    border-color: rgb(var(--accent-purple-rgb));
+}
+.preview-modal-xlsx-tabla { background: #fff; padding: 12px; width: fit-content; max-width: 100%; }
+.preview-modal-xlsx-tabla table { border-collapse: collapse; font-size: 0.85rem; color: #111; }
+.preview-modal-xlsx-tabla td, .preview-modal-xlsx-tabla th {
+    border: 1px solid #ddd;
+    padding: 4px 8px;
+    white-space: nowrap;
+}
+.preview-modal-xlsx-tabla tr:nth-child(even) { background: #f7f5fb; }
+
 /* Barra de zoom (imagen/docx/pptx) y de "ajustar linea" (txt) - una de las dos, nunca las
    dos juntas (ver mostrarToolbar en base.html). */
 .preview-modal-toolbar {
@@ -770,7 +835,10 @@ h1 {
 .preview-modal-toolbar[hidden] { display: none; }
 .preview-modal-zoom { display: flex; align-items: center; gap: 8px; }
 .preview-modal-zoom[hidden] { display: none; }
+.preview-modal-rotar { display: flex; align-items: center; gap: 8px; }
+.preview-modal-rotar[hidden] { display: none; }
 .preview-modal-zoom button,
+.preview-modal-rotar button,
 .preview-modal-wrap-toggle {
     background: transparent;
     border: 1px solid rgba(var(--accent-purple-rgb), 0.3);
@@ -784,6 +852,7 @@ h1 {
     gap: 6px;
 }
 .preview-modal-zoom button:hover,
+.preview-modal-rotar button:hover,
 .preview-modal-wrap-toggle:hover { background: rgba(var(--accent-purple-rgb), 0.1); }
 .preview-modal-wrap-toggle[hidden] { display: none; }
 .preview-modal-wrap-toggle[aria-pressed="true"],

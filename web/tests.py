@@ -5,7 +5,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from data.models import Profesor, FechasParciales, PesosCategorias, asegurar_config_tareas_default
+from data.models import (
+    Profesor, FechasParciales, PesosCategorias, asegurar_config_tareas_default,
+    Facultad, Carrera, Materia, Unidad, Tarea, Estudiante, Entrega, PerfilUsuario,
+)
 from services.utils import run_scraping
 
 # El storage de produccion (manifiesto de WhiteNoise) exige correr collectstatic antes de
@@ -202,3 +205,101 @@ class ConfiguracionIncompletaTests(TestCase):
     def test_estudiantes_sin_pesos_lanza_configuracion_incompleta(self):
         with self.assertRaises(run_scraping.ConfiguracionIncompleta):
             run_scraping.estudiantes([1], profesor_id=999999)
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
+class MateriaAvancesTests(TestCase):
+    """materia_avances (ver web/views.py) por cada rol - el mismo tipo de bug que rompio
+    cuando se agregaron las vistas de Decano (505 en extraccion) era un rol que la vista
+    nueva no contemplaba bien; esto cubre los 4 roles + materia fuera de alcance."""
+
+    def setUp(self):
+        self.facultad = Facultad.objects.create(nombre='Ingeniería')
+        self.carrera = Carrera.objects.create(facultad=self.facultad, nombre='Sistemas')
+        self.carrera_otra = Carrera.objects.create(facultad=self.facultad, nombre='Civil')
+
+        self.materia = Materia.objects.create(
+            gestion=2026, nombre='Bases de Datos', moodle_nombre='2026/BDD',
+            moodle_url='https://moodle.example/course/view.php?id=1', carrera=self.carrera,
+        )
+        self.materia_otra_carrera = Materia.objects.create(
+            gestion=2026, nombre='Estructuras', moodle_nombre='2026/EST',
+            moodle_url='https://moodle.example/course/view.php?id=2', carrera=self.carrera_otra,
+        )
+        unidad = Unidad.objects.create(materia=self.materia, nombre='Unidad 1')
+        tarea_assign = Tarea.objects.create(
+            unidad=unidad, moodle_id=1001, titulo='Práctica 1', tipo='assign',
+            url='https://moodle.example/mod/assign/view.php?id=1',
+        )
+        Tarea.objects.create(
+            unidad=unidad, moodle_id=1002, titulo='Material de apoyo', tipo='url',
+            url='https://moodle.example/mod/url/view.php?id=1',
+        )
+        estudiante = Estudiante.objects.create(moodle_userid=5001, nombre='Ana Pérez', email='ana@example.com')
+        Entrega.objects.create(tarea=tarea_assign, estudiante=estudiante, estado='Sin entrega')
+
+        self.docente_user = User.objects.create_user(username='docente.prueba2', password='clave-123')
+        self.profesor = Profesor.objects.create(
+            moodle_id=434343, nombre='docente.prueba2', url='https://moodle.example/user/view.php?id=434343',
+            user=self.docente_user,
+        )
+        self.materia.profesores.add(self.profesor)
+
+        self.decano_user = User.objects.create_user(username='decano.prueba', password='clave-123')
+        perfil_decano = PerfilUsuario.objects.create(user=self.decano_user, rol=PerfilUsuario.DECANO)
+        perfil_decano.carreras.add(self.carrera)  # NO incluye self.carrera_otra a proposito
+
+        self.admin_user = User.objects.create_user(username='admin.prueba', password='clave-123')
+        PerfilUsuario.objects.create(user=self.admin_user, rol=PerfilUsuario.ADMINISTRADOR)
+
+    def _url(self, materia):
+        return reverse('materia_avances', args=[materia.id])
+
+    def test_docente_ve_su_propia_materia(self):
+        self.client.force_login(self.docente_user)
+        resp = self.client.get(self._url(self.materia))
+        self.assertEqual(resp.status_code, 200)
+        datos = resp.json()
+        self.assertEqual(len(datos['actividades']), 2)
+        assign = next(a for a in datos['actividades'] if a['tipo'] == 'assign')
+        self.assertEqual(assign['total_estudiantes'], 1)
+        self.assertEqual(assign['entregas'][0]['estudiante'], 'Ana Pérez')
+
+    def test_docente_no_ve_materia_ajena(self):
+        self.client.force_login(self.docente_user)
+        resp = self.client.get(self._url(self.materia_otra_carrera))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_decano_ve_materia_de_su_carrera(self):
+        self.client.force_login(self.decano_user)
+        resp = self.client.get(self._url(self.materia))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_decano_no_ve_materia_fuera_de_su_alcance(self):
+        self.client.force_login(self.decano_user)
+        resp = self.client.get(self._url(self.materia_otra_carrera))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_administrador_ve_cualquier_materia(self):
+        self.client.force_login(self.admin_user)
+        resp = self.client.get(self._url(self.materia_otra_carrera))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_visitante_no_accede_a_materias(self):
+        from data.roles import get_or_crear_visitante_compartido
+        visitante = get_or_crear_visitante_compartido()
+        self.client.force_login(visitante)
+        resp = self.client.get(self._url(self.materia))
+        # requiere_rol redirige a resumen (no 403) para roles sin acceso a la pantalla.
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse('resumen'))
+
+    def test_anonimo_redirige_a_login(self):
+        resp = self.client.get(self._url(self.materia))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/login/', resp.url)
+
+    def test_materia_inexistente_da_404(self):
+        self.client.force_login(self.admin_user)
+        resp = self.client.get(self._url(self.materia).rsplit('/', 2)[0] + '/999999/avances/')
+        self.assertEqual(resp.status_code, 404)

@@ -1719,6 +1719,8 @@ PREVIEW_CONTENT_TYPES = {
     'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'ppt': 'application/vnd.ms-powerpoint',
     'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'xls': 'application/vnd.ms-excel',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'txt': 'text/plain; charset=utf-8',
 }
 
@@ -1960,6 +1962,63 @@ def docente_avances(request, profesor_id):
         'docente': docente.nombre,
         'materias_filtro': materias_filtro,
         'tareas': filas,
+    })
+
+
+@login_required
+@requiere_rol(*ROLES_STAFF)
+def materia_avances(request, materia_id):
+    """JSON para el modal "Ver avances" de materias.html: a diferencia de docente_avances/
+    estudiante_avances (una sola lista plana), acá el docente necesita revisar entregas
+    TAREA POR TAREA (quién entregó esta actividad puntual), así que se manda la lista de
+    actividades con sus entregas ya anidadas en un único request - el detalle de cada
+    actividad lo arma el propio JavaScript con lo que ya tiene, sin volver a pedirle nada
+    al servidor (ver materias.html).
+
+    Se incluyen TODOS los tipos de tarea (no solo 'assign'): el filtro por tipo y el
+    buscador de texto libre quedan del lado del cliente, para que el docente tenga
+    libertad de ver también las 'url' (sin entregas, Moodle no las genera para actividades
+    no calificables) si las está buscando puntualmente."""
+    materia = Materia.objects.filter(pk=materia_id).first()
+    if not materia:
+        return JsonResponse({'error': 'No se encontró esa materia.'}, status=404)
+
+    materias_qs = materias_visibles(request.user) if not es_administrador(request.user) else Materia.objects.all()
+    if materia.id not in materias_qs.values_list('id', flat=True):
+        return JsonResponse({'error': 'No tenés acceso a esa materia.'}, status=403)
+
+    tareas = (
+        Tarea.objects.filter(unidad__materia=materia)
+        .select_related('unidad')
+        .prefetch_related('entregas__estudiante', 'entregas__archivos_entrega')
+        .order_by('unidad__nombre', 'titulo')
+    )
+
+    actividades = []
+    for t in tareas:
+        entregas = list(t.entregas.all())
+        actividades.append({
+            'id': t.id,
+            'unidad': t.unidad.nombre,
+            'titulo': t.titulo,
+            'tipo': t.tipo,
+            'url': t.url,
+            'apertura': t.apertura or '—',
+            'cierre': t.cierre or '—',
+            'total_estudiantes': len(entregas),
+            'entregados': sum(1 for e in entregas if e.estado and 'sin entrega' not in e.estado.lower()),
+            'entregas': [{
+                'estudiante': e.estudiante.nombre,
+                'estado': e.estado or '—',
+                'nota': f'{e.nota}/{e.nota_maxima}' if e.nota is not None else '—',
+                'fecha_entrega': e.ultima_mod_entrega or '—',
+                'archivos_entrega': _archivos_lista(e.archivos_entrega.all(), 'entrega'),
+            } for e in sorted(entregas, key=lambda e: e.estudiante.nombre)],
+        })
+
+    return JsonResponse({
+        'materia': materia.nombre,
+        'actividades': actividades,
     })
 
 

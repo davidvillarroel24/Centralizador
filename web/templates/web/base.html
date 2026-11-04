@@ -113,9 +113,24 @@
               <i class="bi bi-hand-index-thumb"></i>
             </button>
           </div>
+          <div class="preview-modal-rotar" id="previewModalRotar" hidden>
+            <span class="preview-modal-modo-separador"></span>
+            <button type="button" id="previewRotarIzq" title="Rotar a la izquierda"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button type="button" id="previewRotarDer" title="Rotar a la derecha"><i class="bi bi-arrow-clockwise"></i></button>
+          </div>
           <button type="button" class="preview-modal-wrap-toggle" id="previewWrapToggle" hidden>
             <i class="bi bi-text-wrap"></i> Ajustar línea
           </button>
+        </div>
+        {# Fuera de previewModalCuerpo (que es lo único con scroll): si el aviso y las
+           pestañas de hoja vivieran adentro, se perdían de vista al scrollear una tabla
+           larga o ancha - acá quedan fijos siempre, arriba de la zona que sí scrollea. #}
+        <div class="preview-modal-xlsx-barra" id="previewXlsxBarra" hidden>
+          <p class="preview-modal-xlsx-aviso">
+            <i class="bi bi-info-circle"></i> Esta vista previa solo muestra los datos de las celdas:
+            no se muestran gráficos ni imágenes embebidas en el archivo.
+          </p>
+          <div class="preview-modal-xlsx-tabs" id="previewXlsxTabs"></div>
         </div>
         <div class="preview-modal-cuerpo" id="previewModalCuerpo">
           <div class="preview-modal-spinner" id="previewModalSpinner">Abriendo archivo…</div>
@@ -133,6 +148,9 @@
         var zoomGrupo = document.getElementById('previewModalZoom');
         var zoomPct = document.getElementById('previewZoomPct');
         var wrapToggle = document.getElementById('previewWrapToggle');
+        var rotarGrupo = document.getElementById('previewModalRotar');
+        var xlsxBarra = document.getElementById('previewXlsxBarra');
+        var xlsxTabs = document.getElementById('previewXlsxTabs');
 
         // --- Zoom (imagen/docx/pptx) ---------------------------------------------------
         var zoomNivel = 1;
@@ -146,7 +164,7 @@
             if (zoomElemento) zoomElemento.style.zoom = zoomNivel;
             zoomPct.textContent = Math.round(zoomNivel * 100) + '%';
         }
-        function activarZoomPara(elemento) {
+        function activarZoomPara(elemento, esImagen) {
             zoomElemento = elemento;
             toolbar.hidden = false;
             zoomGrupo.hidden = false;
@@ -158,7 +176,31 @@
             enModoFit = false;
             actualizarIconoFit();
             aplicarZoom();
+            // Rotar solo tiene sentido en imagenes (una foto subida de costado) - docx/pptx
+            // quedan como vienen, rotarlos no tiene un caso de uso real aca.
+            rotarGrupo.hidden = !esImagen;
+            rotacion = 0;
+            aplicarRotacion();
         }
+
+        // --- Rotar (solo imagenes) -------------------------------------------------------
+        // transform (no zoom): rotate() es visual, no afecta el flujo de layout, asi que no
+        // hace falta que el contenedor reserve espacio para los 90/270 grados - el propio
+        // getBoundingClientRect() que usa "ajustar a la hoja" ya devuelve el rectangulo
+        // DESPUES de aplicar el transform, entonces calcularEscalaDeAjuste() ajusta bien el
+        // zoom aunque la imagen este de costado, sin tener que swapear ancho/alto a mano.
+        var rotacion = 0;
+        function aplicarRotacion() {
+            if (zoomElemento) zoomElemento.style.transform = rotacion ? 'rotate(' + rotacion + 'deg)' : '';
+        }
+        document.getElementById('previewRotarIzq').addEventListener('click', function () {
+            rotacion = (rotacion - 90 + 360) % 360;
+            aplicarRotacion();
+        });
+        document.getElementById('previewRotarDer').addEventListener('click', function () {
+            rotacion = (rotacion + 90) % 360;
+            aplicarRotacion();
+        });
 
         // --- Mouse (seleccionar texto) vs Mano (mover la hoja) --------------------------
         var modoMano = false;
@@ -271,6 +313,7 @@
             overlay.hidden = true;
             liberarBlobActual();
             toolbar.hidden = true;
+            xlsxBarra.hidden = true;
             zoomElemento = null;
             cuerpo.classList.remove('zoom-activo');
             cuerpo.innerHTML = '';
@@ -381,6 +424,11 @@
                 .then(function () { return cargarScript('{% static "web/vendor/pptxjs/js/divs2slides.min.js" %}'); });
         }
 
+        function asegurarXlsx() {
+            if (window.XLSX) return Promise.resolve();
+            return cargarScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+        }
+
         function abrir(tipo, id, nombre, urlOriginal) {
             var url = '/archivos/' + tipo + '/' + id + '/previsualizar/';
             var ext = (nombre.split('.').pop() || '').toLowerCase();
@@ -392,6 +440,7 @@
             cuerpo.appendChild(spinner);
             overlay.hidden = false;
             toolbar.hidden = true;
+            xlsxBarra.hidden = true;
             zoomElemento = null;
             cuerpo.classList.remove('zoom-activo');
 
@@ -400,7 +449,7 @@
                     var img = new Image();
                     img.className = 'preview-modal-imagen';
                     blobUrlActual = URL.createObjectURL(blob);
-                    mostrarCuandoListo(img, function () { activarZoomPara(img); }, function () {
+                    mostrarCuandoListo(img, function () { activarZoomPara(img, true); }, function () {
                         mostrarError('No se pudo mostrar la imagen.');
                     });
                     img.src = blobUrlActual;
@@ -440,6 +489,52 @@
                             cuerpo.appendChild(contenedor);
                             activarZoomPara(contenedor);
                         });
+                    });
+                }).catch(function (err) { mostrarError(err.message || 'No se pudo generar la vista previa.'); });
+                return;
+            }
+            if (ext === 'xls' || ext === 'xlsx') {
+                asegurarXlsx().then(function () {
+                    return pedirArchivo(url).then(function (blob) { return blob.arrayBuffer(); }).then(function (buffer) {
+                        var libro = window.XLSX.read(buffer, { type: 'array' });
+
+                        // El aviso vive fijo en el HTML (previewXlsxBarra, fuera del scroll)
+                        // - solo hay que mostrarlo y, si hay mas de una hoja, armar las
+                        // pestañas ahi adentro. La tabla es lo UNICO que va dentro de
+                        // previewModalCuerpo (lo que sí scrollea).
+                        xlsxBarra.hidden = false;
+                        xlsxTabs.innerHTML = '';
+
+                        var tablaWrap = document.createElement('div');
+                        tablaWrap.className = 'preview-modal-xlsx-tabla';
+
+                        function mostrarHoja(nombreHoja) {
+                            var hoja = libro.Sheets[nombreHoja];
+                            // sheet_to_html ya resuelve celdas combinadas (colspan/rowspan) y
+                            // usa el valor formateado (no la formula cruda) - si una hoja no
+                            // tiene celdas (poco comun, pero pasa con hojas ocultas vacias)
+                            // devuelve un <table> vacio, no rompe.
+                            tablaWrap.innerHTML = window.XLSX.utils.sheet_to_html(hoja, { editable: false });
+                            xlsxTabs.querySelectorAll('button').forEach(function (b) {
+                                b.setAttribute('aria-pressed', String(b.dataset.hoja === nombreHoja));
+                            });
+                        }
+                        if (libro.SheetNames.length > 1) {
+                            libro.SheetNames.forEach(function (nombreHoja, indice) {
+                                var btn = document.createElement('button');
+                                btn.type = 'button';
+                                btn.textContent = nombreHoja;
+                                btn.dataset.hoja = nombreHoja;
+                                btn.setAttribute('aria-pressed', String(indice === 0));
+                                btn.addEventListener('click', function () { mostrarHoja(nombreHoja); });
+                                xlsxTabs.appendChild(btn);
+                            });
+                        }
+                        mostrarHoja(libro.SheetNames[0]);
+
+                        spinner.hidden = true;
+                        cuerpo.appendChild(tablaWrap);
+                        activarZoomPara(tablaWrap, false);
                     });
                 }).catch(function (err) { mostrarError(err.message || 'No se pudo generar la vista previa.'); });
                 return;

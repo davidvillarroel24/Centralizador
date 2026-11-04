@@ -5,7 +5,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from data.models import Profesor, FechasParciales, PesosCategorias
+from data.models import Profesor, FechasParciales, PesosCategorias, asegurar_config_tareas_default
 from services.utils import run_scraping
 
 # El storage de produccion (manifiesto de WhiteNoise) exige correr collectstatic antes de
@@ -33,13 +33,15 @@ class PreparacionExtraccionTests(TestCase):
         datos = {'action': action, 'courses': ['1'], 'role': 'all', **extra}
         return self.client.post(reverse('dashboard'), datos, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
 
-    def test_boton_1_sin_fechas_avisa_antes_de_ir_a_moodle(self):
-        with mock.patch('web.views.run_cargar_tareas_web') as extraer:
-            respuesta = self._post_xhr('cargar_tareas')
+    def test_boton_1_sin_fechas_usa_el_default_institucional_en_vez_de_bloquear(self):
+        # Antes esto frenaba con "faltan fechas" (ver asegurar_config_tareas_default en
+        # data/models.py): ahora un docente que nunca entro a Configuracion ya tiene
+        # fechas/pesos default del año en curso, asi que no lo frena mas - el error
+        # restante es el de cookie, igual que en test_boton_1_con_fechas_no_frena_por_configuracion.
+        respuesta = self._post_xhr('cargar_tareas')
         datos = respuesta.json()
-        extraer.assert_not_called()
-        self.assertIn('no de Moodle', datos['error'])
-        self.assertEqual(datos['error_link']['url'], reverse('configuracion'))
+        self.assertIn('cookie', datos['error'].lower())
+        self.assertIsNone(datos['error_link'])
 
     def test_boton_1_con_fechas_no_frena_por_configuracion(self):
         FechasParciales.objects.create(profesor=self.profesor, p1_inicio='2026-09-01', p1_fin='2026-10-15')
@@ -48,6 +50,25 @@ class PreparacionExtraccionTests(TestCase):
         # Sin cookie sigue sin poder extraer, pero el motivo ya no es la configuración.
         self.assertIn('cookie', datos['error'].lower())
         self.assertIsNone(datos['error_link'])
+
+    def test_default_solo_completa_campos_sin_configurar(self):
+        # Parcial 1 ya tiene fecha (de un año cualquiera, no tiene que ser el actual) y
+        # mitek/etek ya tienen peso propio: eso no se toca. Parcial 2-4 y las otras 3
+        # categorias nunca se configuraron, asi que esos si se completan con el default.
+        FechasParciales.objects.create(profesor=self.profesor, p1_inicio='2020-03-01', p1_fin='2020-04-20')
+        PesosCategorias.objects.create(profesor=self.profesor, mitek=15, etek=25)
+
+        fechas, pesos = asegurar_config_tareas_default(self.profesor)
+
+        self.assertEqual(fechas.p1_inicio.isoformat(), '2020-03-01')
+        self.assertEqual(fechas.p1_fin.isoformat(), '2020-04-20')
+        self.assertIsNotNone(fechas.p2_inicio)
+        self.assertIsNotNone(fechas.p4_fin)
+        self.assertEqual(pesos.mitek, 15)
+        self.assertEqual(pesos.etek, 25)
+        self.assertEqual(pesos.training, 20)
+        self.assertEqual(pesos.designlab, 20)
+        self.assertEqual(pesos.examen, 30)
 
     def test_sin_cookie_los_botones_de_moodle_estan_deshabilitados(self):
         respuesta = self.client.get(reverse('dashboard'))
@@ -67,7 +88,12 @@ class PreparacionExtraccionTests(TestCase):
 
     def test_lista_antes_de_extraer_refleja_la_configuracion(self):
         FechasParciales.objects.create(profesor=self.profesor, p1_inicio='2026-09-01', p1_fin='2026-10-15')
-        PesosCategorias.objects.create(profesor=self.profesor, mitek=40, etek=60)
+        # Las 5 categorias con valor propio (ninguna en 0): asegurar_config_tareas_default
+        # solo completa con el default institucional lo que esta sin configurar, asi que
+        # esto tiene que quedar exactamente como se guardo, sin que nada se le pise.
+        PesosCategorias.objects.create(
+            profesor=self.profesor, mitek=30, etek=30, training=20, designlab=10, examen=10,
+        )
         prep = self.client.get(reverse('dashboard')).context['preparacion']
         self.assertTrue(prep['fechas_ok'])
         self.assertTrue(prep['pesos_ok'])

@@ -38,6 +38,8 @@ debug.html
 data_dump.json
 dumpdata_errors.log
 MIGRACION_DATOS_RENDER.md
+out1.txt
+out2.txt
 
 # Carpetas fuera del alcance del repo de la app
 /Versioines Demo/

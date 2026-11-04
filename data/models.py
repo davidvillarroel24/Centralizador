@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.db import models
@@ -96,6 +96,63 @@ class PesosCategorias(models.Model):
 
     def __str__(self):
         return f"Pesos de categorias - {self.profesor}"
+
+
+# Default institucional (ver web/views.py::configuracion_view): la mayoria de los docentes
+# no quiere/no necesita personalizar esto parcial por parcial, asi que estos valores se
+# aplican solos en vez de bloquear la extraccion hasta que alguien complete el formulario
+# a mano. Los 4 meses de "fin" (abril/junio/septiembre/noviembre) tienen todos 30 dias, asi
+# que no hace falta calendar.monthrange para el ultimo dia.
+PESOS_DEFAULT = {'mitek': 10, 'etek': 20, 'training': 20, 'designlab': 20, 'examen': 30}
+RANGOS_PARCIALES_DEFAULT_MESES = {
+    1: (2, 1, 4, 30),    # Febrero a Abril
+    2: (5, 1, 6, 30),    # Mayo a Junio
+    3: (7, 1, 9, 30),    # Julio a Septiembre
+    4: (10, 1, 11, 30),  # Octubre a Noviembre
+}
+
+
+def _rango_parcial_default(numero, anio):
+    mes_ini, dia_ini, mes_fin, dia_fin = RANGOS_PARCIALES_DEFAULT_MESES[numero]
+    return date(anio, mes_ini, dia_ini), date(anio, mes_fin, dia_fin)
+
+
+def asegurar_config_tareas_default(profesor, forzar=False):
+    """Crea FechasParciales/PesosCategorias de `profesor` si no existen y completa SOLO los
+    campos que todavia estan sin configurar, con el default institucional de arriba (año en
+    curso) - para que un docente que nunca entro a Configuracion igual pueda extraer/asignar
+    tareas, sin quedar bloqueado hasta completar el formulario a mano. Los docentes pueden
+    configurar fechas de cualquier año (no se asume que tiene que ser el actual) - un campo
+    ya configurado nunca se toca, sin importar a que año corresponda. Con forzar=True
+    ("Restablecer y guardar" en Configuración) pisa todo con el default del año en curso,
+    incluso lo ya configurado. Devuelve (fechas, pesos) ya guardados."""
+    anio = date.today().year
+
+    fechas, _ = FechasParciales.objects.get_or_create(profesor=profesor)
+    cambios = False
+    for i in range(1, 5):
+        inicio_default, fin_default = _rango_parcial_default(i, anio)
+        campo_inicio, campo_fin = f'p{i}_inicio', f'p{i}_fin'
+        if forzar or not getattr(fechas, campo_inicio):
+            setattr(fechas, campo_inicio, inicio_default)
+            cambios = True
+        if forzar or not getattr(fechas, campo_fin):
+            setattr(fechas, campo_fin, fin_default)
+            cambios = True
+    if cambios:
+        fechas.save()
+
+    pesos, _ = PesosCategorias.objects.get_or_create(profesor=profesor)
+    cambios = False
+    for cat, valor in PESOS_DEFAULT.items():
+        if forzar or not getattr(pesos, cat):
+            setattr(pesos, cat, valor)
+            cambios = True
+    if cambios:
+        pesos.save()
+
+    return fechas, pesos
+
 
 from django.db import models
 

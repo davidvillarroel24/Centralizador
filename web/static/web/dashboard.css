@@ -1,29 +1,7 @@
+/* Modo claro es el default (sin data-theme): ver base.html, que solo pone
+   data-theme="dark" si el usuario lo eligio explicitamente (toggle en
+   configuracion.html), guardado en localStorage. */
 :root {
-    --bg-page: #050505;
-    --bg-sidebar: #0b0b0b;
-    --bg-main: #060606;
-    --text-primary: #f5f5f5;
-    --text-secondary: #d2d2d2;
-    --text-muted: #b1b1b1;
-    --accent-gold: #f0c75e;
-    --accent-gold-rgb: 240, 199, 94;
-    --accent-gold-strong: #d9a441;
-    --accent-gold-soft: #ffe08a;
-    --accent-purple-rgb: 155, 91, 246;
-    --panel-bg: rgba(255, 255, 255, 0.04);
-    --card-bg: rgba(255, 255, 255, 0.03);
-    --input-bg: rgba(255, 255, 255, 0.04);
-    --input-border: rgba(155, 91, 246, 0.35);
-    --input-color: #fff;
-    --success-bg: rgba(68, 165, 38, 0.08);
-    --success-border: rgba(68, 165, 38, 0.2);
-    --error-bg: rgba(210, 60, 60, 0.12);
-    --error-border: rgba(210, 60, 60, 0.25);
-    --error-text: #ff8080;
-    --success-text: #6fd34f;
-}
-
-[data-theme="light"] {
     --bg-page: #f7f5f1;
     --bg-sidebar: #ffffff;
     --bg-main: #f7f5f1;
@@ -46,7 +24,42 @@
     --error-border: rgba(198, 40, 40, 0.3);
     --error-text: #c62828;
     --success-text: #2e7d32;
+    --link-color: #0d6efd;
+    --link-color-visited: #6f42c1;
 }
+
+[data-theme="dark"] {
+    --bg-page: #050505;
+    --bg-sidebar: #0b0b0b;
+    --bg-main: #060606;
+    --text-primary: #f5f5f5;
+    --text-secondary: #d2d2d2;
+    --text-muted: #b1b1b1;
+    --accent-gold: #f0c75e;
+    --accent-gold-rgb: 240, 199, 94;
+    --accent-gold-strong: #d9a441;
+    --accent-gold-soft: #ffe08a;
+    --accent-purple-rgb: 155, 91, 246;
+    --panel-bg: rgba(255, 255, 255, 0.04);
+    --card-bg: rgba(255, 255, 255, 0.03);
+    --input-bg: rgba(255, 255, 255, 0.04);
+    --input-border: rgba(155, 91, 246, 0.35);
+    --input-color: #fff;
+    --success-bg: rgba(68, 165, 38, 0.08);
+    --success-border: rgba(68, 165, 38, 0.2);
+    --error-bg: rgba(210, 60, 60, 0.12);
+    --error-border: rgba(210, 60, 60, 0.25);
+    --error-text: #ff8080;
+    --success-text: #6fd34f;
+    /* Azul/violeta por defecto del navegador no contrasta bien sobre el fondo
+       casi negro de este tema - naranja se ve bien y no choca con el dorado
+       de acento (--accent-gold), que se usa para otra cosa (iconos, botones). */
+    --link-color: #ff9f43;
+    --link-color-visited: #ffb366;
+}
+
+a { color: var(--link-color); }
+a:visited { color: var(--link-color-visited); }
 
 * {
     box-sizing: border-box;
@@ -633,3 +646,181 @@ h1 {
 .centralizador-guia .driver-popover-arrow-side-bottom { border-bottom-color: var(--bg-sidebar); }
 .centralizador-guia .guia-lista { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .centralizador-guia .guia-ok { color: var(--success-text); margin: 0 0 6px; font-weight: 600; }
+
+/* Modal de vista previa de archivos (ver base.html: window.AvancesPreview.abrir). */
+.preview-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 24px;
+}
+/* Mas especifica que ".preview-modal-overlay" a secas, para que gane siempre sobre el
+   "display: flex" de arriba - sin esto, el atributo HTML "hidden" no alcanza a ocultarlo
+   (quedaba visible y pegado al entrar a cualquier pagina, con el spinner sin disparar). */
+.preview-modal-overlay[hidden] {
+    display: none;
+}
+.preview-modal {
+    background: var(--bg-main);
+    color: var(--text-primary);
+    border-radius: 12px;
+    width: min(900px, 100%);
+    height: min(80vh, 760px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+.preview-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(var(--accent-purple-rgb), 0.2);
+    flex-shrink: 0;
+}
+.preview-modal-volver,
+.preview-modal-cerrar {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.95rem;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+.preview-modal-volver:hover,
+.preview-modal-cerrar:hover { background: rgba(var(--accent-purple-rgb), 0.1); }
+.preview-modal-titulo {
+    flex: 1;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.preview-modal-descargar {
+    color: var(--link-color);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+.preview-modal-cuerpo {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg-page);
+    /* display:block a proposito, NO flex: cualquier centrado con flexbox
+       (justify-content/align-items:center) atrapa el contenido que crece al hacer zoom -
+       el navegador no reserva espacio de scroll para lo que se sale por la izquierda o
+       arriba, aunque aparezca la barra. Ademas docx-preview arma su propio flex interno
+       para centrar cada pagina, asi que ni alcanzaba con arreglar solo este nivel. Con
+       block simple + "margin: 0 auto" en el contenido (mas abajo), centra cuando entra y
+       scrollea sin recortes cuando no. */
+    display: block;
+    position: relative;
+}
+.preview-modal-spinner,
+.preview-modal-error {
+    /* position:absolute centrado, independiente del "display:block" de arriba (que por su
+       cuenta no centra verticalmente) - nunca conviven con contenido que haga overflow asi
+       que no les hace falta ser scrolleables. */
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: max-content;
+    max-width: calc(100% - 40px);
+}
+.preview-modal-spinner { color: var(--text-muted); }
+.preview-modal-error {
+    padding: 20px;
+    text-align: center;
+    color: var(--error-text);
+    max-width: 420px;
+}
+.preview-modal-error-descargar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    color: var(--link-color);
+    font-weight: 600;
+}
+.preview-modal-imagen { display: block; margin: 0 auto; }
+.preview-modal-iframe { display: block; width: 100%; height: 100%; border: none; }
+.preview-modal-docx { background: #fff; padding: 20px; margin: 0 auto; width: fit-content; }
+/* pptx sin tocar (ya funcionaba bien): width:100% en block layout da lo mismo que daba
+   dentro del flex de antes, pptxjs arma su propio stage interno de ancho fijo. */
+.preview-modal-pptx { width: 100%; padding: 10px; }
+
+/* Barra de zoom (imagen/docx/pptx) y de "ajustar linea" (txt) - una de las dos, nunca las
+   dos juntas (ver mostrarToolbar en base.html). */
+.preview-modal-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 6px 14px;
+    border-bottom: 1px solid rgba(var(--accent-purple-rgb), 0.15);
+    flex-shrink: 0;
+    background: var(--bg-main);
+}
+.preview-modal-toolbar[hidden] { display: none; }
+.preview-modal-zoom { display: flex; align-items: center; gap: 8px; }
+.preview-modal-zoom[hidden] { display: none; }
+.preview-modal-zoom button,
+.preview-modal-wrap-toggle {
+    background: transparent;
+    border: 1px solid rgba(var(--accent-purple-rgb), 0.3);
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 4px 9px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.preview-modal-zoom button:hover,
+.preview-modal-wrap-toggle:hover { background: rgba(var(--accent-purple-rgb), 0.1); }
+.preview-modal-wrap-toggle[hidden] { display: none; }
+.preview-modal-wrap-toggle[aria-pressed="true"],
+.preview-modal-zoom button[aria-pressed="true"] {
+    background: rgb(var(--accent-purple-rgb));
+    color: #fff;
+    border-color: rgb(var(--accent-purple-rgb));
+}
+.preview-modal-modo-separador {
+    width: 1px;
+    height: 20px;
+    background: rgba(var(--accent-purple-rgb), 0.25);
+    margin: 0 2px;
+}
+#previewZoomPct { min-width: 42px; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+/* "zoom" (no "transform: scale") a proposito: transform no cambia el tamaño de layout del
+   elemento, asi que el contenedor nunca reserva espacio de scroll para lo que crece hacia
+   la izquierda/abajo - quedaba recortado aunque apareciera la barra de scroll. "zoom" si
+   cambia el tamaño real, el scroll entra solo a todo el contenido (crece desde la esquina
+   superior izquierda, que es la que queda ancorada con align-items/justify-content:
+   flex-start de .preview-modal-cuerpo). */
+/* "Mano" para arrastrar y desplazar la hoja (ver mousedown/mousemove y los botones
+   previewModoMouse/previewModoMano en base.html) - solo cursor de mano cuando ese modo
+   esta activo; en modo mouse (el que arranca por default) el cursor queda normal para
+   poder seleccionar y copiar texto sin que el drag se lo lleve puesto. */
+.preview-modal-cuerpo.zoom-activo.modo-mano { cursor: grab; }
+.preview-modal-cuerpo.zoom-activo.modo-mano.arrastrando { cursor: grabbing; user-select: none; }
+.preview-modal-txt {
+    width: 100%;
+    margin: 0;
+    padding: 16px;
+    background: var(--bg-main);
+    color: var(--text-primary);
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-sizing: border-box;
+}
+.preview-modal-txt.sin-ajuste { white-space: pre; word-break: normal; }

@@ -16,6 +16,7 @@ urlpatterns = [
     path('estudiantes/', views.estudiantes_view, name='estudiantes'),
     path('estudiantes/<int:estudiante_id>/avances/', views.estudiante_avances, name='estudiante_avances'),
     path('docentes/<int:profesor_id>/avances/', views.docente_avances, name='docente_avances'),
+    path('archivos/<str:tipo>/<int:archivo_id>/previsualizar/', views.previsualizar_archivo, name='previsualizar_archivo'),
     path('alertas/', views.alertas_view, name='alertas'),
     path('login/', views.login_view, name='login'),
     path('register/', views.register_view, name='register'),

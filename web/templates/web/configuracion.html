@@ -32,6 +32,15 @@
             <div class="message card error">Error: {{ error }}</div>
         {% endif %}
 
+        <div class="note">
+            Los campos que dejes vacíos (parcial sin fechas, categoría sin peso) ya se
+            completan solos con un default institucional del año en curso (parciales
+            Feb-Abr / May-Jun / Jul-Sep / Oct-Nov, pesos Mi-Tek 10 / E-Tek 20 / Training 20
+            / Design Lab 20 / Examen 30) — no hace falta que configures nada si te sirve tal
+            cual. Lo que ya configuraste (de este año o de cualquier otro) nunca se toca
+            solo. "Restablecer y guardar" sí pisa todo con ese default del año en curso.
+        </div>
+
         {% if rangos_parciales %}
         <form method="post" class="dashboard-form">
             {% csrf_token %}
@@ -118,6 +127,15 @@
                 Guardar configuración
             </button>
         </form>
+
+        <form method="post" style="margin-top:10px;"
+              onsubmit="return confirm('Esto va a pisar las fechas y pesos actuales con el default institucional del año en curso. ¿Continuar?');">
+            {% csrf_token %}
+            <input type="hidden" name="accion" value="restablecer">
+            <button type="submit" class="btn btn-secondary" style="width:auto; padding:10px 20px;">
+                Restablecer y guardar
+            </button>
+        </form>
         {% endif %}
 
         <section class="panel" id="extension" style="margin-top:20px;">
@@ -157,21 +175,21 @@
         if (!btn || !icon || !label) return;
 
         function aplicarEtiqueta() {
-            var esClaro = document.documentElement.getAttribute('data-theme') === 'light';
-            icon.className = esClaro ? 'bi bi-sun-fill' : 'bi bi-moon-stars-fill';
-            label.textContent = esClaro ? 'Modo claro' : 'Modo oscuro';
+            var esOscuro = document.documentElement.getAttribute('data-theme') === 'dark';
+            icon.className = esOscuro ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+            label.textContent = esOscuro ? 'Modo oscuro' : 'Modo claro';
         }
 
         aplicarEtiqueta();
 
         btn.addEventListener('click', function () {
-            var esClaro = document.documentElement.getAttribute('data-theme') === 'light';
-            if (esClaro) {
+            var esOscuro = document.documentElement.getAttribute('data-theme') === 'dark';
+            if (esOscuro) {
                 document.documentElement.removeAttribute('data-theme');
-                try { localStorage.setItem('centralizador-theme', 'dark'); } catch (e) {}
-            } else {
-                document.documentElement.setAttribute('data-theme', 'light');
                 try { localStorage.setItem('centralizador-theme', 'light'); } catch (e) {}
+            } else {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                try { localStorage.setItem('centralizador-theme', 'dark'); } catch (e) {}
             }
             aplicarEtiqueta();
         });

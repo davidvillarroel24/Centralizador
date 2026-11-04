@@ -90,6 +90,13 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# Default de Django es DENY: bloqueaba que el modal de vista previa (web/templates/web/
+# base.html) mostrara un PDF propio en su <iframe>, aunque sea el mismo sitio enmarcandose
+# a si mismo. SAMEORIGIN sigue bloqueando que un sitio EXTERNO nos enmarque (protegido
+# contra clickjacking de afuera), solo permite que nuestras propias paginas se enmarquen
+# entre si.
+X_FRAME_OPTIONS = 'SAMEORIGIN'
+
 ROOT_URLCONF = 'gatfh.urls'
 
 TEMPLATES = [

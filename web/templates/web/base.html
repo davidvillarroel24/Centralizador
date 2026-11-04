@@ -7,12 +7,12 @@
     <title>{% block title %}Centralizador{% endblock %}</title>
     <script>
       // Aplica el tema guardado ANTES de pintar la página, para evitar el parpadeo
-      // de oscuro -> claro (o viceversa) al cargar. Por defecto (sin preferencia
-      // guardada) se mantiene el modo oscuro actual, sin cambios para nadie.
+      // de claro -> oscuro (o viceversa) al cargar. Por defecto (sin preferencia
+      // guardada) el modo es claro; oscuro es la eleccion explicita del usuario.
       (function () {
         try {
-          if (localStorage.getItem('centralizador-theme') === 'light') {
-            document.documentElement.setAttribute('data-theme', 'light');
+          if (localStorage.getItem('centralizador-theme') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
           }
         } catch (e) {}
       })();
@@ -77,6 +77,347 @@
         </section>
       </main>
     </div>
+
+    <!-- Modal generico de vista previa de archivos (entregas de estudiantes, archivos de
+         tarea de docentes). Lo abre window.AvancesPreview.abrir(...) desde
+         estudiantes.html/docentes.html - ver ese script mas abajo. Imagen/PDF se muestran
+         directo desde el endpoint de relay (/archivos/.../previsualizar/); docx/pptx se
+         piden como blob y se renderizan en el navegador (docx-preview / pptxjs), cargados
+         solo en las paginas que los usan, no aca. -->
+    <div class="preview-modal-overlay" id="previewModalOverlay" hidden>
+      <div class="preview-modal" role="dialog" aria-modal="true" aria-labelledby="previewModalTitulo">
+        <div class="preview-modal-header">
+          <button type="button" class="preview-modal-volver" id="previewModalVolver">
+            <i class="bi bi-arrow-left"></i> Volver
+          </button>
+          <span class="preview-modal-titulo" id="previewModalTitulo"></span>
+          <a class="preview-modal-descargar" id="previewModalDescargar" target="_blank">
+            <i class="bi bi-download"></i> Descargar
+          </a>
+          <button type="button" class="preview-modal-cerrar" id="previewModalCerrar" aria-label="Cerrar">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+        <div class="preview-modal-toolbar" id="previewModalToolbar" hidden>
+          <div class="preview-modal-zoom" id="previewModalZoom" hidden>
+            <button type="button" id="previewZoomFit" title="Ajustar a la hoja"><i id="previewZoomFitIcono" class="bi bi-arrows-angle-contract"></i></button>
+            <button type="button" id="previewZoomOut" title="Alejar"><i class="bi bi-dash-lg"></i></button>
+            <span id="previewZoomPct">100%</span>
+            <button type="button" id="previewZoomIn" title="Acercar"><i class="bi bi-plus-lg"></i></button>
+            <span class="preview-modal-modo-separador"></span>
+            <button type="button" id="previewModoMouse" title="Seleccionar texto (para copiar)" aria-pressed="true">
+              <i class="bi bi-cursor-text"></i>
+            </button>
+            <button type="button" id="previewModoMano" title="Mover la hoja" aria-pressed="false">
+              <i class="bi bi-hand-index-thumb"></i>
+            </button>
+          </div>
+          <button type="button" class="preview-modal-wrap-toggle" id="previewWrapToggle" hidden>
+            <i class="bi bi-text-wrap"></i> Ajustar línea
+          </button>
+        </div>
+        <div class="preview-modal-cuerpo" id="previewModalCuerpo">
+          <div class="preview-modal-spinner" id="previewModalSpinner">Abriendo archivo…</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var overlay = document.getElementById('previewModalOverlay');
+        var cuerpo = document.getElementById('previewModalCuerpo');
+        var spinner = document.getElementById('previewModalSpinner');
+        var titulo = document.getElementById('previewModalTitulo');
+        var descargar = document.getElementById('previewModalDescargar');
+        var toolbar = document.getElementById('previewModalToolbar');
+        var zoomGrupo = document.getElementById('previewModalZoom');
+        var zoomPct = document.getElementById('previewZoomPct');
+        var wrapToggle = document.getElementById('previewWrapToggle');
+
+        // --- Zoom (imagen/docx/pptx) ---------------------------------------------------
+        var zoomNivel = 1;
+        var zoomElemento = null; // el <img>/contenedor que se esta escalando ahora
+
+        function aplicarZoom() {
+            // "zoom", no "transform: scale": transform no afecta el tamaño de layout, asi
+            // que el contenedor nunca reservaba espacio de scroll para lo que crecia hacia
+            // la izquierda - quedaba recortado aunque apareciera la barra. "zoom" si cambia
+            // el tamaño real, entonces el scroll llega a todo el contenido.
+            if (zoomElemento) zoomElemento.style.zoom = zoomNivel;
+            zoomPct.textContent = Math.round(zoomNivel * 100) + '%';
+        }
+        function activarZoomPara(elemento) {
+            zoomElemento = elemento;
+            toolbar.hidden = false;
+            zoomGrupo.hidden = false;
+            wrapToggle.hidden = true;
+            cuerpo.classList.add('zoom-activo');
+            modoMano = true; // cada preview nueva arranca en modo "mover la hoja"
+            actualizarModoBotones();
+            zoomNivel = 1; // siempre arranca al 100%, en los 3 tipos
+            enModoFit = false;
+            actualizarIconoFit();
+            aplicarZoom();
+        }
+
+        // --- Mouse (seleccionar texto) vs Mano (mover la hoja) --------------------------
+        var modoMano = false;
+        function actualizarModoBotones() {
+            document.getElementById('previewModoMouse').setAttribute('aria-pressed', String(!modoMano));
+            document.getElementById('previewModoMano').setAttribute('aria-pressed', String(modoMano));
+            cuerpo.classList.toggle('modo-mano', modoMano);
+        }
+        document.getElementById('previewModoMouse').addEventListener('click', function () {
+            modoMano = false;
+            actualizarModoBotones();
+        });
+        document.getElementById('previewModoMano').addEventListener('click', function () {
+            modoMano = true;
+            actualizarModoBotones();
+        });
+        document.getElementById('previewZoomIn').addEventListener('click', function () {
+            zoomNivel = Math.min(zoomNivel * 1.25, 4);
+            aplicarZoom();
+        });
+        document.getElementById('previewZoomOut').addEventListener('click', function () {
+            zoomNivel = Math.max(zoomNivel / 1.25, 0.2);
+            aplicarZoom();
+        });
+        // "Ajustar a la hoja": calcula la escala que hace entrar TODO el contenido (ancho y
+        // alto) en lo que se ve del modal ahora mismo, sin agrandar si ya entraba solo
+        // (nunca pasa de 100%). Se usa tanto para el boton como para el zoom inicial de
+        // cada preview (una imagen o un docx puede venir mas grande que el modal).
+        // Calcula la escala que hace entrar TODO el contenido (ancho y alto) en lo que se
+        // ve del modal ahora mismo, sin agrandar si ya entraba solo (nunca pasa de 100%).
+        function calcularEscalaDeAjuste() {
+            zoomElemento.style.zoom = 1;
+            var disponible = cuerpo.getBoundingClientRect();
+            var natural = zoomElemento.getBoundingClientRect();
+            if (natural.width <= 0 || natural.height <= 0) return 1;
+            var escala = Math.min(
+                (disponible.width - 32) / natural.width,
+                (disponible.height - 32) / natural.height,
+                1
+            );
+            return Math.max(escala, 0.2);
+        }
+
+        // El boton alterna entre "alejado por completo" (ajustado a la hoja) y "100%" (o
+        // "acercado por completo", como lo pediste) - cada click pasa al otro extremo, sin
+        // importar que zoom manual (+/-) haya quedado en el medio.
+        var enModoFit = false;
+        function actualizarIconoFit() {
+            var icono = document.getElementById('previewZoomFitIcono');
+            var boton = document.getElementById('previewZoomFit');
+            if (enModoFit) {
+                icono.className = 'bi bi-arrows-angle-expand';
+                boton.title = 'Ver al 100%';
+            } else {
+                icono.className = 'bi bi-arrows-angle-contract';
+                boton.title = 'Ajustar a la hoja';
+            }
+        }
+        document.getElementById('previewZoomFit').addEventListener('click', function () {
+            if (!zoomElemento) return;
+            enModoFit = !enModoFit;
+            zoomNivel = enModoFit ? calcularEscalaDeAjuste() : 1;
+            actualizarIconoFit();
+            aplicarZoom();
+        });
+
+        // --- Arrastrar para desplazar ("mano"), activo mientras hay zoom-activo ---------
+        var arrastrando = false;
+        var arrastreInicioX = 0, arrastreInicioY = 0, arrastreScrollX = 0, arrastreScrollY = 0;
+        cuerpo.addEventListener('mousedown', function (e) {
+            if (!zoomElemento || !modoMano) return;
+            arrastrando = true;
+            cuerpo.classList.add('arrastrando');
+            arrastreInicioX = e.pageX;
+            arrastreInicioY = e.pageY;
+            arrastreScrollX = cuerpo.scrollLeft;
+            arrastreScrollY = cuerpo.scrollTop;
+            e.preventDefault(); // evita el "fantasma" nativo de arrastrar imagen/seleccionar texto
+        });
+        document.addEventListener('mousemove', function (e) {
+            if (!arrastrando) return;
+            cuerpo.scrollLeft = arrastreScrollX - (e.pageX - arrastreInicioX);
+            cuerpo.scrollTop = arrastreScrollY - (e.pageY - arrastreInicioY);
+        });
+        document.addEventListener('mouseup', function () {
+            arrastrando = false;
+            cuerpo.classList.remove('arrastrando');
+        });
+
+        // --- Ajustar línea (txt, como el Bloc de notas) ----------------------------------
+        var txtAjustado = true;
+        function activarWrapTogglePara(pre) {
+            txtAjustado = true;
+            pre.classList.remove('sin-ajuste');
+            toolbar.hidden = false;
+            zoomGrupo.hidden = true;
+            wrapToggle.hidden = false;
+            wrapToggle.setAttribute('aria-pressed', 'true');
+            cuerpo.classList.remove('zoom-activo');
+        }
+        wrapToggle.addEventListener('click', function () {
+            var pre = cuerpo.querySelector('.preview-modal-txt');
+            if (!pre) return;
+            txtAjustado = !txtAjustado;
+            pre.classList.toggle('sin-ajuste', !txtAjustado);
+            wrapToggle.setAttribute('aria-pressed', String(txtAjustado));
+        });
+
+        function cerrar() {
+            overlay.hidden = true;
+            liberarBlobActual();
+            toolbar.hidden = true;
+            zoomElemento = null;
+            cuerpo.classList.remove('zoom-activo');
+            cuerpo.innerHTML = '';
+            cuerpo.appendChild(spinner);
+        }
+        document.getElementById('previewModalVolver').addEventListener('click', cerrar);
+        document.getElementById('previewModalCerrar').addEventListener('click', cerrar);
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) cerrar(); });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !overlay.hidden) cerrar(); });
+
+        function mostrarError(mensaje) {
+            // descargar.href ya esta seteado al link real de Moodle (abrir() lo hace antes
+            // de intentar nada) - se reusa aca para que cualquier error (archivo grande,
+            // cookie vencida, lo que sea) ofrezca bajarlo directo en vez de dejar al
+            // usuario sin ninguna salida.
+            cuerpo.innerHTML = '<div class="preview-modal-error"><i class="bi bi-exclamation-triangle-fill"></i> ' +
+                mensaje + '<br><a href="' + descargar.href + '" target="_blank" class="preview-modal-error-descargar">' +
+                '<i class="bi bi-download"></i> Descargar el archivo</a></div>';
+        }
+
+        // tipo: 'entrega' | 'tarea' (ver ArchivoEntrega/ArchivoTarea). nombre: para mostrar
+        // y para decidir que renderer usar segun la extension.
+        // urlOriginal: el link real del archivo en Moodle (ArchivoEntrega/ArchivoTarea.url),
+        // el mismo que ya se usaba para descargar antes de tener preview - "Descargar" en el
+        // modal va ahi directo, nunca a nuestro servidor (ese solo sirve de relay para armar
+        // la vista previa, no para quedarse con la descarga final).
+        // El spinner se queda visible (y el contenido entra oculto) hasta que el elemento
+        // avisa que terminó - swapearlo de entrada, sin esperar ese aviso, no le daba
+        // tiempo al navegador a pintar el spinner ni una sola vez antes de reemplazarlo.
+        function mostrarCuandoListo(elemento, onListo, onError) {
+            elemento.hidden = true;
+            elemento.addEventListener('load', function () {
+                spinner.hidden = true;
+                elemento.hidden = false;
+                if (onListo) onListo();
+            });
+            elemento.addEventListener('error', function () {
+                onError();
+            });
+            cuerpo.appendChild(elemento);
+        }
+
+        // Blob del preview anterior, si quedo alguno sin liberar (ver abrir()/cerrar()).
+        var blobUrlActual = null;
+        function liberarBlobActual() {
+            if (blobUrlActual) { URL.revokeObjectURL(blobUrlActual); blobUrlActual = null; }
+        }
+
+        // Pide el archivo con fetch (no seteando el src/href directo) para los 4 tipos:
+        // asi se puede leer el error real que manda el servidor (archivo > 40MB, cookie
+        // vencida, sin permiso, etc.) en vez de que el iframe/img solo reaccionen a una
+        // falla de conexion y nada mas.
+        function pedirArchivo(url) {
+            return fetch(url).then(function (r) {
+                if (!r.ok) return r.json().then(function (j) { throw new Error(j.error || 'No se pudo abrir el archivo.'); });
+                return r.blob();
+            });
+        }
+
+        function abrir(tipo, id, nombre, urlOriginal) {
+            var url = '/archivos/' + tipo + '/' + id + '/previsualizar/';
+            var ext = (nombre.split('.').pop() || '').toLowerCase();
+            titulo.textContent = nombre;
+            descargar.href = urlOriginal;
+            liberarBlobActual();
+            cuerpo.innerHTML = '';
+            spinner.hidden = false;
+            cuerpo.appendChild(spinner);
+            overlay.hidden = false;
+            toolbar.hidden = true;
+            zoomElemento = null;
+            cuerpo.classList.remove('zoom-activo');
+
+            if (['png', 'jpg', 'jpeg', 'gif', 'webp'].indexOf(ext) !== -1) {
+                pedirArchivo(url).then(function (blob) {
+                    var img = new Image();
+                    img.className = 'preview-modal-imagen';
+                    blobUrlActual = URL.createObjectURL(blob);
+                    mostrarCuandoListo(img, function () { activarZoomPara(img); }, function () {
+                        mostrarError('No se pudo mostrar la imagen.');
+                    });
+                    img.src = blobUrlActual;
+                }).catch(function (err) { mostrarError(err.message); });
+                return;
+            }
+            if (ext === 'pdf') {
+                pedirArchivo(url).then(function (blob) {
+                    var iframe = document.createElement('iframe');
+                    iframe.className = 'preview-modal-iframe';
+                    blobUrlActual = URL.createObjectURL(blob);
+                    mostrarCuandoListo(iframe, null, function () {
+                        mostrarError('No se pudo mostrar el PDF.');
+                    });
+                    iframe.src = blobUrlActual;
+                }).catch(function (err) { mostrarError(err.message); });
+                return;
+            }
+            if (ext === 'txt') {
+                pedirArchivo(url).then(function (blob) { return blob.text(); }).then(function (texto) {
+                    var pre = document.createElement('pre');
+                    pre.className = 'preview-modal-txt';
+                    pre.textContent = texto;
+                    spinner.hidden = true;
+                    cuerpo.appendChild(pre);
+                    activarWrapTogglePara(pre);
+                }).catch(function (err) { mostrarError(err.message); });
+                return;
+            }
+            if (ext === 'doc' || ext === 'docx') {
+                if (!window.docx) {
+                    mostrarError('La vista previa de Word no está disponible en esta página.');
+                    return;
+                }
+                pedirArchivo(url).then(function (blob) {
+                    var contenedor = document.createElement('div');
+                    contenedor.className = 'preview-modal-docx';
+                    return window.docx.renderAsync(blob, contenedor).then(function () {
+                        spinner.hidden = true;
+                        cuerpo.appendChild(contenedor);
+                        activarZoomPara(contenedor);
+                    });
+                }).catch(function (err) { mostrarError(err.message || 'No se pudo generar la vista previa.'); });
+                return;
+            }
+            if (ext === 'ppt' || ext === 'pptx') {
+                if (!window.jQuery || !window.jQuery.fn.pptxToHtml) {
+                    mostrarError('La vista previa de PowerPoint no está disponible en esta página.');
+                    return;
+                }
+                // pptxjs no soporta pedirle el blob ya descargado (solo pptxFileUrl o
+                // fileInputId): acepta la URL del relay directo, asi que el 413/cookie
+                // vencida/etc no se detecta aca como en los otros 3 - queda como limitacion
+                // conocida de esta libreria, el peor caso es que no muestre nada.
+                var divPptx = document.createElement('div');
+                divPptx.className = 'preview-modal-pptx';
+                spinner.hidden = true;
+                cuerpo.appendChild(divPptx);
+                activarZoomPara(divPptx);
+                window.jQuery(divPptx).pptxToHtml({ pptxFileUrl: url, slideMode: false, keyBoardShortCut: false });
+                return;
+            }
+            mostrarError('Este tipo de archivo no tiene vista previa.');
+        }
+
+        window.AvancesPreview = { abrir: abrir };
+      })();
+    </script>
+
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 
     <script src="https://cdn.datatables.net/2.3.2/js/dataTables.min.js"></script>

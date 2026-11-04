@@ -2,13 +2,14 @@ import traceback
 import os
 import re
 import json
+import requests
 from datetime import datetime, timezone, date
 from io import BytesIO, StringIO
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.http import FileResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -33,7 +34,10 @@ from services.utils import extraction_lock
 from services.utils.reportes import datos_reporte_acceso, datos_reporte_contenido, generar_excel_reporte, generar_pdf_reporte
 
 REPORTES_DISPONIBLES = ('acceso', 'tareas', 'material')
-from data.models import Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias, AccesoCurso
+from data.models import (
+    Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias, AccesoCurso,
+    ArchivoEntrega, ArchivoTarea, asegurar_config_tareas_default,
+)
 from data.cookie_crypto import cifrar_cookie, descifrar_cookie
 from data.roles import es_administrador, requiere_rol, materias_visibles, materias_visibles_decano, get_rol
 from data.models import PerfilUsuario, Facultad, Carrera
@@ -176,6 +180,11 @@ def register_view(request):
 
 
 def login_view(request):
+    # Sin esto, un usuario que ya tiene sesión iniciada (volvió a "/" o "/login/" sin
+    # cerrar sesión) veía el formulario de login igual, con el sidebar de fondo ya
+    # logueado detrás - confuso, y un submit ahí ni hacía falta.
+    if request.user.is_authenticated:
+        return redirect('resumen')
     error = None
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
@@ -1678,8 +1687,115 @@ def estudiantes_view(request):
     )
 
 
-def _archivos_lista(qs):
-    return [{'nombre': a.nombre, 'url': a.url} for a in qs]
+# Tope de tamaño para la vista previa (ver previsualizar_archivo): el archivo se arma
+# entero en RAM antes de mandarlo al navegador, asi que esto evita que uno muy pesado
+# agote la memoria del contenedor (768MB compartidos, ver deploy/docker-compose.yml). Por
+# encima de esto se corta y se avisa que descargue directo - 40MB es bastante generoso para
+# un docx/pptx/pdf/imagen de una entrega real.
+PREVIEW_TAMANO_MAXIMO = 40 * 1024 * 1024
+
+# Formatos con vista previa soportada (ver previsualizar_archivo): el resto (rar, zip,
+# etc.) se queda con el link de descarga directa a Moodle de siempre, sin pasar por acá.
+PREVIEW_CONTENT_TYPES = {
+    'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+    'gif': 'image/gif', 'webp': 'image/webp',
+    'pdf': 'application/pdf',
+    'doc': 'application/msword',
+    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'ppt': 'application/vnd.ms-powerpoint',
+    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'txt': 'text/plain; charset=utf-8',
+}
+
+
+def _extension_de(nombre):
+    return nombre.rsplit('.', 1)[-1].lower() if '.' in nombre else ''
+
+
+def _archivos_lista(qs, tipo):
+    return [{
+        'id': a.id,
+        'tipo': tipo,
+        'nombre': a.nombre,
+        'url': a.url,
+        'previsualizable': _extension_de(a.nombre) in PREVIEW_CONTENT_TYPES,
+    } for a in qs]
+
+
+@login_required
+@requiere_rol(*ROLES_STAFF)
+def previsualizar_archivo(request, tipo, archivo_id):
+    """Relay autenticado para la vista previa (modal) de un ArchivoEntrega/ArchivoTarea:
+    trae el archivo de Moodle usando la cookie del PROFESOR de esa materia (es quien tiene
+    permiso real sobre el curso - la cookie de quien esta mirando la preview, si es
+    distinto, no sirve para esto) y lo devuelve tal cual al navegador. No se guarda nada en
+    disco: docx-preview/pptxjs convierten en el propio navegador a partir de estos mismos
+    bytes, e imagen/PDF el navegador ya los muestra nativo - el archivo solo pasa por
+    memoria durante este request, nunca se escribe a disco."""
+    if tipo == 'entrega':
+        archivo = ArchivoEntrega.objects.select_related(
+            'entrega__tarea__unidad__materia'
+        ).filter(pk=archivo_id).first()
+        materia = archivo.entrega.tarea.unidad.materia if archivo else None
+    elif tipo == 'tarea':
+        archivo = ArchivoTarea.objects.select_related(
+            'tarea__unidad__materia'
+        ).filter(pk=archivo_id).first()
+        materia = archivo.tarea.unidad.materia if archivo else None
+    else:
+        return JsonResponse({'error': 'Tipo de archivo inválido.'}, status=404)
+
+    if not archivo:
+        return JsonResponse({'error': 'No se encontró ese archivo.'}, status=404)
+
+    if not es_administrador(request.user) and materia.id not in materias_visibles(request.user).values_list('id', flat=True):
+        return JsonResponse({'error': 'No tenés acceso a esa materia.'}, status=403)
+
+    content_type = PREVIEW_CONTENT_TYPES.get(_extension_de(archivo.nombre))
+    if not content_type:
+        return JsonResponse({'error': 'Este tipo de archivo no tiene vista previa, descargalo directo.'}, status=400)
+
+    # Cualquier docente de la materia con cookie vigente sirve - no tiene que ser el mismo
+    # que subió/recibió este archivo en particular, Moodle solo exige estar logueado y
+    # matriculado en el curso.
+    profesor_con_cookie = next(
+        (p for p in materia.profesores.all() if p.user and p.cookie_vigente()), None
+    )
+    if not profesor_con_cookie:
+        return JsonResponse({
+            'error': 'Ningún docente de esta materia tiene una cookie de Moodle vigente ahora '
+                     'mismo (dura 2 horas). Pedile a uno que la recapture e intentá de nuevo.',
+        }, status=409)
+
+    cookie = descifrar_cookie(profesor_con_cookie.user, profesor_con_cookie.moodle_cookie_cifrada)
+    if not cookie:
+        return JsonResponse({'error': 'No se pudo leer la cookie guardada, recapturala.'}, status=409)
+
+    try:
+        # stream=True + tope manual de tamaño: sin esto, un archivo grande (ej. un pptx con
+        # video embebido) se carga entero a RAM del contenedor sin limite - en el VPS
+        # compartido (768MB para este contenedor, ver docker-compose.yml) un par de
+        # previews pesados en simultaneo podrian tirar el proceso por falta de memoria.
+        respuesta_moodle = requests.get(
+            archivo.url, cookies={'MoodleSession': cookie}, timeout=20, stream=True,
+        )
+        respuesta_moodle.raise_for_status()
+        contenido = bytearray()
+        for chunk in respuesta_moodle.iter_content(chunk_size=262144):
+            contenido += chunk
+            if len(contenido) > PREVIEW_TAMANO_MAXIMO:
+                respuesta_moodle.close()
+                return JsonResponse({
+                    'error': 'El archivo pesa demasiado para la vista previa, descargalo directo.',
+                }, status=413)
+    except requests.RequestException:
+        return JsonResponse({'error': 'No se pudo descargar el archivo desde Moodle.'}, status=502)
+
+    # Siempre "inline": esto es solo para la vista previa en el modal. El botón "Descargar"
+    # del modal apunta directo a archivo.url (el link real de Moodle), no a este endpoint.
+    salida = HttpResponse(bytes(contenido), content_type=content_type)
+    salida['Content-Disposition'] = 'inline; filename="%s"' % archivo.nombre.replace('"', "'")
+    return salida
 
 
 def _rango_fechas_de(request):
@@ -1761,9 +1877,9 @@ def estudiante_avances(request, estudiante_id):
         'estado': e.estado or '—',
         'nota': f'{e.nota}/{e.nota_maxima}' if e.nota is not None else '—',
         'fecha_entrega': e.ultima_mod_entrega or '—',
-        'archivos_entrega': _archivos_lista(e.archivos_entrega.all()),
+        'archivos_entrega': _archivos_lista(e.archivos_entrega.all(), 'entrega'),
         'tarea_descripcion': e.tarea.descripcion,
-        'archivos_tarea': _archivos_lista(e.tarea.archivos_tarea.all()),
+        'archivos_tarea': _archivos_lista(e.tarea.archivos_tarea.all(), 'tarea'),
     } for e in entregas if _fecha_texto_en_rango(e.ultima_mod_entrega, inicio=fecha_inicio, fin=fecha_fin)]
 
     return JsonResponse({
@@ -1817,7 +1933,7 @@ def docente_avances(request, profesor_id):
         'apertura': t.apertura or '—',
         'cierre': t.cierre or '—',
         'descripcion': t.descripcion,
-        'archivos_tarea': _archivos_lista(t.archivos_tarea.all()),
+        'archivos_tarea': _archivos_lista(t.archivos_tarea.all(), 'tarea'),
     } for t in tareas if _fecha_texto_en_rango(*campos_a_chequear(t), inicio=fecha_inicio, fin=fecha_fin)]
 
     materias_filtro = [
@@ -2009,7 +2125,7 @@ def config_tareas_de(profesor):
     una, columnas fijas en vez de un blob JSON. Devuelve el mismo shape de dict que
     `run_scraping.asignacion_tareas()` ya esperaba ({'rangos_parciales': [...],
     'pesos_default': {...}}), asi esa funcion no tuvo que cambiar."""
-    fechas = FechasParciales.objects.filter(profesor=profesor).first()
+    fechas, pesos_row = asegurar_config_tareas_default(profesor)
     rangos = [
         {
             'parcial': i,
@@ -2019,7 +2135,6 @@ def config_tareas_de(profesor):
         for i in range(1, 5)
     ]
 
-    pesos_row = PesosCategorias.objects.filter(profesor=profesor).first()
     pesos = {cat: getattr(pesos_row, cat, 0) if pesos_row else 0 for cat in CATEGORIAS_PESO}
 
     return {'rangos_parciales': rangos, 'pesos_default': pesos}
@@ -2060,7 +2175,15 @@ def configuracion_view(request):
 
     config_actual = config_tareas_de(profesor)
 
-    if request.method == 'POST':
+    if request.method == 'POST' and request.POST.get('accion') == 'restablecer':
+        # "Restablecer y guardar": pisa lo que haya con el default institucional del año en
+        # curso (ver asegurar_config_tareas_default) - a diferencia del guardado normal de
+        # abajo, acá no se leen los inputs del form, se ignora lo que el docente haya
+        # tocado sin enviar.
+        asegurar_config_tareas_default(profesor, forzar=True)
+        config_actual = config_tareas_de(profesor)
+        saved = True
+    elif request.method == 'POST':
         try:
             rangos = []
             for i in range(1, 5):

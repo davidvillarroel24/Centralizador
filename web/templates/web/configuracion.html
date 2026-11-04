@@ -18,6 +18,26 @@
             </button>
         </section>
 
+        {% if es_admin %}
+        <section class="panel" style="margin-bottom:20px;">
+            <h2>Acceso de Visitante</h2>
+            <div class="note">
+                Habilita un botón "Visitante" en la pantalla de login: entra sin usuario ni
+                contraseña a una cuenta compartida de solo lectura (ve Resumen, Estudiantes
+                y Reportes de todas las materias, nada más).
+            </div>
+            <form method="post" style="margin-top:10px;">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="toggle_visitante">
+                <button type="submit" class="btn {% if visitante_habilitado %}btn-primary{% else %}btn-secondary{% endif %}"
+                        style="width:auto; padding:10px 20px; display:inline-flex; align-items:center; gap:8px;">
+                    <i class="bi {% if visitante_habilitado %}bi-toggle-on{% else %}bi-toggle-off{% endif %}"></i>
+                    {% if visitante_habilitado %}Habilitado - click para apagar{% else %}Deshabilitado - click para habilitar{% endif %}
+                </button>
+            </form>
+        </section>
+        {% endif %}
+
         <div class="note">
             Cada docente tiene su propia configuración (se guarda en tu perfil de Profesor) y
             hace falta antes de extraer: el botón "1. Extraer, asignar e importar tareas" usa

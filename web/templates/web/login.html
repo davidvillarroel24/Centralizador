@@ -33,6 +33,18 @@
           </div>
           <button type="submit" class="btn btn-primary" style="width:100%;">Entrar</button>
         </form>
+        {% if visitante_habilitado %}
+        <form method="post" style="margin-top:10px;">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="visitante">
+          <button type="submit" class="btn btn-secondary" style="width:100%;">
+            <i class="bi bi-eye"></i> Entrar como Visitante
+          </button>
+        </form>
+        <p class="note" style="margin-top:6px;">
+          Acceso de solo lectura: Resumen, Estudiantes y Reportes.
+        </p>
+        {% endif %}
         <p class="auth-switch">¿No tienes cuenta? <a href="{% url 'register' %}">Regístrate</a></p>
       </div>
     </div>

@@ -501,15 +501,22 @@ class AccesoCurso(models.Model):
 
 class ConfiguracionInstitucional(models.Model):
     """Fila unica (pk=1), igual que TrabajoExtraccion: parametros que no son por-profesor
-    sino de la institucion entera. Hoy solo la nota minima de aprobacion (TECBA: 61/100),
-    que usa tanto el panel de Predicciones (banda de riesgo) como el comando
-    `exportar_dataset_ml` (para etiquetar las filas de entrenamiento)."""
+    sino de la institucion entera. Nota minima de aprobacion (TECBA: 61/100), que usa tanto
+    el panel de Predicciones (banda de riesgo) como el comando `exportar_dataset_ml` (para
+    etiquetar las filas de entrenamiento); y si el boton "Visitante" del login esta
+    habilitado (ver PerfilUsuario.VISITANTE y login_view)."""
 
     nota_aprobacion = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         default=61,
         help_text='Nota minima sobre 100 para considerar un parcial aprobado.',
+    )
+
+    visitante_habilitado = models.BooleanField(
+        default=False,
+        help_text='Si esta activo, el login muestra un boton "Visitante" que loguea sin '
+                   'cuenta a una sesion de solo lectura (Resumen, Estudiantes, Reportes).',
     )
 
     actualizado = models.DateTimeField(auto_now=True)
@@ -625,10 +632,14 @@ class PerfilUsuario(models.Model):
         ademas ser Docente de sus propias materias al mismo tiempo (no es un rol exclusivo,
         solo agrega visualizacion extra sobre lo que ya veria como Docente).
     DOCENTE: rol por defecto: ve unicamente lo propio (sus materias).
-    VISITANTE: cuenta con acceso minimo (Resumen + filtro de facultad/carrera); se crea
-        asociada a un Profesor ficticio (moodle_id reservado, sin materias reales) para
-        no tener que relajar la validacion de login/registro existente, que hoy exige que
-        el username coincida con un Profesor."""
+    VISITANTE: acceso de solo lectura a Resumen, Estudiantes y Reportes (ve todas las
+        materias, igual que Administrador, pero sin nada de Materias/Docentes/Alertas/
+        Predicciones/Extraccion/Configuracion). Una unica cuenta compartida (no una por
+        visitante): se crea asociada a un Profesor ficticio fijo (moodle_id reservado, sin
+        materias reales) para no tener que relajar la validacion de login/registro
+        existente, que hoy exige que el username coincida con un Profesor - el boton
+        "Visitante" del login entra directo a esa cuenta, sin pedir nada (ver
+        data.roles.get_or_crear_visitante_compartido)."""
 
     ADMINISTRADOR = 'administrador'
     DECANO = 'decano'

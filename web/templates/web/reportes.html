@@ -13,6 +13,7 @@
                 e importar último acceso" para esa materia - no es la hora exacta de la conexión.
             </div>
             <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
+                {% if ver_secciones_docente %}
                 <div style="min-width:180px;">
                     <label class="note" style="display:block; margin-bottom:4px;">Rol</label>
                     <select name="rol_acceso" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
@@ -21,6 +22,7 @@
                         <option value="estudiante" {% if rol_acceso == 'estudiante' %}selected{% endif %}>Solo estudiantes</option>
                     </select>
                 </div>
+                {% endif %}
                 <div style="min-width:220px;">
                     <label class="note" style="display:block; margin-bottom:4px;">Materia</label>
                     <select name="materia_acceso" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
@@ -58,6 +60,7 @@
             </table>
         </section>
 
+        {% if ver_secciones_docente %}
         <section class="panel" style="margin-bottom:20px;">
             <h2>Tareas asignadas por docente</h2>
             <div class="note">Tareas con entrega (Tarea.tipo = "assign") que cada docente publicó, agrupadas por materia y tema.</div>
@@ -136,6 +139,7 @@
                 </tbody>
             </table>
         </section>
+        {% endif %}
 
     </div>
 {% endblock %}

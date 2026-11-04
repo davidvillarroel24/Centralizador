@@ -24,6 +24,45 @@ def es_administrador(user):
     return get_rol(user) == PerfilUsuario.ADMINISTRADOR
 
 
+VISITANTE_USERNAME = 'visitante'
+# Fuera del rango real de Moodle (siempre positivo) a proposito, para que nunca choque con
+# un Profesor.moodle_id de verdad.
+VISITANTE_MOODLE_ID = -1
+
+
+def get_or_crear_visitante_compartido():
+    """Cuenta unica y compartida para el boton "Visitante" del login (ver
+    ConfiguracionInstitucional.visitante_habilitado y PerfilUsuario.VISITANTE) - se crea
+    perezosamente la primera vez que alguien la pide, mismo patron que
+    ConfiguracionInstitucional.actual()/TrabajoExtraccion (fila unica via get_or_create).
+    Contraseña inutilizable: nadie entra a esta cuenta por el formulario normal de usuario/
+    contraseña, solo por el boton dedicado (login_view), que loguea directo sin pedir nada."""
+    from django.contrib.auth.models import User
+
+    user, creado = User.objects.get_or_create(
+        username=VISITANTE_USERNAME,
+        defaults={'first_name': 'Visitante'},
+    )
+    if creado:
+        user.set_unusable_password()
+        user.save()
+
+    profesor, _ = Profesor.objects.get_or_create(
+        moodle_id=VISITANTE_MOODLE_ID,
+        defaults={
+            'nombre': VISITANTE_USERNAME,
+            'url': 'https://visitante.invalido/perfil-ficticio',
+            'user': user,
+        },
+    )
+    if profesor.user_id != user.id:
+        profesor.user = user
+        profesor.save(update_fields=['user'])
+
+    PerfilUsuario.objects.get_or_create(user=user, defaults={'rol': PerfilUsuario.VISITANTE})
+    return user
+
+
 def materias_visibles_decano(user):
     """Union de las 3 formas de asignarle alcance a un Decano: facultades enteras, carreras
     enteras, o materias sueltas. Devuelve un queryset de Materia; vacio si el usuario no es
@@ -46,8 +85,9 @@ def materias_visibles(user, facultad_id=None, carrera_id=None):
     - Administrador: todas.
     - Decano: la union de sus facultades/carreras/materias asignadas (materias_visibles_decano).
     - Docente: solo las propias (Materia.profesores, via su Profesor vinculado).
-    - Visitante: nada por default: solo ve algo si filtra explicitamente por facultad o
-      carrera (facultad_id/carrera_id) - nunca la lista completa sin filtrar.
+    - Visitante: todas, de solo lectura (ve lo mismo que Administrador en materias/
+      estudiantes/reportes) - opcionalmente acotable por facultad_id/carrera_id, igual que
+      el resto, pero sin filtrar ve la lista completa.
     - Sin loguear / sin perfil: nada.
     """
     rol = get_rol(user)
@@ -60,11 +100,11 @@ def materias_visibles(user, facultad_id=None, carrera_id=None):
         profesor = Profesor.objects.filter(user=user).first()
         qs = profesor.materias.all() if profesor else Materia.objects.none()
     elif rol == PerfilUsuario.VISITANTE:
-        qs = Materia.objects.none()
+        qs = Materia.objects.all()
         if facultad_id:
-            qs = Materia.objects.filter(carrera__facultad_id=facultad_id)
+            qs = qs.filter(carrera__facultad_id=facultad_id)
         elif carrera_id:
-            qs = Materia.objects.filter(carrera_id=carrera_id)
+            qs = qs.filter(carrera_id=carrera_id)
     else:
         qs = Materia.objects.none()
 

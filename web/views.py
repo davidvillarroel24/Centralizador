@@ -36,10 +36,13 @@ from services.utils.reportes import datos_reporte_acceso, datos_reporte_contenid
 REPORTES_DISPONIBLES = ('acceso', 'tareas', 'material')
 from data.models import (
     Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias, AccesoCurso,
-    ArchivoEntrega, ArchivoTarea, asegurar_config_tareas_default,
+    ArchivoEntrega, ArchivoTarea, asegurar_config_tareas_default, ConfiguracionInstitucional,
 )
 from data.cookie_crypto import cifrar_cookie, descifrar_cookie
-from data.roles import es_administrador, requiere_rol, materias_visibles, materias_visibles_decano, get_rol
+from data.roles import (
+    es_administrador, requiere_rol, materias_visibles, materias_visibles_decano, get_rol,
+    get_or_crear_visitante_compartido,
+)
 from data.models import PerfilUsuario, Facultad, Carrera
 from django.utils import timezone as dj_timezone
 
@@ -186,20 +189,32 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect('resumen')
     error = None
+    visitante_habilitado = ConfiguracionInstitucional.actual().visitante_habilitado
     if request.method == 'POST':
-        username = request.POST.get('username', '').strip()
-        password = request.POST.get('password', '').strip()
-        user = authenticate(request, username=username, password=password)
-        if user is None:
-            error = 'Usuario o contraseña incorrectos.'
-        elif not Profesor.objects.filter(nombre__iexact=username).exists():
-            error = 'El usuario debe coincidir con un docente registrado.'
+        if request.POST.get('accion') == 'visitante':
+            # No pide usuario/contraseña: si el admin lo habilito en Configuración, este
+            # boton loguea directo a la cuenta compartida de solo lectura (ver
+            # get_or_crear_visitante_compartido). Se revalida el flag aca tambien (no solo
+            # ocultando el boton en el template) por si alguien arma el POST a mano.
+            if not visitante_habilitado:
+                error = 'El acceso de Visitante no está habilitado ahora mismo.'
+            else:
+                login(request, get_or_crear_visitante_compartido())
+                return redirect('resumen')
         else:
-            login(request, user)
-            if tour_pendiente(request):
-                return redirect(url_guia_uso())
-            return redirect('resumen')
-    return render(request, 'web/login.html', {'error': error})
+            username = request.POST.get('username', '').strip()
+            password = request.POST.get('password', '').strip()
+            user = authenticate(request, username=username, password=password)
+            if user is None:
+                error = 'Usuario o contraseña incorrectos.'
+            elif not Profesor.objects.filter(nombre__iexact=username).exists():
+                error = 'El usuario debe coincidir con un docente registrado.'
+            else:
+                login(request, user)
+                if tour_pendiente(request):
+                    return redirect(url_guia_uso())
+                return redirect('resumen')
+    return render(request, 'web/login.html', {'error': error, 'visitante_habilitado': visitante_habilitado})
 
 
 def url_guia_uso():
@@ -1631,7 +1646,7 @@ def gestionar_rol_docente(request):
 
 
 @login_required
-@requiere_rol(*ROLES_STAFF)
+@requiere_rol(*ROLES_STAFF, PerfilUsuario.VISITANTE)
 def estudiantes_view(request):
 
     estudiantes = Estudiante.objects.all()
@@ -1723,7 +1738,7 @@ def _archivos_lista(qs, tipo):
 
 
 @login_required
-@requiere_rol(*ROLES_STAFF)
+@requiere_rol(*ROLES_STAFF, PerfilUsuario.VISITANTE)
 def previsualizar_archivo(request, tipo, archivo_id):
     """Relay autenticado para la vista previa (modal) de un ArchivoEntrega/ArchivoTarea:
     trae el archivo de Moodle usando la cookie del PROFESOR de esa materia (es quien tiene
@@ -1837,7 +1852,7 @@ def _fecha_texto_en_rango(*textos, inicio, fin):
 
 
 @login_required
-@requiere_rol(*ROLES_STAFF)
+@requiere_rol(*ROLES_STAFF, PerfilUsuario.VISITANTE)
 def estudiante_avances(request, estudiante_id):
     """JSON para el modal "Ver avances" de estudiantes.html: todas las entregas de este
     estudiante (opcionalmente filtradas por materia), con el archivo que el estudiante
@@ -2058,14 +2073,21 @@ def _materias_qs_reportes(request):
 
 
 @login_required
-@requiere_rol(*ROLES_STAFF)
+@requiere_rol(*ROLES_STAFF, PerfilUsuario.VISITANTE)
 def reportes_view(request):
     materias_qs = _materias_qs_reportes(request)
 
-    rol_acceso = request.GET.get('rol_acceso', 'todos')
+    # Un Docente ve reportes de SUS estudiantes, no de otros docentes (seria mirar el
+    # trabajo de un colega) - Decano/Administrador/Visitante siguen viendo las 3 secciones
+    # completas. "Tareas asignadas"/"Material de apoyo" son reportes sobre OTROS docentes
+    # por definicion, asi que se ocultan enteras en vez de filtrarlas.
+    es_docente = get_rol(request.user) == PerfilUsuario.DOCENTE
+    ver_secciones_docente = not es_docente
+
+    rol_acceso = 'estudiante' if es_docente else request.GET.get('rol_acceso', 'todos')
     materia_acceso = request.GET.get('materia_acceso', '')
-    docente_tareas = request.GET.get('docente_tareas', '')
-    docente_material = request.GET.get('docente_material', '')
+    docente_tareas = request.GET.get('docente_tareas', '') if ver_secciones_docente else ''
+    docente_material = request.GET.get('docente_material', '') if ver_secciones_docente else ''
 
     context = {
         'materias_disponibles': materias_qs.order_by('nombre'),
@@ -2074,24 +2096,33 @@ def reportes_view(request):
         'materia_acceso': materia_acceso,
         'docente_tareas': docente_tareas,
         'docente_material': docente_material,
+        'ver_secciones_docente': ver_secciones_docente,
         'filas_acceso': datos_reporte_acceso(materias_qs, rol_acceso, materia_acceso),
-        'filas_tareas': datos_reporte_contenido(materias_qs, 'assign', docente_tareas),
-        'filas_material': datos_reporte_contenido(materias_qs, 'url', docente_material),
+        'filas_tareas': datos_reporte_contenido(materias_qs, 'assign', docente_tareas) if ver_secciones_docente else [],
+        'filas_material': datos_reporte_contenido(materias_qs, 'url', docente_material) if ver_secciones_docente else [],
     }
     return render(request, 'web/reportes.html', context)
 
 
 @login_required
-@requiere_rol(*ROLES_STAFF)
+@requiere_rol(*ROLES_STAFF, PerfilUsuario.VISITANTE)
 def reportes_descargar(request, tipo, formato):
     if tipo not in REPORTES_DISPONIBLES:
         return JsonResponse({'error': 'Reporte desconocido.'}, status=404)
     if formato not in ('excel', 'pdf'):
         return JsonResponse({'error': 'Formato desconocido.'}, status=404)
 
+    # Mismo criterio que reportes_view: un Docente no baja reportes sobre otros docentes -
+    # esto se revalida aca por si alguien arma la URL de descarga a mano, sin pasar por el
+    # template (que ya oculta los botones de esas 2 secciones para Docente).
+    es_docente = get_rol(request.user) == PerfilUsuario.DOCENTE
+    if es_docente and tipo in ('tareas', 'material'):
+        return JsonResponse({'error': 'No tenés acceso a ese reporte.'}, status=403)
+
     materias_qs = _materias_qs_reportes(request)
     if tipo == 'acceso':
-        filas = datos_reporte_acceso(materias_qs, request.GET.get('rol_acceso', 'todos'), request.GET.get('materia_acceso', ''))
+        rol_acceso = 'estudiante' if es_docente else request.GET.get('rol_acceso', 'todos')
+        filas = datos_reporte_acceso(materias_qs, rol_acceso, request.GET.get('materia_acceso', ''))
     else:
         filas = datos_reporte_contenido(
             materias_qs,
@@ -2156,6 +2187,18 @@ def configuracion_view(request):
         'configuracion' if request.GET.get('tour') == '1' or tour_pendiente(request) else None
     )
 
+    es_admin = es_administrador(request.user)
+    if es_admin and request.method == 'POST' and request.POST.get('accion') == 'toggle_visitante':
+        # Seccion aparte (ver configuracion.html), solo para Administrador: prende/apaga el
+        # boton "Visitante" del login (ConfiguracionInstitucional, fila unica). No toca
+        # nada de FechasParciales/PesosCategorias del profesor actual, asi que se maneja
+        # con su propio redirect en vez de mezclarse con el resto del POST de abajo.
+        config_inst = ConfiguracionInstitucional.actual()
+        config_inst.visitante_habilitado = not config_inst.visitante_habilitado
+        config_inst.save(update_fields=['visitante_habilitado'])
+        return redirect('configuracion')
+    visitante_habilitado = ConfiguracionInstitucional.actual().visitante_habilitado
+
     profesor = get_current_profesor(request)
     if profesor is None:
         context = {
@@ -2170,6 +2213,8 @@ def configuracion_view(request):
             'saved': False,
             'extension_version': extension_version(),
             'tour': tour,
+            'es_admin': es_admin,
+            'visitante_habilitado': visitante_habilitado,
         }
         return render(request, 'web/configuracion.html', context)
 
@@ -2227,6 +2272,8 @@ def configuracion_view(request):
         'error': error,
         'extension_version': extension_version(),
         'tour': tour,
+        'es_admin': es_admin,
+        'visitante_habilitado': visitante_habilitado,
     }
     return render(request, 'web/configuracion.html', context)
 

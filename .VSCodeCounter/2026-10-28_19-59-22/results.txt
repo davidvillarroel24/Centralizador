@@ -1,0 +1,243 @@
+Date : 2026-10-28 19:59:22
+Directory : c:\Users\DJV505\Desktop\Proyecto\Centralizador
+Total : 177 files,  20941 codes, 1304 comments, 2641 blanks, all 24886 lines
+
+Languages
++------------------+------------+------------+------------+------------+------------+
+| language         | files      | code       | comment    | blank      | total      |
++------------------+------------+------------+------------+------------+------------+
+| JSON             |          4 |     10,365 |          0 |          1 |     10,366 |
+| Python           |        141 |      5,993 |      1,180 |      1,938 |      9,111 |
+| HTML             |         13 |      2,089 |          0 |        164 |      2,253 |
+| Markdown         |          8 |      1,450 |          0 |        406 |      1,856 |
+| PostCSS          |          2 |        676 |         23 |         84 |        783 |
+| JavaScript       |          3 |        220 |         30 |         23 |        273 |
+| YAML             |          2 |         98 |         36 |         10 |        144 |
+| Docker           |          1 |         18 |         14 |          8 |         40 |
+| Shell Script     |          1 |         16 |         21 |          5 |         42 |
+| pip requirements |          1 |         14 |          0 |          1 |         15 |
+| Log              |          1 |          2 |          0 |          1 |          3 |
++------------------+------------+------------+------------+------------+------------+
+
+Directories
++------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                                                               | files      | code       | comment    | blank      | total      |
++------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                                                  |        177 |     20,941 |      1,304 |      2,641 |     24,886 |
+| . (Files)                                                                                                                          |          5 |        663 |          5 |        144 |        812 |
+| .github                                                                                                                            |          1 |         21 |         10 |          4 |         35 |
+| .github\workflows                                                                                                                  |          1 |         21 |         10 |          4 |         35 |
+| archivo                                                                                                                            |          4 |        666 |          0 |        223 |        889 |
+| chrome_extension                                                                                                                   |          5 |        162 |         21 |         30 |        213 |
+| data                                                                                                                               |         37 |     11,353 |        149 |        352 |     11,854 |
+| data (Files)                                                                                                                       |          8 |        524 |        118 |        196 |        838 |
+| data\migrations                                                                                                                    |         26 |        505 |         31 |        156 |        692 |
+| data\raw                                                                                                                           |          3 |     10,324 |          0 |          0 |     10,324 |
+| deploy                                                                                                                             |          4 |        212 |         61 |         52 |        325 |
+| deploy (Files)                                                                                                                     |          2 |        178 |         26 |         39 |        243 |
+| deploy\web                                                                                                                         |          2 |         34 |         35 |         13 |         82 |
+| gatfh                                                                                                                              |          6 |        177 |         91 |         63 |        331 |
+| scraping                                                                                                                           |         18 |      1,036 |        189 |        348 |      1,573 |
+| scraping (Files)                                                                                                                   |          6 |          7 |          4 |         12 |         23 |
+| scraping\scrapers                                                                                                                  |         12 |      1,029 |        185 |        336 |      1,550 |
+| services                                                                                                                           |         72 |      2,064 |        389 |        807 |      3,260 |
+| services (Files)                                                                                                                   |          6 |          7 |          4 |         12 |         23 |
+| services\data_utils                                                                                                                |          6 |        454 |         94 |        125 |        673 |
+| services\extraccion                                                                                                                |         14 |         64 |         11 |         38 |        113 |
+| services\imports                                                                                                                   |          9 |        383 |         32 |        222 |        637 |
+| services\management                                                                                                                |         31 |        615 |         31 |        263 |        909 |
+| services\management (Files)                                                                                                        |          1 |          0 |          0 |          1 |          1 |
+| services\management\commands                                                                                                       |         30 |        615 |         31 |        262 |        908 |
+| services\utils                                                                                                                     |          6 |        541 |        217 |        147 |        905 |
+| web                                                                                                                                |         25 |      4,587 |        389 |        618 |      5,594 |
+| web (Files)                                                                                                                        |          8 |      1,644 |        348 |        353 |      2,345 |
+| web\migrations                                                                                                                     |          1 |          0 |          0 |          1 |          1 |
+| web\static                                                                                                                         |          3 |        854 |         41 |        100 |        995 |
+| web\static\web                                                                                                                     |          3 |        854 |         41 |        100 |        995 |
+| web\templates                                                                                                                      |         13 |      2,089 |          0 |        164 |      2,253 |
+| web\templates\web                                                                                                                  |         13 |      2,089 |          0 |        164 |      2,253 |
++------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++------------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| filename                                                                                                                           | language         | code       | comment    | blank      | total      |
++------------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\.github\workflows\deploy-vps.yml                                                    | YAML             |         21 |         10 |          4 |         35 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\PLAN_DESARROLLO.md                                                                  | Markdown         |        257 |          0 |         53 |        310 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\README.md                                                                           | Markdown         |        372 |          0 |         84 |        456 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\archivo\PROYECTO_COMPLETADO.md                                                      | Markdown         |        251 |          0 |         69 |        320 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\archivo\QUICKSTART.md                                                               | Markdown         |        183 |          0 |         75 |        258 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\archivo\README.md                                                                   | Markdown         |         14 |          0 |          4 |         18 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\archivo\TAREAS_COMPLETADAS.md                                                       | Markdown         |        218 |          0 |         75 |        293 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\chrome_extension\README.md                                                          | Markdown         |         54 |          0 |         13 |         67 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\chrome_extension\background.js                                                      | JavaScript       |         20 |          3 |          5 |         28 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\chrome_extension\content_script.js                                                  | JavaScript       |         22 |          9 |          2 |         33 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\chrome_extension\empaquetar.py                                                      | Python           |         25 |          9 |          9 |         43 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\chrome_extension\manifest.json                                                      | JSON             |         41 |          0 |          1 |         42 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\__init__.py                                                                    | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\admin.py                                                                       | Python           |         29 |          0 |         15 |         44 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\apps.py                                                                        | Python           |          3 |          0 |          3 |          6 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\cookie_crypto.py                                                               | Python           |         23 |         20 |         10 |         53 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0001_initial.py                                                     | Python           |         21 |          1 |          7 |         29 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0002_facultad.py                                                    | Python           |         19 |          1 |          6 |         26 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0003_carrera.py                                                     | Python           |         22 |          1 |          6 |         29 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0004_nivel.py                                                       | Python           |         18 |          1 |          6 |         25 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0005_materia.py                                                     | Python           |         29 |          1 |          6 |         36 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0006_unidad_tarea.py                                                | Python           |         29 |          1 |          6 |         36 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0007_alter_tarea_apertura_alter_tarea_cierre.py                     | Python           |         17 |          1 |          6 |         24 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0008_estudiante_entrega.py                                          | Python           |         38 |          1 |          6 |         45 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0009_remove_entrega_archivos_remove_entrega_archivosurl_and_more.py | Python           |         26 |          1 |          6 |         33 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0010_profesor_moodle_session_hash.py                                | Python           |         12 |          0 |          5 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0011_trabajoextraccion.py                                           | Python           |         17 |          1 |          6 |         24 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0012_profesor_user.py                                               | Python           |         15 |          1 |          6 |         22 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0013_tarea_descripcion_tarea_url_entrega.py                         | Python           |         17 |          1 |          6 |         24 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0014_fechasparciales_pesoscategorias.py                             | Python           |         37 |          1 |          6 |         44 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0015_tarea_categoria_tarea_parcial.py                               | Python           |         17 |          1 |          6 |         24 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0016_entrega_nota_entrega_nota_maxima.py                            | Python           |         17 |          1 |          6 |         24 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0017_trabajoextraccion_detener.py                                   | Python           |         12 |          1 |          6 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0018_configuracioninstitucional.py                                  | Python           |         15 |          1 |          6 |         22 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0019_accesocurso.py                                                 | Python           |         24 |          1 |          6 |         31 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0020_perfilusuario.py                                               | Python           |         22 |          1 |          6 |         29 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0021_perfilusuario_datos_iniciales.py                               | Python           |         18 |          8 |         11 |         37 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0022_remove_profesor_moodle_session_hash_and_more.py                | Python           |         21 |          1 |          6 |         28 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0023_trabajoextraccion_paso_actual.py                               | Python           |         12 |          1 |          6 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0024_archivoentrega.py                                              | Python           |         18 |          1 |          6 |         25 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\0025_profesor_tour_visto_en.py                                      | Python           |         12 |          1 |          6 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\migrations\__init__.py                                                         | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\models.py                                                                      | Python           |        405 |         70 |        144 |        619 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\raw\carreras.json                                                              | JSON             |        627 |          0 |          0 |        627 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\raw\categorias.json                                                            | JSON             |        298 |          0 |          0 |        298 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\raw\linkcarreras.json                                                          | JSON             |      9,399 |          0 |          0 |      9,399 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\roles.py                                                                       | Python           |         62 |         26 |         19 |        107 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\tests.py                                                                       | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\data\views.py                                                                       | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\deploy\README.md                                                                    | Markdown         |        101 |          0 |         33 |        134 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\deploy\docker-compose.yml                                                           | YAML             |         77 |         26 |          6 |        109 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\deploy\web\Dockerfile                                                               | Docker           |         18 |         14 |          8 |         40 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\deploy\web\entrypoint.sh                                                            | Shell Script     |         16 |         21 |          5 |         42 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\gatfh\__init__.py                                                                   | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\gatfh\asgi.py                                                                       | Python           |          4 |          8 |          5 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\gatfh\config.py                                                                     | Python           |         39 |         15 |         11 |         65 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\gatfh\settings.py                                                                   | Python           |        124 |         44 |         39 |        207 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\gatfh\urls.py                                                                       | Python           |          6 |         16 |          2 |         24 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\gatfh\wsgi.py                                                                       | Python           |          4 |          8 |          5 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\loaddata_output.log                                                                 | Log              |          2 |          0 |          1 |          3 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\manage.py                                                                           | Python           |         18 |          5 |          5 |         28 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\requirements.txt                                                                    | pip requirements |         14 |          0 |          1 |         15 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\__init__.py                                                                | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\admin.py                                                                   | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\apps.py                                                                    | Python           |          3 |          0 |          3 |          6 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\models.py                                                                  | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\__init__.py                                                       | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\asignartareas.py                                                  | Python           |        140 |          6 |         58 |        204 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\calificaciones.py                                                 | Python           |         94 |          6 |         19 |        119 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\carreras.py                                                       | Python           |        141 |         15 |         83 |        239 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\cursos.py                                                         | Python           |         19 |          1 |          4 |         24 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\detalles.py                                                       | Python           |         88 |         40 |         25 |        153 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\detallesprofesores.py                                             | Python           |        120 |         19 |         36 |        175 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\normalizar_est.py                                                 | Python           |         41 |          2 |         19 |         62 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\participantes.py                                                  | Python           |        142 |         24 |         31 |        197 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\profesores.py                                                     | Python           |         43 |          4 |         15 |         62 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\session.py                                                        | Python           |         96 |         46 |         28 |        170 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\scrapers\tareas.py                                                         | Python           |        105 |         22 |         17 |        144 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\tests.py                                                                   | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\scraping\views.py                                                                   | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\__init__.py                                                                | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\admin.py                                                                   | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\apps.py                                                                    | Python           |          3 |          0 |          3 |          6 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\data_utils\__init__.py                                                     | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\data_utils\cargarjson.py                                                   | Python           |         70 |          5 |         18 |         93 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\data_utils\exportarjson.py                                                 | Python           |        112 |          0 |         45 |        157 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\data_utils\import_estudiantes_to_db.py                                     | Python           |        103 |         20 |         19 |        142 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\data_utils\import_to_db.py                                                 | Python           |        114 |         30 |         23 |        167 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\data_utils\run_export.py                                                   | Python           |         55 |         39 |         19 |        113 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\__init__.py                                                     | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\asignacion.py                                                   | Python           |          3 |          1 |          3 |          7 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\carreras.py                                                     | Python           |          3 |          1 |          3 |          7 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\categorias.py                                                   | Python           |          3 |          1 |          3 |          7 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\cursos.py                                                       | Python           |          7 |          0 |          2 |          9 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\detalles.py                                                     | Python           |          3 |          1 |          4 |          8 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\estudiantes.py                                                  | Python           |          3 |          2 |          3 |          8 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\linkcarreras.py                                                 | Python           |          3 |          1 |          4 |          8 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\participantes.py                                                | Python           |          6 |          1 |          3 |         10 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\profesores.py                                                   | Python           |          7 |          0 |          2 |          9 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\scrap.py                                                        | Python           |          6 |          0 |          2 |          8 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\session.py                                                      | Python           |          6 |          0 |          2 |          8 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\tareas.py                                                       | Python           |          4 |          3 |          3 |         10 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\extraccion\trasformar.py                                                   | Python           |         10 |          0 |          3 |         13 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\__init__.py                                                        | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\carreras.py                                                        | Python           |         34 |          0 |         19 |         53 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\detalles_tareas.py                                                 | Python           |         52 |          0 |         29 |         81 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\estudiantes.py                                                     | Python           |         64 |          3 |         30 |         97 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\facultades.py                                                      | Python           |         24 |          0 |         16 |         40 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\materias.py                                                        | Python           |        101 |         22 |         53 |        176 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\niveles.py                                                         | Python           |         24 |          0 |         16 |         40 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\profesores.py                                                      | Python           |         29 |          7 |         18 |         54 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\imports\tareas.py                                                          | Python           |         55 |          0 |         40 |         95 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\__init__.py                                                     | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\__init__.py                                            | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\crear_admin.py                                         | Python           |         48 |          0 |         11 |         59 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\exportar_dataset_ml.py                                 | Python           |        158 |         29 |         25 |        212 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_asignacion.py                                  | Python           |         23 |          0 |         10 |         33 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_carreras.py                                    | Python           |          9 |          0 |          8 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_carreras_completo.py                           | Python           |         19 |          0 |          9 |         28 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_categorias.py                                  | Python           |          9 |          0 |          8 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_cursos.py                                      | Python           |          9 |          0 |          8 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_detalle.py                                     | Python           |         23 |          0 |         10 |         33 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_estudiantes.py                                 | Python           |         29 |          0 |         10 |         39 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_linkcarreras.py                                | Python           |          9 |          0 |          8 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_participantes.py                               | Python           |         33 |          0 |          9 |         42 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_profesores.py                                  | Python           |          9 |          0 |          8 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_scrap.py                                       | Python           |          9 |          0 |          8 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_session.py                                     | Python           |          9 |          0 |          8 |         17 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_tareas.py                                      | Python           |         31 |          0 |         10 |         41 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\extraer_transformar.py                                 | Python           |         26 |          0 |         11 |         37 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\import_all_data.py                                     | Python           |         21 |          2 |          8 |         31 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\import_estudiantes_to_db.py                            | Python           |         15 |          0 |          4 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\import_json_to_db.py                                   | Python           |         12 |          0 |          4 |         16 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_asignacion.py                                 | Python           |         10 |          0 |          9 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_carreras.py                                   | Python           |         10 |          0 |          9 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_detalles_tareas.py                            | Python           |         16 |          0 |          9 |         25 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_estudiantes.py                                | Python           |         16 |          0 |          9 |         25 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_facultades.py                                 | Python           |         10 |          0 |          8 |         18 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_materias.py                                   | Python           |         10 |          0 |          9 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_niveles.py                                    | Python           |         10 |          0 |          9 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_participantes.py                              | Python           |         12 |          0 |          4 |         16 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_profesores.py                                 | Python           |         10 |          0 |          9 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\management\commands\importar_tareas.py                                     | Python           |         10 |          0 |          9 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\models.py                                                                  | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\tests.py                                                                   | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\utils\__init__.py                                                          | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\utils\conexiondb.py                                                        | Python           |         21 |         18 |          6 |         45 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\utils\extraction_lock.py                                                   | Python           |         81 |         52 |         27 |        160 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\utils\reportes.py                                                          | Python           |        166 |         25 |         37 |        228 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\utils\run_scraping.py                                                      | Python           |        260 |        122 |         70 |        452 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\utils\timing.py                                                            | Python           |         13 |          0 |          6 |         19 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\services\views.py                                                                   | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\__init__.py                                                                     | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\admin.py                                                                        | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\apps.py                                                                         | Python           |          3 |          0 |          3 |          6 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\context_processors.py                                                           | Python           |         16 |          6 |          7 |         29 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\migrations\__init__.py                                                          | Python           |          0 |          0 |          1 |          1 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\models.py                                                                       | Python           |          1 |          1 |          2 |          4 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\static\web\dashboard.css                                                        | PostCSS          |        542 |         14 |         80 |        636 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\static\web\sidebar.css                                                          | PostCSS          |        134 |          9 |          4 |        147 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\static\web\tour.js                                                              | JavaScript       |        178 |         18 |         16 |        212 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\alertas.html                                                      | HTML             |         75 |          0 |         12 |         87 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\base.html                                                         | HTML             |        147 |          0 |          4 |        151 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\configuracion.html                                                | HTML             |        193 |          0 |         17 |        210 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\dashboard.html                                                    | HTML             |        583 |          0 |         37 |        620 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\docentes.html                                                     | HTML             |        372 |          0 |         39 |        411 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\estudiantes.html                                                  | HTML             |        172 |          0 |         17 |        189 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\extension_privacidad.html                                         | HTML             |         78 |          0 |          8 |         86 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\login.html                                                        | HTML             |         47 |          0 |          2 |         49 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\materias.html                                                     | HTML             |         50 |          0 |          2 |         52 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\predicciones.html                                                 | HTML             |         53 |          0 |          4 |         57 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\register.html                                                     | HTML             |         53 |          0 |          2 |         55 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\reportes.html                                                     | HTML             |        143 |          0 |          9 |        152 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\templates\web\resumen.html                                                      | HTML             |        123 |          0 |         11 |        134 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\tests.py                                                                        | Python           |        107 |          9 |         27 |        143 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\urls.py                                                                         | Python           |         28 |          0 |          3 |         31 |
+| c:\Users\DJV505\Desktop\Proyecto\Centralizador\web\views.py                                                                        | Python           |      1,488 |        331 |        308 |      2,127 |
+| Total                                                                                                                              |                  |     20,941 |      1,304 |      2,641 |     24,886 |
++------------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+

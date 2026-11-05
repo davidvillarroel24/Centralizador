@@ -1,5 +1,7 @@
+from datetime import timedelta
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -7,7 +9,7 @@ from django.utils import timezone
 
 from data.models import (
     Profesor, FechasParciales, PesosCategorias, asegurar_config_tareas_default,
-    Facultad, Carrera, Materia, Unidad, Tarea, Estudiante, Entrega, PerfilUsuario,
+    Facultad, Carrera, Materia, Unidad, Tarea, Estudiante, Entrega, PerfilUsuario, ArchivoTarea,
 )
 from services.utils import run_scraping
 
@@ -303,3 +305,124 @@ class MateriaAvancesTests(TestCase):
         self.client.force_login(self.admin_user)
         resp = self.client.get(self._url(self.materia).rsplit('/', 2)[0] + '/999999/avances/')
         self.assertEqual(resp.status_code, 404)
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
+class PrevisualizarArchivoTests(TestCase):
+    """previsualizar_archivo: de dónde saca la cookie de Moodle. Solo la de quien está
+    mirando (sesión o la guardada en su Profesor) - nunca la de otro docente, aunque dicte
+    esa materia y tenga una vigente."""
+
+    def setUp(self):
+        from data.cookie_crypto import cifrar_cookie
+        self.cifrar_cookie = cifrar_cookie
+
+        carrera = Carrera.objects.create(facultad=Facultad.objects.create(nombre='Ingeniería'), nombre='Sistemas')
+        self.materia = Materia.objects.create(
+            gestion=2026, nombre='Bases de Datos', moodle_nombre='2026/BDD',
+            moodle_url='https://moodle.example/course/view.php?id=1', carrera=carrera,
+        )
+        tarea = Tarea.objects.create(
+            unidad=Unidad.objects.create(materia=self.materia, nombre='Unidad 1'),
+            moodle_id=2001, titulo='Práctica 1', tipo='assign',
+            url='https://moodle.example/mod/assign/view.php?id=1',
+        )
+        self.archivo = ArchivoTarea.objects.create(
+            tarea=tarea, nombre='enunciado.pdf', url='https://moodle.example/pluginfile.php/1/enunciado.pdf',
+        )
+
+        self.admin_user = User.objects.create_user(username='admin.preview', password='clave-123')
+        PerfilUsuario.objects.create(user=self.admin_user, rol=PerfilUsuario.ADMINISTRADOR)
+        self.admin_profesor = Profesor.objects.create(
+            moodle_id=515151, nombre='admin.preview', url='https://moodle.example/user/view.php?id=515151',
+            user=self.admin_user,
+        )
+
+    def _guardar_cookie_admin(self, cookie, hace=timedelta(0)):
+        self.admin_profesor.moodle_cookie_cifrada = self.cifrar_cookie(self.admin_user, cookie)
+        self.admin_profesor.moodle_cookie_guardada_en = timezone.now() - hace
+        self.admin_profesor.save()
+
+    def _cookie_en_sesion(self, cookie):
+        sesion = self.client.session
+        sesion['MoodleSession'] = cookie
+        sesion.save()
+        # Con SESSION_ENGINE signed_cookies la sesión ES la cookie: hay que reponerla a mano.
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = sesion.session_key
+
+    def _moodle(self, cookies_validas):
+        """requests.get falso: con una cookie de cookies_validas devuelve el PDF; con
+        cualquier otra imita a Moodle, que redirige a su login (HTML con 200)."""
+        def get(url, cookies=None, **kwargs):
+            respuesta = mock.MagicMock(ok=True)
+            if cookies['MoodleSession'] in cookies_validas:
+                respuesta.headers = {'Content-Type': 'application/pdf'}
+                respuesta.iter_content.return_value = [b'%PDF-1.4 contenido']
+            else:
+                respuesta.headers = {'Content-Type': 'text/html; charset=utf-8'}
+                respuesta.iter_content.return_value = [b'<html>login</html>']
+            return respuesta
+        return mock.patch('web.views.requests.get', side_effect=get)
+
+    def _get(self):
+        return self.client.get(reverse('previsualizar_archivo', args=['tarea', self.archivo.id]))
+
+    def test_administrador_usa_su_propia_cookie_aunque_no_dicte_la_materia(self):
+        self._guardar_cookie_admin('cookie-admin')
+        self.client.force_login(self.admin_user)
+        with self._moodle({'cookie-admin'}):
+            resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content, b'%PDF-1.4 contenido')
+
+    def test_usa_la_cookie_de_la_sesion_actual(self):
+        self.client.force_login(self.admin_user)
+        self._cookie_en_sesion('cookie-sesion')
+        with self._moodle({'cookie-sesion'}):
+            resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+
+    def test_nunca_usa_la_cookie_de_otro_docente_de_la_materia(self):
+        user = User.objects.create_user(username='docente.ajeno', password='clave-123')
+        docente = Profesor.objects.create(
+            moodle_id=525252, nombre='docente.ajeno', url='https://moodle.example/user/view.php?id=525252',
+            user=user, moodle_cookie_cifrada=self.cifrar_cookie(user, 'cookie-ajena'),
+            moodle_cookie_guardada_en=timezone.now(),
+        )
+        self.materia.profesores.add(docente)
+        self.client.force_login(self.admin_user)
+        with self._moodle({'cookie-ajena'}) as get:
+            resp = self._get()
+        self.assertEqual(resp.status_code, 409)
+        get.assert_not_called()
+
+    def test_si_la_de_sesion_murio_en_moodle_prueba_la_guardada(self):
+        self._guardar_cookie_admin('cookie-guardada')
+        self.client.force_login(self.admin_user)
+        self._cookie_en_sesion('cookie-muerta')
+        with self._moodle({'cookie-guardada'}):
+            resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+
+    def test_login_de_moodle_no_se_devuelve_como_si_fuera_el_archivo(self):
+        self._guardar_cookie_admin('cookie-muerta')
+        self.client.force_login(self.admin_user)
+        with self._moodle(set()):
+            resp = self._get()
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn('Moodle rechazó', resp.json()['error'])
+
+    def test_sin_ninguna_cookie_avisa_que_hay_que_capturarla(self):
+        self.client.force_login(self.admin_user)
+        with self._moodle(set()) as get:
+            resp = self._get()
+        self.assertEqual(resp.status_code, 409)
+        get.assert_not_called()
+
+    def test_cookie_guardada_vencida_no_se_usa(self):
+        self._guardar_cookie_admin('cookie-vieja', hace=timedelta(hours=3))
+        self.client.force_login(self.admin_user)
+        with self._moodle({'cookie-vieja'}) as get:
+            resp = self._get()
+        self.assertEqual(resp.status_code, 409)
+        get.assert_not_called()

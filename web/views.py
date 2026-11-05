@@ -1739,13 +1739,26 @@ def _archivos_lista(qs, tipo):
     } for a in qs]
 
 
+def _cookies_para_preview(request):
+    """Cookies de Moodle de quien está mirando la preview, sin repetidas: la de su sesión y
+    la guardada (cifrada) en su Profesor. Nunca la de otro usuario - aunque sea docente de
+    esa materia, su sesión de Moodle no le corresponde a quien está mirando."""
+    candidatas = [request.session.get('MoodleSession')]
+
+    propio = get_current_profesor(request)
+    if propio and propio.cookie_vigente():
+        candidatas.append(descifrar_cookie(request.user, propio.moodle_cookie_cifrada))
+
+    vistas = set()
+    return [c for c in candidatas if c and not (c in vistas or vistas.add(c))]
+
+
 @login_required
 @requiere_rol(*ROLES_STAFF, PerfilUsuario.VISITANTE)
 def previsualizar_archivo(request, tipo, archivo_id):
     """Relay autenticado para la vista previa (modal) de un ArchivoEntrega/ArchivoTarea:
-    trae el archivo de Moodle usando la cookie del PROFESOR de esa materia (es quien tiene
-    permiso real sobre el curso - la cookie de quien esta mirando la preview, si es
-    distinto, no sirve para esto) y lo devuelve tal cual al navegador. No se guarda nada en
+    trae el archivo de Moodle con la cookie de quien esta mirando (ver
+    _cookies_para_preview) y lo devuelve tal cual al navegador. No se guarda nada en
     disco: docx-preview/pptxjs convierten en el propio navegador a partir de estos mismos
     bytes, e imagen/PDF el navegador ya los muestra nativo - el archivo solo pasa por
     memoria durante este request, nunca se escribe a disco."""
@@ -1772,41 +1785,51 @@ def previsualizar_archivo(request, tipo, archivo_id):
     if not content_type:
         return JsonResponse({'error': 'Este tipo de archivo no tiene vista previa, descargalo directo.'}, status=400)
 
-    # Cualquier docente de la materia con cookie vigente sirve - no tiene que ser el mismo
-    # que subió/recibió este archivo en particular, Moodle solo exige estar logueado y
-    # matriculado en el curso.
-    profesor_con_cookie = next(
-        (p for p in materia.profesores.all() if p.user and p.cookie_vigente()), None
-    )
-    if not profesor_con_cookie:
+    cookies = _cookies_para_preview(request)
+    if not cookies:
         return JsonResponse({
-            'error': 'Ningún docente de esta materia tiene una cookie de Moodle vigente ahora '
-                     'mismo (dura 2 horas). Pedile a uno que la recapture e intentá de nuevo.',
+            'error': 'No tenés una cookie de Moodle vigente (dura 2 horas). Capturala con el '
+                     'botón de cookie e intentá de nuevo.',
         }, status=409)
 
-    cookie = descifrar_cookie(profesor_con_cookie.user, profesor_con_cookie.moodle_cookie_cifrada)
-    if not cookie:
-        return JsonResponse({'error': 'No se pudo leer la cookie guardada, recapturala.'}, status=409)
-
-    try:
-        # stream=True + tope manual de tamaño: sin esto, un archivo grande (ej. un pptx con
-        # video embebido) se carga entero a RAM del contenedor sin limite - en el VPS
-        # compartido (768MB para este contenedor, ver docker-compose.yml) un par de
-        # previews pesados en simultaneo podrian tirar el proceso por falta de memoria.
-        respuesta_moodle = requests.get(
-            archivo.url, cookies={'MoodleSession': cookie}, timeout=20, stream=True,
-        )
-        respuesta_moodle.raise_for_status()
-        contenido = bytearray()
-        for chunk in respuesta_moodle.iter_content(chunk_size=262144):
-            contenido += chunk
-            if len(contenido) > PREVIEW_TAMANO_MAXIMO:
+    # Se prueban en orden hasta que una devuelva el archivo: la de la sesión puede estar
+    # muerta en Moodle (cerró sesión allá) aunque la guardada siga sirviendo, o la cuenta
+    # puede no tener acceso a ese curso - en ambos casos Moodle no da error, redirige a su
+    # página de login/matriculación, por eso se descarta cualquier HTML.
+    contenido = None
+    hubo_error_de_red = False
+    for cookie in cookies:
+        try:
+            # stream=True + tope manual de tamaño: sin esto, un archivo grande (ej. un pptx
+            # con video embebido) se carga entero a RAM del contenedor sin limite - en el VPS
+            # compartido (768MB para este contenedor, ver docker-compose.yml) un par de
+            # previews pesados en simultaneo podrian tirar el proceso por falta de memoria.
+            respuesta_moodle = requests.get(
+                archivo.url, cookies={'MoodleSession': cookie}, timeout=20, stream=True,
+            )
+            if not respuesta_moodle.ok or 'text/html' in respuesta_moodle.headers.get('Content-Type', ''):
                 respuesta_moodle.close()
-                return JsonResponse({
-                    'error': 'El archivo pesa demasiado para la vista previa, descargalo directo.',
-                }, status=413)
-    except requests.RequestException:
-        return JsonResponse({'error': 'No se pudo descargar el archivo desde Moodle.'}, status=502)
+                continue
+            contenido = bytearray()
+            for chunk in respuesta_moodle.iter_content(chunk_size=262144):
+                contenido += chunk
+                if len(contenido) > PREVIEW_TAMANO_MAXIMO:
+                    respuesta_moodle.close()
+                    return JsonResponse({
+                        'error': 'El archivo pesa demasiado para la vista previa, descargalo directo.',
+                    }, status=413)
+            break
+        except requests.RequestException:
+            hubo_error_de_red = True
+            contenido = None
+
+    if contenido is None:
+        if hubo_error_de_red:
+            return JsonResponse({'error': 'No se pudo descargar el archivo desde Moodle.'}, status=502)
+        return JsonResponse({
+            'error': 'Moodle rechazó tu cookie (venció allá o tu cuenta no tiene acceso a este '
+                     'curso). Recapturala e intentá de nuevo.',
+        }, status=409)
 
     # Siempre "inline": esto es solo para la vista previa en el modal. El botón "Descargar"
     # del modal apunta directo a archivo.url (el link real de Moodle), no a este endpoint.

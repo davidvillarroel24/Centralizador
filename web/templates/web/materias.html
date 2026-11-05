@@ -212,23 +212,26 @@ new DataTable('#tblMaterias');
         });
     }
 
-    document.querySelectorAll('.btn-ver-avances-materia').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            nombreSpan.textContent = btn.dataset.nombre;
-            inputBuscar.value = '';
-            selectTipo.value = 'assign';
-            overlay.style.display = 'flex';
-            volverALaLista();
-            fetch(btn.dataset.url).then(function (r) { return r.json(); }).then(function (data) {
-                if (data.error) {
-                    if (window.Swal) Swal.fire({ icon: 'error', title: 'No se pudo cargar', text: data.error, confirmButtonColor: '#9b5bf6' });
-                    return;
-                }
-                actividadesActuales = data.actividades;
-                pintarFilas();
-            }).catch(function () {
-                if (window.Swal) Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor.', confirmButtonColor: '#9b5bf6' });
-            });
+    // Delegado en la tabla (no un listener por botón): DataTables solo deja en el DOM las
+    // filas de la página actual, así que los botones de la página 2 en adelante no existían
+    // al cargar y nunca recibían el click - le pasaba a un Decano, que ve muchas materias.
+    document.getElementById('tblMaterias').addEventListener('click', function (e) {
+        var btn = e.target.closest('.btn-ver-avances-materia');
+        if (!btn) return;
+        nombreSpan.textContent = btn.dataset.nombre;
+        inputBuscar.value = '';
+        selectTipo.value = 'assign';
+        overlay.style.display = 'flex';
+        volverALaLista();
+        fetch(btn.dataset.url).then(function (r) { return r.json(); }).then(function (data) {
+            if (data.error) {
+                if (window.Swal) Swal.fire({ icon: 'error', title: 'No se pudo cargar', text: data.error, confirmButtonColor: '#9b5bf6' });
+                return;
+            }
+            actividadesActuales = data.actividades;
+            pintarFilas();
+        }).catch(function () {
+            if (window.Swal) Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor.', confirmButtonColor: '#9b5bf6' });
         });
     });
 

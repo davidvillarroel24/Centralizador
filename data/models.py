@@ -257,6 +257,14 @@ class Materia(models.Model):
         blank=True
     )
 
+    # "Eliminacion logica": una materia inhabilitada no aparece para nadie (ver
+    # data.roles.materias_visibles, que filtra activo=True al final) ni es seleccionable
+    # para extraccion - pero sus filas (Unidad/Tarea/Entrega) siguen intactas en la base,
+    # a diferencia de borrarla. Pensado para casos como una materia duplicada (bug #1: ver
+    # Materia.moodle_nombre mas abajo) que conviene esconder ya mismo sin animarse a un
+    # DELETE. Solo Administrador puede tocar este campo (web/materias.html).
+    activo = models.BooleanField(default=True)
+
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 

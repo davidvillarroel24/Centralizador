@@ -505,13 +505,32 @@ IMPORTADORES_CARRERAS = {
 
 def run_importar_web(action):
     entidad, importador = IMPORTADORES_CARRERAS[action]
-    count = importador()
-    return {
-        'title': f'Importación de {entidad}',
-        'detail': (
+    resultado = importador()
+    if isinstance(resultado, dict):
+        # Por ahora solo importar_materias() devuelve esto (creadas + renombradas, ver su
+        # docstring/comentarios): si una materia cambio de nombre en Moodle pero sigue
+        # siendo el mismo curso (misma url), se avisa aca en vez de que quien corrio la
+        # extraccion se entere despues por las dudas, viendo el nombre "cambiado solo" en
+        # el listado y pensando que es un bug nuestro.
+        count = resultado.get('creadas', 0)
+        detail = (
+            f'Importación de {entidad} desde {config.JSON_LINKCARRERAS} completada: '
+            f'{count} creada(s).'
+        )
+        if resultado.get('renombradas'):
+            detail += (
+                f" {resultado['renombradas']} ya existía(n) y se actualizó su nombre/sigla "
+                f"(Moodle les cambió el nombre al mismo curso, no son materias nuevas)."
+            )
+    else:
+        count = resultado
+        detail = (
             f'Importación de {entidad} desde {config.JSON_LINKCARRERAS} completada: '
             f'{count} procesadas.'
-        ),
+        )
+    return {
+        'title': f'Importación de {entidad}',
+        'detail': detail,
         'count': count,
     }
 
@@ -1525,13 +1544,24 @@ def resumen(request):
 @login_required
 @requiere_rol(*ROLES_STAFF)
 def materias_view(request):
-    materias = materias_visibles(request.user).select_related(
-        'carrera',
-        'nivel'
-    ).prefetch_related(
-        'profesores'
-    )
-    context = {'materias': materias}
+    es_admin = es_administrador(request.user)
+
+    if es_admin and request.method == 'POST' and request.POST.get('accion') == 'toggle_activo':
+        # Eliminacion logica, SOLO Administrador: materias_visibles() ya filtra
+        # activo=True para todos (incluido Administrador en el resto del sitio), asi que
+        # esto busca directo en Materia, no por esa funcion - si no, nunca encontraria una
+        # ya inhabilitada para poder reactivarla.
+        materia = Materia.objects.filter(pk=request.POST.get('materia_id')).first()
+        if materia:
+            materia.activo = not materia.activo
+            materia.save(update_fields=['activo'])
+        return redirect('materias')
+
+    # Administrador ve TODAS (incluidas las inhabilitadas, para poder reactivarlas) - el
+    # resto de los roles solo ve lo que materias_visibles() ya deja pasar (activas).
+    materias = Materia.objects.all() if es_admin else materias_visibles(request.user)
+    materias = materias.select_related('carrera', 'nivel').prefetch_related('profesores')
+    context = {'materias': materias, 'es_admin': es_admin}
     return render(request, 'web/materias.html', context)
 
 

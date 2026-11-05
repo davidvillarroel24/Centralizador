@@ -108,7 +108,14 @@ def materias_visibles(user, facultad_id=None, carrera_id=None):
     else:
         qs = Materia.objects.none()
 
-    return qs
+    # Una materia inhabilitada (Materia.activo=False) no la ve nadie por esta via, ni
+    # siquiera Administrador - es la "eliminacion logica" para casos como una materia
+    # duplicada que no se quiere borrar de una (ver web/materias.html, toggle solo para
+    # Administrador). Tambien saca a esa materia de los cursos seleccionables para
+    # extraccion (cursos_base_por_rol usa esta misma funcion). Para ver/reactivar una
+    # inhabilitada hay que ir a Materias como Administrador, que consulta aparte sin pasar
+    # por esta funcion.
+    return qs.filter(activo=True)
 
 
 def requiere_rol(*roles_permitidos):

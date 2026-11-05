@@ -14,11 +14,12 @@
                 <th>Turno</th>
                 <th>Docente(s)</th>
                 <th>Avances</th>
+                {% if es_admin %}<th>Estado</th>{% endif %}
             </tr>
         </thead>
         <tbody>
             {% for m in materias %}
-            <tr>
+            <tr{% if not m.activo %} style="opacity:0.5;"{% endif %}>
                 <td>{{ m.gestion }}</td>
                 <td>{{ m.sigla }}</td>
                 <td><a href="{{ m.moodle_url }}" target="_blank">{{ m.nombre }}</a></td>
@@ -46,6 +47,20 @@
                         Ver avances
                     </button>
                 </td>
+                {% if es_admin %}
+                <td>
+                    <form method="post" style="display:inline;"
+                          {% if m.activo %}onsubmit="return confirm('¿Inhabilitar esta materia? Deja de verla todo el mundo y de poder usarse para extracción. Sus datos (tareas/entregas) no se borran, se puede reactivar después.');"{% endif %}>
+                        {% csrf_token %}
+                        <input type="hidden" name="accion" value="toggle_activo">
+                        <input type="hidden" name="materia_id" value="{{ m.id }}">
+                        <button type="submit" class="btn {% if m.activo %}btn-secondary{% else %}btn-primary{% endif %}"
+                                style="width:auto; padding:6px 12px; font-size:0.85rem;">
+                            {% if m.activo %}Activa{% else %}Inhabilitada{% endif %}
+                        </button>
+                    </form>
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
         </tbody>

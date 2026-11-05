@@ -42,13 +42,34 @@ def importar_estudiantes():
 
         for est in estudiantes:
 
-            estudiante, _ = Estudiante.objects.get_or_create(
+            # BUG (encontrado 2026-11-05): un Decano ve esta misma planilla sin columna de
+            # correo (detallesprofesores.py::ORDEN_DECANO), asi que "email" puede venir None,
+            # "" o faltar directamente - nunca se asume que esta. Se normaliza todo eso a
+            # None (nunca "", que con unique=True chocaria entre dos estudiantes sin correo
+            # todavia) para guardar "no tengo el dato" de forma explicita.
+            nombre = est.get("nombre") or ""
+            email = (est.get("email") or "").strip() or None
+
+            estudiante, creado = Estudiante.objects.get_or_create(
                 moodle_userid=int(est["userid"]),
-                defaults={
-                    "nombre": est.get("nombre", ""),
-                    "email": est.get("email", "")
-                }
+                defaults={"nombre": nombre, "email": email}
             )
+
+            if not creado:
+                # get_or_create() solo usa "defaults" al crear - si el estudiante ya
+                # existia (por ej. lo creo un Decano sin correo), una extraccion posterior
+                # de un Docente con el correo real antes se perdia en silencio. Se
+                # actualiza aca, y solo con datos no vacios: nunca se pisa un nombre/correo
+                # ya guardado con uno en blanco.
+                cambios = []
+                if nombre and estudiante.nombre != nombre:
+                    estudiante.nombre = nombre
+                    cambios.append("nombre")
+                if email and estudiante.email != email:
+                    estudiante.email = email
+                    cambios.append("email")
+                if cambios:
+                    estudiante.save(update_fields=cambios)
 
             entrega, _ = Entrega.objects.update_or_create(
                 tarea=tarea,

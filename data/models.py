@@ -374,8 +374,17 @@ class Estudiante(models.Model):
         max_length=255
     )
 
+    # BUG (encontrado 2026-11-05): un Decano ve la planilla de calificacion sin columna de
+    # correo (ver scraping/scrapers/detallesprofesores.py::ORDEN_DECANO), asi que
+    # importar_estudiantes() puede no tener ese dato todavia. Antes este campo no admitia
+    # NULL y la extraccion de un Decano reventaba (IntegrityError) con el primer estudiante
+    # nuevo que viera. null=True permite dejarlo vacio hasta que una extraccion de un
+    # Docente (que si trae el correo) lo complete - unique=True sigue sin problema porque
+    # Postgres no compara dos NULL como iguales.
     email = models.EmailField(
-        unique=True
+        unique=True,
+        null=True,
+        blank=True,
     )
 
     def __str__(self):

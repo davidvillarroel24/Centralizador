@@ -5,6 +5,7 @@ import json
 import requests
 from datetime import datetime, timezone, date
 from io import BytesIO, StringIO
+from django.core.management import call_command
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -2358,6 +2359,24 @@ def configuracion_view(request):
         'visitante_habilitado': visitante_habilitado,
     }
     return render(request, 'web/configuracion.html', context)
+
+
+@login_required
+@requiere_rol(PerfilUsuario.ADMINISTRADOR)
+def exportar_base_datos(request):
+    """Descarga un volcado JSON de las tablas academicas ("data", ver data/models.py) para
+    diagnosticar casos como materias que parecen duplicadas entre el local y el servidor -
+    es el formato que mas facil se puede leer y cruzar para revisar algo asi. A proposito
+    SOLO el app "data": deja afuera auth/sessions/admin, asi nunca viaja un hash de
+    contraseña ni nada de sesiones - PerfilUsuario sigue señalando a su User por id, sin
+    exponer la cuenta en si."""
+    buffer = StringIO()
+    call_command('dumpdata', 'data', indent=2, stdout=buffer)
+    nombre = f"centralizador_datos_{dj_timezone.now():%Y%m%d_%H%M}.json"
+    return FileResponse(
+        BytesIO(buffer.getvalue().encode('utf-8')),
+        as_attachment=True, filename=nombre, content_type='application/json',
+    )
 
 
 def extension_privacidad_view(request):

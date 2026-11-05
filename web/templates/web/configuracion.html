@@ -36,6 +36,20 @@
                 </button>
             </form>
         </section>
+
+        <section class="panel" style="margin-bottom:20px;">
+            <h2>Exportar base de datos</h2>
+            <div class="note">
+                Descarga un JSON con las tablas académicas (materias, docentes, tareas,
+                entregas, etc.) tal como están ahora mismo en este servidor — útil para
+                revisar casos raros (ej. materias que parecen duplicadas) comparando contra
+                otra extracción. No incluye usuarios/contraseñas, solo datos académicos.
+            </div>
+            <a href="{% url 'exportar_base_datos' %}" class="btn btn-secondary"
+               style="width:auto; padding:10px 20px; display:inline-flex; align-items:center; gap:8px; margin-top:10px;">
+                <i class="bi bi-download"></i> Descargar datos (JSON)
+            </a>
+        </section>
         {% endif %}
 
         <div class="note">

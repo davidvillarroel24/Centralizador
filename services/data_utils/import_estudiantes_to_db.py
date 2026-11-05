@@ -58,9 +58,20 @@ def import_estudiantes_from_json():
             nombre = est_data.get('nombre')
             email = est_data.get('email')
 
-            if not userid or not nombre or not email:
+            if not userid or not nombre:
                 created['skipped'] += 1
                 continue
+
+            # Sin email (la cuenta que extrajo no tiene permiso para ver esa columna, ej. un
+            # Decano): Estudiante.email es obligatorio y unico, asi que no se puede crear uno
+            # nuevo - pero si ya existe por otra extraccion, la entrega se guarda igual en vez
+            # de perderse.
+            if not email:
+                estudiante = Estudiante.objects.filter(moodle_userid=int(userid)).first()
+                if not estudiante:
+                    created['skipped'] += 1
+                    continue
+                email = estudiante.email
 
             # Crear o actualizar estudiante
             try:

@@ -1,8 +1,11 @@
+import re
+
 import aiohttp
 import asyncio
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 
+from .participantes import ultima_pagina
 from .tareas import SesionExpiradaError
 
 CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=30)
@@ -61,6 +64,110 @@ async def obtener_tareas_docente_async(moodle, tareas, stop_event=None):
 
     return resultados
 
+# Orden de columnas de la planilla de calificacion vista por un docente del curso: la
+# posicion en esta lista es su cN (c0 = seleccionar, c1 = imagen, c2 = nombre...). Es la
+# que se leia siempre.
+ORDEN_DOCENTE = [
+    "seleccionar", "imagen", "nombre", "email", "estado", "calificacion", "editar",
+    "ultima_mod_entrega", "archivos", "comentarios_entrega", "ultima_mod_calificacion",
+    "comentarios_feedback", "calificacion_final",
+]
+# Un Decano ve la misma planilla sin correo (c3 del docente) ni "editar" (c6): esas dos
+# columnas no existen y el resto se corre, quedando c0..c10. Leida con las posiciones del
+# docente, cada campo salia de otra columna (el estado de "calificacion", etc.).
+ORDEN_DECANO = [c for c in ORDEN_DOCENTE if c not in ("email", "editar")]
+
+# Se elige por cuantas columnas trae la fila (lo que la cuenta ve), nunca por el texto de
+# los encabezados.
+ORDEN_POR_CANTIDAD = {len(ORDEN_DOCENTE): ORDEN_DOCENTE, len(ORDEN_DECANO): ORDEN_DECANO}
+
+
+def _columnas_de(fila):
+    """{campo: indice cN} segun la cantidad de celdas de la fila: 13 -> docente, 11 ->
+    decano. Un campo que esa planilla no tiene (ej. email para el decano) queda en None."""
+    total = len(fila.find_all(["td", "th"], recursive=False))
+    orden = ORDEN_POR_CANTIDAD.get(total)
+    if orden is None:
+        # No se adivina en silencio: se usa la del docente (la de siempre) y queda el aviso
+        # en el log para agregar la nueva disposicion si Moodle cambia la tabla.
+        print(f"[entregas] fila con {total} columnas (se esperaban {len(ORDEN_DOCENTE)} o "
+              f"{len(ORDEN_DECANO)}) - revisar ORDEN_* en detallesprofesores.py")
+        orden = ORDEN_DOCENTE
+    return {campo: (orden.index(campo) if campo in orden else None) for campo in ORDEN_DOCENTE}
+
+
+def parsear_entregas(html):
+    """Filas de UNA pagina de la planilla de calificacion -> lista de dicts, o None si la
+    pagina no trae la tabla."""
+    soup = BeautifulSoup(html, "html.parser")
+    tabla = soup.select_one("table.generaltable")
+    if not tabla or not tabla.find("tbody"):
+        return None
+
+    data = []
+
+    for fila in tabla.find("tbody").find_all("tr"):
+        try:
+            columnas = _columnas_de(fila)
+
+            def celda_de(campo):
+                indice = columnas[campo]
+                return fila.select_one(f"td.cell.c{indice}") if indice is not None else None
+
+            def texto(campo, separador=""):
+                celda = celda_de(campo)
+                return celda.get_text(separador, strip=True) if celda else None
+
+            # El id sale del checkbox, como siempre; si la cuenta no lo tiene, del link al
+            # perfil del estudiante en la celda del nombre.
+            checkbox = fila.find("input", {"name": "selectedusers"})
+            userid = checkbox["value"] if checkbox else None
+            if not userid:
+                celda_nombre = celda_de("nombre")
+                link_perfil = celda_nombre.select_one('a[href*="/user/view.php"]') if celda_nombre else None
+                m = re.search(r"[?&]id=(\d+)", link_perfil.get("href", "")) if link_perfil else None
+                userid = m.group(1) if m else None
+            nombre = texto("nombre")
+            if not nombre or not userid:
+                # Fila sin nombre/userid (fila de encabezado, separador, etc.): se omite
+                # esta fila puntual, pero se sigue procesando el resto de la tabla (C5).
+                continue
+
+            archivos = []
+            archivo_urls = []
+            celda_archivos = celda_de("archivos")
+            if celda_archivos:
+                for link in celda_archivos.find_all("a"):
+                    archivos.append(link.get_text(strip=True))
+                    archivo_urls.append(link.get("href"))
+
+            # LINK CALIFICAR
+            calificar_tag = fila.find("a", class_="btn")
+            link_calificar = calificar_tag["href"] if calificar_tag else None
+
+            data.append({
+                "userid": userid,
+                "nombre": nombre,
+                "email": texto("email"),
+                "estado": texto("estado", " "),
+                "calificacion": texto("calificacion"),
+                "ultima_mod_entrega": texto("ultima_mod_entrega"),
+                "archivos": archivos,
+                "archivosurl": archivo_urls,
+                "comentarios_entrega": texto("comentarios_entrega"),
+                "ultima_mod_calificacion": texto("ultima_mod_calificacion"),
+                "comentarios_feedback": texto("comentarios_feedback"),
+                "calificacion_final": texto("calificacion_final"),
+                "link_calificar": link_calificar
+            })
+
+        except Exception as e:
+            print("Error procesando fila:", e)
+            continue
+
+    return data
+
+
 async def procesar_tarea_docente(session, url, unidad, titulo, semaphore, stop_event=None):
 
     if stop_event is not None and stop_event.is_set():
@@ -72,18 +179,13 @@ async def procesar_tarea_docente(session, url, unidad, titulo, semaphore, stop_e
 
     html = await fetch(session, url, semaphore)
 
-    soup = BeautifulSoup(html, "html.parser")
+    data = parsear_entregas(html)
 
-    data = []
-
-    #tabla = soup.find("table", class_="generaltable")
-    tabla = soup.select_one("table.generaltable")
-
-    if not tabla:
+    if data is None:
         print("No se encontró tabla, guardando HTML para debug...")
         with open("debug.html", "w", encoding="utf-8") as f:
             f.write(html)
-        
+
         return {
             "id":id_tarea,
             "unidad": unidad,
@@ -91,80 +193,20 @@ async def procesar_tarea_docente(session, url, unidad, titulo, semaphore, stop_e
             "estudiantes": []
         }
 
-    filas = tabla.find("tbody").find_all("tr")
+    # Moodle ignora el &perpage=100 de la URL en esta planilla: usa la preferencia guardada
+    # de la cuenta (10 por defecto) - un curso de 42 traia solo los primeros 10.
+    ultima = ultima_pagina(html)
+    for pagina in range(1, ultima + 1):
+        if stop_event is not None and stop_event.is_set():
+            raise asyncio.CancelledError()
+        data.extend(parsear_entregas(await fetch(session, f"{url}&page={pagina}", semaphore)) or [])
 
-    for fila in filas:
-        try:
-            celdas = fila.find_all("td")
+    # Por si una pagina se repite (alguien entrego mientras se extraia y la lista se corrio).
+    vistos = set()
+    data = [e for e in data if not (e["userid"] in vistos or vistos.add(e["userid"]))]
 
-            # USER ID
-            checkbox = fila.find("input", {"name": "selectedusers"})
-            userid = checkbox["value"] if checkbox else None
-
-            # MAPEO POR ÍNDICE (según orden típico de Moodle)
-            #nombre = celdas[1].get_text(strip=True) if len(celdas) > 1 else None
-            #apellido = celdas[2].get_text(strip=True) if len(celdas) > 2 else None
-            nombre = celdas[2].get_text(strip=True) if len(celdas) > 2 else None
-            if not nombre or not userid:
-                # Fila sin nombre/userid (fila de encabezado, separador, etc.): se omite
-                # esta fila puntual, pero se sigue procesando el resto de la tabla (C5).
-                continue
-
-            email = celdas[3].get_text(strip=True) if len(celdas) > 3 else None
-            #estado = fila.find("div", class_="submissionstatussubmitted")
-            estado_div = fila.find("td", class_="cell c4")  # columna estado (puede variar)
-            #estado = estado.get_text(strip=True) if estado else None
-            estado = None
-            if estado_div:
-                estado = estado_div.get_text(" ", strip=True)
-
-            calificacion = celdas[5].get_text(strip=True) if len(celdas) > 5 else None
-
-            ultima_mod_entrega = celdas[7].get_text(strip=True) if len(celdas) > 7 else None
-            archivos = []
-            archivo_urls = []
-
-            if len(celdas) > 8:
-                celda_archivos = celdas[8]
-
-                links = celda_archivos.find_all("a")
-
-                for link in links:
-                    nombre_archivo = link.get_text(strip=True)
-                    url = link.get("href")
-
-                    archivos.append(nombre_archivo)
-                    archivo_urls.append(url)
-            comentarios_entrega = celdas[9].get_text(strip=True) if len(celdas) > 9 else None
-
-            ultima_mod_calificacion = celdas[10].get_text(strip=True) if len(celdas) > 10 else None
-            comentarios_feedback = celdas[11].get_text(strip=True) if len(celdas) > 11 else None
-            calificacion_final = celdas[12].get_text(strip=True) if len(celdas) > 12 else None
-
-            # LINK CALIFICAR
-            calificar_tag = fila.find("a", class_="btn")
-            link_calificar = calificar_tag["href"] if calificar_tag else None
-
-            data.append({
-                "userid": userid,
-                "nombre": nombre,
-                #"apellido": apellido,
-                "email": email,
-                "estado": estado,
-                "calificacion": calificacion,
-                "ultima_mod_entrega": ultima_mod_entrega,
-                "archivos": archivos,
-                "archivosurl":archivo_urls,
-                "comentarios_entrega": comentarios_entrega,
-                "ultima_mod_calificacion": ultima_mod_calificacion,
-                "comentarios_feedback": comentarios_feedback,
-                "calificacion_final": calificacion_final,
-                "link_calificar": link_calificar
-            })
-
-        except Exception as e:
-            print("Error procesando fila:", e)
-            continue
+    if ultima:
+        print(f"[entregas] tarea {id_tarea}: {ultima + 1} pagina(s), {len(data)} estudiante(s)")
 
     return {
         "id":id_tarea,

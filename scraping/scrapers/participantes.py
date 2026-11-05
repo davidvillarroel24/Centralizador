@@ -111,21 +111,30 @@ def parsear_participantes(html, materia_id):
     return participantes
 
 
-def _buscar_siguiente_pagina(html):
-    """Links reales de paginacion (page=N en un <a class="page-link">), descartando la
-    barra A-Z de nombres (tifirst=/tilast=, que tambien usa class="page-link"). Con
-    perpage >= PERPAGE_MINIMO no deberia aparecer nunca en TECBA, pero si algun curso
-    tiene mas inscritos que eso, esto trae el resto."""
+def ultima_pagina(html):
+    """Indice (desde 0) de la ultima pagina de una tabla de Moodle, 0 si no hay paginacion.
+    Sale de la barra de paginas, de dos formas: page=N en el href (tablas comunes, como la
+    planilla de calificacion) o data-page-number="N" (desde 1) en las tablas dinamicas como
+    la de participantes, que dibujan sus links con href="#" - antes esos se descartaban y
+    nunca se pedia la pagina 2. Se toma el mayor y no se siguen los links uno por uno: con
+    muchas paginas Moodle muestra "1 2 3 ... 9" y se saltaban las del medio. La barra A-Z de
+    nombres (tifirst=/tilast=) tambien usa class="page-link" y no cuenta."""
     soup = BeautifulSoup(html, "html.parser")
-    paginas = {}
-    for a in soup.select('nav[aria-label] a.page-link[href]'):
-        href = a.get("href", "")
-        if "tifirst=" in href or "tilast=" in href or href == "#":
+    ultima = 0
+    for el in soup.select(
+        ".pagination [data-page-number], .pagination a.page-link[href], "
+        "nav[aria-label] [data-page-number], nav[aria-label] a.page-link[href]"
+    ):
+        href = el.get("href", "")
+        if "tifirst=" in href or "tilast=" in href:
             continue
         m = re.search(r"[?&]page=(\d+)", href)
         if m:
-            paginas[int(m.group(1))] = href
-    return paginas
+            ultima = max(ultima, int(m.group(1)))
+        numero = el.get("data-page-number", "")
+        if numero.isdigit():
+            ultima = max(ultima, int(numero) - 1)
+    return ultima
 
 
 async def fetch_participantes_curso(session, url_base, materia_id, perpage, semaphore, stop_event=None):
@@ -145,16 +154,19 @@ async def fetch_participantes_curso(session, url_base, materia_id, perpage, sema
     participantes = parsear_participantes(html, materia_id)
     print(f"[participantes] materia_id={materia_id}: {len(participantes)} fila(s) en la primera pagina")
 
-    paginas = _buscar_siguiente_pagina(html)
-    if paginas:
-        print(f"[participantes] materia_id={materia_id}: paginacion detectada ({len(paginas)} pagina(s) mas) - perpage={perpage} no alcanzo")
+    ultima = ultima_pagina(html)
+    if ultima:
+        print(f"[participantes] materia_id={materia_id}: paginacion detectada ({ultima} pagina(s) mas) - perpage={perpage} no alcanzo")
 
-    for num_pagina, href in paginas.items():
+    # La URL de cada pagina se arma aca (mismo perpage que la primera) en vez de usar el
+    # href del link: en la tabla dinamica ese href es "#".
+    for num_pagina in range(1, ultima + 1):
         if stop_event is not None and stop_event.is_set():
             break
-        print(f"[participantes] GET (pagina {num_pagina}) {href}")
+        url_pagina = f"{url}&page={num_pagina}"
+        print(f"[participantes] GET (pagina {num_pagina}) {url_pagina}")
         async with semaphore:
-            async with session.get(href) as resp2:
+            async with session.get(url_pagina) as resp2:
                 html2 = await resp2.text()
                 if "/login/" in str(resp2.url):
                     raise SesionExpiradaError("La sesión de Moodle expiró (la cookie ya no es válida).")
@@ -162,7 +174,9 @@ async def fetch_participantes_curso(session, url_base, materia_id, perpage, sema
         print(f"[participantes] materia_id={materia_id}: +{len(nuevos)} fila(s) de la pagina {num_pagina}")
         participantes.extend(nuevos)
 
-    return participantes
+    # Por si una pagina se repite (alguien se matriculo mientras se extraia y la lista se corrio).
+    vistos = set()
+    return [p for p in participantes if not (p["moodle_userid"] in vistos or vistos.add(p["moodle_userid"]))]
 
 
 async def obtener_participantes_async(moodle, cursos, stop_event=None, perpage=PERPAGE_MINIMO):

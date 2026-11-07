@@ -1753,6 +1753,8 @@ PREVIEW_CONTENT_TYPES = {
     'xls': 'application/vnd.ms-excel',
     'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'txt': 'text/plain; charset=utf-8',
+    'py': 'text/x-python; charset=utf-8',
+    'ipynb': 'application/x-ipynb+json; charset=utf-8',
 }
 
 

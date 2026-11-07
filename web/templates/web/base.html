@@ -431,6 +431,73 @@
             return cargarScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
         }
 
+        // --- Notebook de Jupyter (.ipynb) -------------------------------------------------
+        // Sin libreria externa: el .ipynb es JSON (celdas "code"/"markdown"/"raw"), alcanza
+        // con recorrerlo a mano. Markdown se muestra como texto plano (sin parsear el
+        // formato) para no sumar otra dependencia por un caso de uso chico - prioridad es
+        // ver el contenido, no un render exacto tipo Jupyter.
+        function unirTexto(valor) {
+            if (Array.isArray(valor)) return valor.join('');
+            return valor || '';
+        }
+        function renderizarIpynb(nb) {
+            var contenedor = document.createElement('div');
+            contenedor.className = 'preview-modal-ipynb';
+            var celdas = (nb && Array.isArray(nb.cells)) ? nb.cells : [];
+            if (!celdas.length) {
+                var vacio = document.createElement('p');
+                vacio.className = 'note';
+                vacio.textContent = 'Este notebook no tiene celdas.';
+                contenedor.appendChild(vacio);
+                return contenedor;
+            }
+            celdas.forEach(function (celda) {
+                var caja = document.createElement('div');
+                caja.className = 'preview-modal-ipynb-cell preview-modal-ipynb-cell-' + (celda.cell_type || 'raw');
+
+                if (celda.cell_type === 'code') {
+                    var etiqueta = document.createElement('div');
+                    etiqueta.className = 'preview-modal-ipynb-etiqueta';
+                    etiqueta.textContent = 'In [' + (celda.execution_count != null ? celda.execution_count : ' ') + ']:';
+                    caja.appendChild(etiqueta);
+                }
+
+                var fuente = document.createElement('pre');
+                fuente.className = celda.cell_type === 'code' ? 'preview-modal-ipynb-code' : 'preview-modal-ipynb-markdown';
+                fuente.textContent = unirTexto(celda.source);
+                caja.appendChild(fuente);
+
+                (celda.outputs || []).forEach(function (salida) {
+                    var caja_salida = document.createElement('div');
+                    caja_salida.className = 'preview-modal-ipynb-output';
+                    if (salida.output_type === 'stream') {
+                        caja_salida.textContent = unirTexto(salida.text);
+                    } else if (salida.output_type === 'error') {
+                        caja_salida.classList.add('preview-modal-ipynb-output-error');
+                        var traceback = unirTexto(salida.traceback).replace(/\x1b\[[0-9;]*m/g, '');
+                        caja_salida.textContent = traceback || ((salida.ename || '') + ': ' + (salida.evalue || ''));
+                    } else if (salida.data) {
+                        if (salida.data['image/png']) {
+                            var img = document.createElement('img');
+                            img.className = 'preview-modal-ipynb-output-imagen';
+                            img.src = 'data:image/png;base64,' + unirTexto(salida.data['image/png']).replace(/\s/g, '');
+                            caja_salida.appendChild(img);
+                        } else if (salida.data['text/plain']) {
+                            caja_salida.textContent = unirTexto(salida.data['text/plain']);
+                        } else {
+                            return; // mime type sin soporte (html/latex/etc.): se omite
+                        }
+                    } else {
+                        return;
+                    }
+                    caja.appendChild(caja_salida);
+                });
+
+                contenedor.appendChild(caja);
+            });
+            return contenedor;
+        }
+
         function abrir(tipo, id, nombre, urlOriginal) {
             var url = '/archivos/' + tipo + '/' + id + '/previsualizar/';
             var ext = (nombre.split('.').pop() || '').toLowerCase();
@@ -470,7 +537,7 @@
                 }).catch(function (err) { mostrarError(err.message); });
                 return;
             }
-            if (ext === 'txt') {
+            if (ext === 'txt' || ext === 'py') {
                 pedirArchivo(url).then(function (blob) { return blob.text(); }).then(function (texto) {
                     var pre = document.createElement('pre');
                     pre.className = 'preview-modal-txt';
@@ -478,6 +545,22 @@
                     spinner.hidden = true;
                     cuerpo.appendChild(pre);
                     activarWrapTogglePara(pre);
+                }).catch(function (err) { mostrarError(err.message); });
+                return;
+            }
+            if (ext === 'ipynb') {
+                pedirArchivo(url).then(function (blob) { return blob.text(); }).then(function (texto) {
+                    var notebook;
+                    try {
+                        notebook = JSON.parse(texto);
+                    } catch (e) {
+                        throw new Error('El archivo .ipynb no es un JSON válido.');
+                    }
+                    var contenedor = renderizarIpynb(notebook);
+                    spinner.hidden = true;
+                    cuerpo.appendChild(contenedor);
+                    // Sin toolbar (zoom/ajustar línea no aplican a un notebook renderizado
+                    // celda por celda) - toolbar ya arranca oculto al principio de abrir().
                 }).catch(function (err) { mostrarError(err.message); });
                 return;
             }

@@ -148,8 +148,15 @@
 <script>
     $(document).ready(function () {
         $('#tblReporteAcceso').DataTable({ pageLength: 25, order: [] });
+        {% if ver_secciones_docente %}
+        // BUG (encontrado 2026-11-07): para un Docente estas dos secciones ni se renderizan
+        // (ver "{% templatetag openblock %} if ver_secciones_docente {% templatetag closeblock %}" mas arriba), asi que
+        // #tblReporteTareas/#tblReporteMaterial no existen en el DOM - inicializar DataTable
+        // sobre ellas igual tiraba un error de consola ("columna que no existe") cada vez
+        // que un Docente entraba a Reportes.
         $('#tblReporteTareas').DataTable({ pageLength: 25, order: [] });
         $('#tblReporteMaterial').DataTable({ pageLength: 25, order: [] });
+        {% endif %}
     });
 </script>
 {% endblock %}

@@ -893,3 +893,42 @@ h1 {
     box-sizing: border-box;
 }
 .preview-modal-txt.sin-ajuste { white-space: pre; word-break: normal; }
+
+.preview-modal-ipynb {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 16px;
+    box-sizing: border-box;
+}
+.preview-modal-ipynb-cell { margin-bottom: 14px; }
+.preview-modal-ipynb-etiqueta {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+.preview-modal-ipynb-code, .preview-modal-ipynb-markdown, .preview-modal-ipynb-output {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-sizing: border-box;
+}
+.preview-modal-ipynb-code { background: var(--card-bg); color: var(--text-primary); }
+.preview-modal-ipynb-markdown {
+    background: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    padding: 4px 2px;
+}
+.preview-modal-ipynb-output {
+    background: var(--panel-bg);
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+.preview-modal-ipynb-output-error { background: var(--error-bg); color: var(--error-text); }
+.preview-modal-ipynb-output-imagen { max-width: 100%; display: block; }

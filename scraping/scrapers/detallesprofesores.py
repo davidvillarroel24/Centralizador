@@ -72,10 +72,12 @@ ORDEN_DOCENTE = [
     "ultima_mod_entrega", "archivos", "comentarios_entrega", "ultima_mod_calificacion",
     "comentarios_feedback", "calificacion_final",
 ]
-# Un Decano ve la misma planilla sin correo (c3 del docente) ni "editar" (c6): esas dos
-# columnas no existen y el resto se corre, quedando c0..c10. Leida con las posiciones del
-# docente, cada campo salia de otra columna (el estado de "calificacion", etc.).
-ORDEN_DECANO = [c for c in ORDEN_DOCENTE if c not in ("email", "editar")]
+# Un Decano ve la misma planilla sin correo (c3 del docente), "editar" (c6) NI "seleccionar"
+# (c0): esas tres columnas no existen (confirmado 2026-11-08 probando con una cuenta Decano
+# real) y el resto se corre, quedando c0..c9. Antes se asumia que "seleccionar" si estaba
+# (10 columnas reales contra las 11 que se esperaban), lo que corria todo un lugar y hacia
+# que cada entrega se descartara por no encontrar userid (ver _columnas_de).
+ORDEN_DECANO = [c for c in ORDEN_DOCENTE if c not in ("seleccionar", "email", "editar")]
 
 # Se elige por cuantas columnas trae la fila (lo que la cuenta ve), nunca por el texto de
 # los encabezados.
@@ -83,8 +85,9 @@ ORDEN_POR_CANTIDAD = {len(ORDEN_DOCENTE): ORDEN_DOCENTE, len(ORDEN_DECANO): ORDE
 
 
 def _columnas_de(fila):
-    """{campo: indice cN} segun la cantidad de celdas de la fila: 13 -> docente, 11 ->
-    decano. Un campo que esa planilla no tiene (ej. email para el decano) queda en None."""
+    """{campo: indice cN} segun la cantidad de celdas de la fila: 13 -> docente, 10 ->
+    decano. Un campo que esa planilla no tiene (ej. email o seleccionar para el decano)
+    queda en None."""
     total = len(fila.find_all(["td", "th"], recursive=False))
     orden = ORDEN_POR_CANTIDAD.get(total)
     if orden is None:

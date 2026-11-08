@@ -16,10 +16,11 @@ ENCABEZADOS_DOCENTE = [
     "Comentarios de la entrega", "Última modificación (calificación)",
     "Comentarios de retroalimentación", "Calificación final",
 ]
-# La misma planilla vista por un Decano - confirmado en TECBA: c0..c10, sin el correo
-# (c3 del docente) ni "Editar" (c6 del docente).
+# La misma planilla vista por un Decano - confirmado en TECBA probando con una cuenta real
+# (2026-11-08): c0..c9, sin "Seleccionar" (c0 del docente, no hay checkbox para elegir en
+# bloque), sin el correo (c3 del docente) ni "Editar" (c6 del docente).
 ENCABEZADOS_DECANO = [
-    "Seleccionar", "Imagen del usuario", "Nombre / Apellido(s)", "Estado", "Calificación",
+    "Imagen del usuario", "Nombre / Apellido(s)", "Estado", "Calificación",
     "Última modificación", "Archivos enviados", "Comentarios",
     "Última modificación (calificación)", "Comentarios de retroalimentación", "Calificación final",
 ]
@@ -90,25 +91,22 @@ class ParsearEntregasTests(SimpleTestCase):
         self.assertEqual(f["calificacion_final"], "Calificación final 101")
         self.assertEqual(filas[1]["estado"], "Sin entrega")
 
-    def test_planilla_de_decano(self):
-        # Antes se leia con las posiciones del docente y cada campo salia de otra columna.
-        self._verificar_decano(con_checkbox=True)
-
-    def test_planilla_de_decano_sin_checkbox_saca_el_id_del_perfil(self):
-        self._verificar_decano(con_checkbox=False)
+    def test_planilla_de_decano_saca_el_id_del_perfil_porque_no_hay_checkbox(self):
+        # Antes se leia con las posiciones del docente y cada campo salia de otra columna
+        # (ademas se asumia que si tenia "Seleccionar", cuando en realidad el Decano nunca
+        # tiene esa columna - el userid sale siempre del link al perfil en "Nombre").
+        self._verificar_decano()
 
     def test_la_eleccion_es_por_cantidad_de_columnas_no_por_encabezado(self):
-        # Mismos 11 encabezados con otro texto: se lee igual, por posicion.
+        # Mismos 10 encabezados con otro texto: se lee igual, por posicion.
         otros = [f"Columna {i}" for i in range(len(ENCABEZADOS_DECANO))]
         html = _planilla(ENCABEZADOS_DECANO, [101], entregaron={101})
         for viejo, nuevo in zip(ENCABEZADOS_DECANO, otros):
             html = html.replace(f">{viejo}</th>", f">{nuevo}</th>")
         self.assertEqual(parsear_entregas(html)[0]["estado"], "Enviado para calificar")
 
-    def _verificar_decano(self, con_checkbox):
-        filas = parsear_entregas(
-            _planilla(ENCABEZADOS_DECANO, [101, 102], entregaron={101}, con_checkbox=con_checkbox)
-        )
+    def _verificar_decano(self):
+        filas = parsear_entregas(_planilla(ENCABEZADOS_DECANO, [101, 102], entregaron={101}))
         self.assertEqual([f["userid"] for f in filas], ["101", "102"])
         f = filas[0]
         self.assertEqual(f["nombre"], "Estudiante 101")

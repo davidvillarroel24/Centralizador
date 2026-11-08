@@ -93,7 +93,11 @@ def load_courses():
     asignatura) sigue trabajando con dicts {id, asignatura, url} para no
     tener que tocar el pipeline de scraping basado en cursos.json.
     """
-    materias = Materia.objects.select_related('carrera').prefetch_related('profesores').order_by('nombre')
+    # BUG (encontrado 2026-11-07): esta funcion es la base del selector de cursos para
+    # extraer (dashboard), y es anterior a Materia.activo (eliminacion logica) - nunca se le
+    # agrego el filtro cuando se agrego esa funcion, asi que una materia inhabilitada seguia
+    # apareciendo ahi para elegir, aunque ya no se vea en Materias/Estudiantes/Reportes.
+    materias = Materia.objects.filter(activo=True).select_related('carrera').prefetch_related('profesores').order_by('nombre')
 
     # Estudiantes por materia (via AccesoCurso, el padron real de /user/index.php - ver
     # "3b. Extraer último acceso"), para el buscador. Son pocas filas (decenas, no miles)
@@ -921,7 +925,10 @@ def cursos_base_por_rol(request, role):
         ids_decano = set(materias_visibles_decano(request.user).values_list('id', flat=True))
         profesor_actual = get_current_profesor(request)
         if profesor_actual:
-            ids_decano |= set(profesor_actual.materias.values_list('id', flat=True))
+            # Mismo bug que load_courses(): profesor.materias (M2M directo) no pasa por
+            # materias_visibles() ni por el filtro de arriba, asi que sin esto una materia
+            # inhabilitada volvia a colarse para un Decano que tambien es Docente de algo.
+            ids_decano |= set(profesor_actual.materias.filter(activo=True).values_list('id', flat=True))
         return [c for c in todos if c['id'] in ids_decano], False
 
     return filter_courses_by_role(request, todos, role), True

@@ -24,8 +24,10 @@ data/raw/*.json
 !data/raw/categorias.json
 !data/raw/carreras.json
 !data/raw/linkcarreras.json
-# Dataset del modelo de riesgo (contiene ids de estudiantes reales)
-data/ml/*.csv
+# Dataset del modelo de riesgo (contiene ids de estudiantes reales) y volcados de
+# auditoria (contienen datos reales de estudiantes/docentes) - carpetas completas
+/data/ml/
+/data/auditoria/
 
 # Fixtures de HTML real usadas para probar el parser de participantes.py (contienen
 # nombres/emails reales de estudiantes)

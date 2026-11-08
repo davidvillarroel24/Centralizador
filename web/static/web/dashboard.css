@@ -932,3 +932,11 @@ h1 {
 }
 .preview-modal-ipynb-output-error { background: var(--error-bg); color: var(--error-text); }
 .preview-modal-ipynb-output-imagen { max-width: 100%; display: block; }
+
+/* BUG (encontrado 2026-11-07): antes esto era opacity:0.5 en el <tr> entero, que tambien
+   apagaba visualmente el boton "Inhabilitada" (la unica forma de reactivarla) - quedaba
+   clickeable pero parecia un simple estado sin vida. Opacity en el <tr> se aplica a todo
+   su contenido sin que un hijo pueda "desopacarse" de nuevo, asi que la solucion es poner
+   la opacidad celda por celda y dejar afuera la del boton de Administrador. */
+.materia-fila-inactiva > td { opacity: 0.5; }
+.materia-fila-inactiva > td.materia-td-accion-admin { opacity: 1; }

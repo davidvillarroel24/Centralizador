@@ -19,7 +19,7 @@
         </thead>
         <tbody>
             {% for m in materias %}
-            <tr{% if not m.activo %} style="opacity:0.5;"{% endif %}>
+            <tr class="{% if not m.activo %}materia-fila-inactiva{% endif %}">
                 <td>{{ m.gestion }}</td>
                 <td>{{ m.sigla }}</td>
                 <td><a href="{{ m.moodle_url }}" target="_blank">{{ m.nombre }}</a></td>
@@ -48,7 +48,7 @@
                     </button>
                 </td>
                 {% if es_admin %}
-                <td>
+                <td class="materia-td-accion-admin">
                     <form method="post" style="display:inline;"
                           {% if m.activo %}onsubmit="return confirm('¿Inhabilitar esta materia? Deja de verla todo el mundo y de poder usarse para extracción. Sus datos (tareas/entregas) no se borran, se puede reactivar después.');"{% endif %}>
                         {% csrf_token %}

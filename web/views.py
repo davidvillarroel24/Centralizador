@@ -1,6 +1,8 @@
 import traceback
 import os
 import re
+import io
+import zipfile
 import json
 import requests
 from datetime import datetime, timezone, date
@@ -906,6 +908,70 @@ def run_cargar_detalle_web(selected_ids, cookie, stop_event):
     return {'title': 'Detalle de tareas extraído e importado', 'detail': ' | '.join(pasos), 'count': None}
 
 
+def resolver_cookie_moodle(request):
+    """Cookie de Moodle a usar para una extraccion: la de esta sesion del navegador, o
+    (expiracion perezosa) la guardada en la base para este profesor si todavia esta
+    vigente. Revienta con un mensaje claro si no hay ninguna - antes de tocar Moodle o el
+    candado global, para no ocuparlo en vano."""
+    cookie = request.session.get('MoodleSession')
+    if not cookie:
+        profesor_actual = get_current_profesor(request)
+        if profesor_actual and profesor_actual.cookie_vigente():
+            cookie = descifrar_cookie(request.user, profesor_actual.moodle_cookie_cifrada)
+            if cookie:
+                request.session['MoodleSession'] = cookie
+    if not cookie:
+        raise ValueError(
+            'No hay ninguna cookie de Moodle guardada, o venció (dura 2 horas). '
+            'Extraela de nuevo con el botón de cookie arriba antes de iniciar una extracción.'
+        )
+    return cookie
+
+
+# "Descargar HTML" (solo Administrador, ver dashboard.html): en vez de extraer e importar,
+# baja un .zip con las paginas de Moodle crudas que esa extraccion visitaria - pensado para
+# cuando el parser falla y no se sabe como esta la pagina real en una cuenta/rol que nadie
+# probo todavia (ver scraping/scrapers/html_crudo.py).
+ACCIONES_DESCARGA_HTML = {
+    'descargar_html_tareas': run_scraping.descargar_html_tareas,
+    'descargar_html_detalle': run_scraping.descargar_html_detalle,
+    'descargar_html_estudiantes': run_scraping.descargar_html_estudiantes,
+    'descargar_html_ultimo_acceso': run_scraping.descargar_html_ultimo_acceso,
+}
+
+
+def responder_descarga_html(request, action, selected_ids):
+    """Maneja las acciones de ACCIONES_DESCARGA_HTML por fuera del flujo normal de
+    dashboard(): se dispara por fetch() (no es un submit nativo, ver dashboard.html) para
+    que el spinner/overlay de siempre se pueda mostrar mientras se espera - igual que las
+    acciones "cargar_*". La respuesta de exito es el .zip en si (content-type
+    application/zip, el JS lo descarga armando un link temporal); un error se devuelve
+    como JSON ({'error': ...}), que el JS distingue por el content-type de la respuesta."""
+    try:
+        if not es_administrador(request.user):
+            raise ValueError('Solo una cuenta Administrador puede descargar el HTML crudo de una extracción.')
+        if not selected_ids:
+            raise ValueError('Debes seleccionar al menos un curso para descargar su HTML.')
+        cookie = resolver_cookie_moodle(request)
+        paginas = ACCIONES_DESCARGA_HTML[action](selected_ids, cookie=cookie)
+        if not paginas:
+            raise ValueError('No se obtuvo ninguna página (sin cursos/tareas que coincidan con la selección).')
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for nombre, html in paginas.items():
+                zf.writestr(nombre, html)
+        buffer.seek(0)
+
+        nombre_zip = f"{action.replace('descargar_html_', '')}_html_{dj_timezone.now():%Y%m%d_%H%M}.zip"
+        respuesta = HttpResponse(buffer.getvalue(), content_type='application/zip')
+        respuesta['Content-Disposition'] = f'attachment; filename="{nombre_zip}"'
+        return respuesta
+    except Exception as exc:
+        traceback.print_exc()
+        return JsonResponse({'error': str(exc)}, status=400)
+
+
 def cursos_base_por_rol(request, role):
     """Set de cursos de partida para el selector de extracción, según el rol de
     PerfilUsuario - antes de aplicar los filtros de Carrera/Materia/búsqueda. Administrador
@@ -990,6 +1056,12 @@ def dashboard(request):
 
     if request.method == 'POST':
         action = request.POST.get('action')
+
+        if action in ACCIONES_DESCARGA_HTML:
+            # Submit nativo (no fetch/AJAX, ver dashboard.html): la respuesta de exito ES
+            # el archivo, asi que se devuelve de una sin pasar por el resto de la vista.
+            return responder_descarga_html(request, action, selected_ids)
+
         try:
             if action == 'importar_tareas':
                 action_result = run_importar_tareas_web()
@@ -1028,28 +1100,7 @@ def dashboard(request):
                     profesor_actual = get_current_profesor(request)
                     if profesor_actual and not run_scraping.tiene_fechas_parciales(config_tareas_de(profesor_actual)):
                         raise run_scraping.ConfiguracionIncompleta(run_scraping.MENSAJE_FALTAN_FECHAS)
-                cookie = request.session.get('MoodleSession')
-                if not cookie:
-                    # "Expiracion perezosa", paso previo a extraer: si la sesion del
-                    # navegador no la tiene (pestaña nueva, otro dispositivo), se intenta
-                    # descifrar la que esta guardada en la base para este profesor - solo
-                    # si no paso ya el tiempo limite. Si funciona, se la deja en la sesion
-                    # igual que antes, asi el resto de la extraccion no se entera del
-                    # cambio (sigue leyendo cookie de esta misma variable).
-                    profesor_actual = get_current_profesor(request)
-                    if profesor_actual and profesor_actual.cookie_vigente():
-                        cookie = descifrar_cookie(request.user, profesor_actual.moodle_cookie_cifrada)
-                        if cookie:
-                            request.session['MoodleSession'] = cookie
-                if not cookie:
-                    # Sin esto, se tomaba el candado global y recien se descubria que no
-                    # habia cookie al fallar la primera request a Moodle (login redirect ->
-                    # SesionExpiradaError) - ocupando el candado para nada y tardando mas en
-                    # avisar. Frenar antes de tocar Moodle o el candado.
-                    raise ValueError(
-                        'No hay ninguna cookie de Moodle guardada, o venció (dura 2 horas). '
-                        'Extraela de nuevo con el botón de cookie arriba antes de iniciar una extracción.'
-                    )
+                cookie = resolver_cookie_moodle(request)
                 if (
                     action not in ('cargar_carreras', 'extraer_carreras')
                     and len(selected_ids) != 1

@@ -527,6 +527,95 @@
             });
         });
 
+        {% if es_administrador %}
+        // "Descargar HTML" (solo Administrador): antes de las 4 acciones que llaman a
+        // Moodle de verdad, se pregunta si quiere extraer e importar (de siempre) o solo
+        // bajar un .zip con el HTML crudo de esas mismas páginas, sin tocar la base ni
+        // archivos json - para cuando el parser falla en un rol/cuenta nunca probado y no
+        // hay forma de saber cómo está la página real sin pedírsela a alguien en vivo (ver
+        // scraping/scrapers/html_crudo.py, bug de columnas del Decano 2026-11-08).
+        //
+        // Va por fetch(), igual que las acciones "cargar_*" (en vez de un submit nativo),
+        // para poder mostrar el mismo overlay/spinner mientras se espera - un submit nativo
+        // solo prendía el spinner de la pestaña del navegador, no el de la página (bug
+        // encontrado 2026-11-09). La respuesta de éxito es el .zip (content-type
+        // application/zip): se arma un link temporal para que el navegador lo descargue,
+        // sin depender de que la respuesta sea una descarga "nativa".
+        var MAPA_DESCARGA_HTML = {
+            cargar_tareas: 'descargar_html_tareas',
+            cargar_detalle: 'descargar_html_detalle',
+            cargar_estudiantes: 'descargar_html_estudiantes',
+            cargar_ultimo_acceso: 'descargar_html_ultimo_acceso',
+        };
+        function descargarHtmlCrudo(accionDescarga) {
+            overlay.style.display = 'flex';
+            overlayTexto.textContent = 'Descargando HTML...';
+            var datos = new FormData(form);
+            datos.set('action', accionDescarga);
+            fetch(form.getAttribute('action') || window.location.href, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken },
+                body: datos,
+            }).then(function (r) {
+                var esZip = (r.headers.get('Content-Type') || '').indexOf('application/zip') !== -1;
+                if (!esZip) {
+                    return r.json().then(function (data) {
+                        throw new Error(data.error || 'No se pudo descargar el HTML.');
+                    });
+                }
+                var nombreMatch = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+                return r.blob().then(function (blob) {
+                    return { blob: blob, nombre: nombreMatch ? nombreMatch[1] : 'html.zip' };
+                });
+            }).then(function (res) {
+                overlay.style.display = 'none';
+                var url = URL.createObjectURL(res.blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = res.nombre;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+            }).catch(function (err) {
+                overlay.style.display = 'none';
+                if (window.Swal) {
+                    Swal.fire({ icon: 'error', title: 'No se pudo descargar', text: err.message, confirmButtonColor: '#9b5bf6' });
+                }
+            });
+        }
+        Object.keys(MAPA_DESCARGA_HTML).forEach(function (accion) {
+            var btn = form.querySelector('button[name="action"][value="' + accion + '"]');
+            if (!btn) return;
+            btn.addEventListener('click', function (ev) {
+                if (btn.disabled) return;
+                ev.preventDefault();
+                if (!window.Swal) { btn.form.requestSubmit(btn); return; }
+                Swal.fire({
+                    icon: 'question',
+                    title: '¿Extraer o descargar HTML?',
+                    html: '<b>Extraer</b> hace la extracción e importación de siempre. ' +
+                        '<b>Descargar HTML</b> solo baja un .zip con las páginas de Moodle ' +
+                        'que esta acción visitaría, sin extraer ni importar nada - para ' +
+                        'revisar cómo está la página real cuando algo falla.',
+                    showDenyButton: true,
+                    showCancelButton: true,
+                    confirmButtonText: 'Extraer',
+                    denyButtonText: 'Descargar HTML',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#9b5bf6',
+                    denyButtonColor: '#6c757d',
+                }).then(function (res) {
+                    if (res.isConfirmed) {
+                        btn.form.requestSubmit(btn);
+                    } else if (res.isDenied) {
+                        descargarHtmlCrudo(MAPA_DESCARGA_HTML[accion]);
+                    }
+                });
+            });
+        });
+        {% endif %}
+
         // "Guardar cambios" del modal: form aparte (no anidado en #formAcciones), también
         // por fetch() - ver el comentario grande de más arriba (ACCIONES_AJAX) sobre por
         // qué esto no puede volver a ser un submit normal.

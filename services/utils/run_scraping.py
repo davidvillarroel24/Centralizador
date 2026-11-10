@@ -7,6 +7,7 @@ from scraping.scrapers.calificaciones import obtener_calificaciones_async
 from scraping.scrapers.profesores import obtener_profesores_async
 from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
 from scraping.scrapers.participantes import obtener_participantes_async, PERPAGE_MINIMO
+from scraping.scrapers import html_crudo
 from scraping.scrapers.asignartareas import  auto_asignar_tareas
 from scraping.scrapers.asignartareas import  mostrar_resumen_tareas
 from scraping.scrapers.asignartareas import  generar_config_final
@@ -336,6 +337,27 @@ def participantes(ids, cookie=None, stop_event=None, perpage=PERPAGE_MINIMO):
 
     print(f"[participantes] OK: {len(resultado)} registro(s) guardados en {config.JSON_PARTICIPANTES}")
     return resultado, detenido
+
+
+# Descarga de HTML crudo para debug (ver scraping/scrapers/html_crudo.py): un administrador
+# las usa en vez de "1-4. Extraer ..." cuando el parser falla y no se sabe como esta la
+# pagina real (ej. el bug de columnas del Decano, 2026-11-08) - bajan un .zip con las
+# paginas de Moodle que esa extraccion visitaria, sin parsear ni importar nada.
+
+def descargar_html_tareas(ids, cookie=None, stop_event=None):
+    return html_crudo.descargar_html_tareas(ids, cookie=cookie, stop_event=stop_event)
+
+
+def descargar_html_detalle(ids, cookie=None, stop_event=None):
+    return html_crudo.descargar_html_detalle(ids, cookie=cookie, stop_event=stop_event)
+
+
+def descargar_html_estudiantes(ids, cookie=None, stop_event=None):
+    return html_crudo.descargar_html_estudiantes(ids, cookie=cookie, stop_event=stop_event)
+
+
+def descargar_html_ultimo_acceso(ids, cookie=None, stop_event=None):
+    return html_crudo.descargar_html_ultimo_acceso(ids, cookie=cookie, stop_event=stop_event)
 
 
 def asignacion_tareas(ids=None, config_base=None):

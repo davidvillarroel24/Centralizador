@@ -58,7 +58,14 @@ async def obtener_detalle_tarea_async(moodle, tareas, stop_event=None):
                 print("Extrayendo la unidad:", t0["unidad"])
                 for t1 in t0['contenido']:
                     titulotarea = t1["Titulo"]
-                    tarea_url = t1["url"] + "&action=editsubmission"
+                    # Antes se pedía t1["url"] + "&action=editsubmission" (pensado para
+                    # alumno/docente), pero un Decano no tiene permiso para esa acción
+                    # (error/nopermission) y nunca llegaba a ver la descripción de la
+                    # tarea (encontrado 2026-11-10). El link base (sin action) ya muestra
+                    # la misma descripción/archivos a cualquier rol con acceso de
+                    # visualización - docente, decano o admin - así que sirve igual de
+                    # fallback único en vez de depender de una acción puntual.
+                    tarea_url = t1["url"]
                     # lanzamos la petición en paralelo
                     tasks.append(procesar_tarea(session, tarea_url, t0["unidad"], titulotarea, t1["url"], semaphore))
 
@@ -110,14 +117,6 @@ async def procesar_tarea(session, tarea_url, unidad, titulotarea, fallback_url, 
     }
 
     desc_div = soup.find("div", class_="activity-description")
-    desc_over = soup.find("div", class_="no-overflow")
-
-    # fallback si no encontró descripción
-    if desc_over is None:
-        html = await fetch(session, fallback_url, semaphore)
-        soup = BeautifulSoup(html, "html.parser")
-        desc_div = soup.find("div", class_="activity-description")
-        desc_over = soup.find("div", class_="no-overflow")
 
     # descripcion_dict["html"] = html
 

@@ -7,6 +7,7 @@ from scraping.scrapers.calificaciones import obtener_calificaciones_async
 from scraping.scrapers.profesores import obtener_profesores_async
 from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
 from scraping.scrapers.participantes import obtener_participantes_async, PERPAGE_MINIMO
+from scraping.scrapers.materiales import obtener_materiales_async
 from scraping.scrapers import html_crudo
 from scraping.scrapers.asignartareas import  auto_asignar_tareas
 from scraping.scrapers.asignartareas import  mostrar_resumen_tareas
@@ -336,6 +337,36 @@ def participantes(ids, cookie=None, stop_event=None, perpage=PERPAGE_MINIMO):
     exportarjson.save_participantes(resultado)
 
     print(f"[participantes] OK: {len(resultado)} registro(s) guardados en {config.JSON_PARTICIPANTES}")
+    return resultado, detenido
+
+
+def materiales(ids, cookie=None, stop_event=None):
+    """Unico lugar para extraer el material de apoyo (Tarea.tipo='url': recursos de
+    enlace externo o de archivo subidos por el docente, catch-all de todo lo que no es
+    'assign' - ver scraping/scrapers/materiales.py) de los cursos seleccionados. Otra
+    vuelta completa por Moodle, igual de costosa que estudiantes()/detalle_tarea() - una
+    visita por tarea tipo url."""
+    _cursos_seleccionados_o_falla(ids, 'extraer su material de apoyo')
+
+    tareas_qs = (
+        Tarea.objects.filter(tipo='url', unidad__materia_id__in=ids)
+        .exclude(url='')
+    )
+    tareas = [{'moodle_id': t.moodle_id, 'url': t.url} for t in tareas_qs]
+    if not tareas:
+        raise ValueError(
+            'No se encontraron materiales (tipo url) importados para los cursos '
+            'seleccionados. Corré primero "1. Extraer, asignar e importar tareas" para '
+            'esos mismos cursos.'
+        )
+
+    moodle = MoodleSession(cookie=cookie)
+    resultado = asyncio.run(obtener_materiales_async(moodle, tareas, stop_event))
+    detenido = stop_event is not None and stop_event.is_set()
+
+    exportarjson.save_materiales(resultado)
+
+    print(f"[materiales] OK: {len(resultado)} registro(s) guardados en {config.JSON_MATERIALES}")
     return resultado, detenido
 
 

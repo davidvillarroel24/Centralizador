@@ -127,7 +127,7 @@
                     </div>
                     <div style="flex:2; min-width:220px;">
                         <label for="inputBusqueda" class="note" style="display:block; margin-bottom:4px;">Buscar (docente, estudiante, carrera o materia)</label>
-                        <input type="text" name="q" id="inputBusqueda" class="config-input" style="width:100%;" value="{{ busqueda }}" placeholder="Ej: García, Programación Web...">
+                        <input type="text" name="q" id="inputBusqueda" class="config-input" style="width:100%;" value="{{ busqueda }}" placeholder="Ej: García, Programación Web..." autocomplete="off">
                     </div>
                     <button type="submit" class="btn btn-secondary" style="width:auto; padding:10px 16px;">Buscar</button>
                     {% if carrera_dash or materia_dash or busqueda %}
@@ -141,31 +141,7 @@
             {% csrf_token %}
             <input type="hidden" name="role" value="{{ role }}" />
 
-            <section class="courses-panel">
-                <div class="panel">
-                    <h2>Cursos disponibles</h2>
-                    {% regroup courses by carrera_nombre as grupos_carrera %}
-                    {% for grupo in grupos_carrera %}
-                        <details class="carrera-group" {% if grupos_carrera|length == 1 or grupos_carrera_abiertos %}open{% endif %}>
-                            <summary>{{ grupo.grouper|default:"Sin carrera" }} <span class="note">({{ grupo.list|length }})</span></summary>
-                            <div class="courses-grid">
-                                {% for course in grupo.list %}
-                                    <article class="course-card{% if course.id|stringformat:'s' in selected_ids %} selected{% endif %}">
-                                        <label class="course-checkbox">
-                                            <input type="checkbox" name="courses" value="{{ course.id }}" {% if course.id|stringformat:'s' in selected_ids %}checked{% endif %}>
-                                            <span class="course-checkbox-label">{{ course.asignatura }}</span>
-                                        </label>
-                                        <div class="course-meta">ID: {{ course.id }}</div>
-                                        <a class="course-link" href="{{ course.url }}" target="_blank">Abrir</a>
-                                    </article>
-                                {% endfor %}
-                            </div>
-                        </details>
-                    {% empty %}
-                        <div class="empty-state">No se encontraron cursos en la base de datos. Necesitas importar materias (tabla <code>Materia</code>) antes de poder extraer.</div>
-                    {% endfor %}
-                </div>
-            </section>
+            {% include 'web/_dashboard_cursos_panel.html' %}
 
             <section class="actions-panel">
                 <div class="panel">
@@ -182,7 +158,7 @@
                         {% endif %}
                         {# requiere-cookie: llaman a Moodle; se habilitan al guardar la cookie (ver script de captura). #}
                         <button type="submit" name="action" value="cargar_tareas" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>1. Extraer, asignar e importar tareas</button>
-                        <button type="submit" name="action" value="cargar_detalle" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>2. Extraer e importar detalle de tareas</button>
+                        <button type="submit" name="action" value="cargar_detalle" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>2. Extraer e importar detalle de tareas y material de apoyo</button>
                         <button type="submit" name="action" value="ver_asignacion" class="btn btn-secondary">✏️ Revisar asignación del curso seleccionado</button>
                         <button type="submit" name="action" value="cargar_estudiantes" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>3. Extraer e importar estudiantes</button>
                         <button type="submit" name="action" value="cargar_ultimo_acceso" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>4. Extraer e importar último acceso</button>
@@ -194,7 +170,7 @@
                     </p>
                     <div class="note">
                         {% if es_administrador %}"0. Extraer e importar carreras" pregunta si hace falta recorrer Moodle de nuevo (necesita cookie guardada) o si alcanza con re-importar lo último ya extraído; en ambos casos carga Facultad/Carrera/Nivel/Profesor/Materia a la base de datos. Solo lo ve una cuenta Administrador.{% endif %}
-                        Seleccioná un curso (uno solo a la vez para "1"/"2"/"3"/"4", que llaman a Moodle) y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "2" trae la descripción y los archivos que subió el docente en cada tarea (necesita que "1" ya haya corrido para el curso) — es otra vuelta completa por Moodle, usalo solo si hace falta ese detalle. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base. "3" y "4" extraen e importan estudiantes y el padrón de último acceso del curso seleccionado — "4" trae a todos los inscritos (vía /user/index.php), a diferencia de "3" que solo ve a quien entregó algo. "5. Generar Excel" sí acepta varios cursos tildados a la vez (no llama a Moodle, solo lee de la base).
+                        Seleccioná un curso (uno solo a la vez para "1"/"2"/"3"/"4", que llaman a Moodle) y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "2" trae, para las tareas tipo 'assign', la descripción y los archivos que subió el docente, y además el material de apoyo (enlaces/archivos/cuestionarios) de ese mismo curso (necesita que "1" ya haya corrido para el curso) — es otra vuelta completa por Moodle, usalo solo si hace falta ese detalle. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base. "3" y "4" extraen e importan estudiantes y el padrón de último acceso del curso seleccionado — "4" trae a todos los inscritos (vía /user/index.php), a diferencia de "3" que solo ve a quien entregó algo. "5. Generar Excel" sí acepta varios cursos tildados a la vez (no llama a Moodle, solo lee de la base).
                     </div>
                 </div>
             </section>
@@ -241,7 +217,10 @@
                     Cada tarea pertenece a una sola categoría — elegí la correcta y guardá. El parcial
                     lo pone por defecto la fecha de cierre, pero se puede corregir acá para el caso
                     puntual en que haga falta. Esto escribe directo en la base de datos, sin pasos
-                    intermedios.
+                    intermedios. "Asignar automáticamente" recalcula categoría y parcial de todas las
+                    tareas de este curso según la fecha de cierre de cada una y la configuración de
+                    parciales actual (/configuración) — útil si esa configuración estaba mal y ya la
+                    corregiste, sin tener que repetir "1." ni volver a extraer de Moodle.
                 </p>
                 <form id="formAsignacionManual" class="modal-form">
                     <div class="modal-scroll" id="asignacionScroll">
@@ -283,6 +262,7 @@
                         {% endfor %}
                     </div>
                     <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="asignacionReasignarAuto">Asignar automáticamente (por fechas)</button>
                         <button type="button" class="btn btn-secondary" id="asignacionCancelar">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Guardar cambios</button>
                     </div>
@@ -345,6 +325,64 @@
         });
     })();
 
+    // Filtro de cursos (#formFiltrosCursos: carrera/materia/buscador): va por fetch() en
+    // vez de un submit nativo, para no recargar la página entera (bug encontrado
+    // 2026-11-10: un GET normal perdía los cursos ya tildados en #formAcciones, porque esa
+    // selección solo viaja en la URL vía ?courses=... y este form no la incluía) - así solo
+    // se reemplaza la grilla de "Cursos disponibles" (#coursesPanel), arrastrando los
+    // cursos tildados como ?courses= para que el filtrado no los pierda.
+    (function () {
+        var formFiltros = document.getElementById('formFiltrosCursos');
+        var coursesPanel = document.getElementById('coursesPanel');
+        if (!formFiltros || !coursesPanel) return;
+
+        function bindCheckboxes() {
+            var counter = document.querySelector('.selection-summary strong');
+            var checkboxes = document.querySelectorAll('input[type="checkbox"][name="courses"]');
+            function syncSelection() {
+                var checked = 0;
+                checkboxes.forEach(function (box) {
+                    var card = box.closest('.course-card');
+                    if (box.checked) {
+                        checked += 1;
+                        if (card) card.classList.add('selected');
+                    } else if (card) {
+                        card.classList.remove('selected');
+                    }
+                });
+                if (counter) counter.textContent = checked;
+            }
+            checkboxes.forEach(function (box) { box.addEventListener('change', syncSelection); });
+            syncSelection();
+        }
+
+        formFiltros.addEventListener('submit', function (ev) {
+            ev.preventDefault();
+            var datos = new FormData(formFiltros);
+            document.querySelectorAll('input[type="checkbox"][name="courses"]:checked').forEach(function (box) {
+                datos.append('courses', box.value);
+            });
+            var params = new URLSearchParams();
+            datos.forEach(function (valor, clave) { if (valor) params.append(clave, valor); });
+
+            fetch(window.location.pathname + '?' + params.toString(), {
+                method: 'GET',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            }).then(function (r) { return r.text(); }).then(function (html) {
+                coursesPanel.outerHTML = html;
+                coursesPanel = document.getElementById('coursesPanel');
+                bindCheckboxes();
+                window.history.pushState(null, '', '?' + params.toString());
+            }).catch(function () {
+                if (window.Swal) {
+                    Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo filtrar los cursos.', confirmButtonColor: '#9b5bf6' });
+                } else {
+                    formFiltros.submit();
+                }
+            });
+        });
+    })();
+
     // Botones de extracción larga ("cargar_*"): se mandan por fetch() en vez de un submit
     // normal, para que la página NO navegue/recargue (el usuario se queda exactamente
     // donde estaba, con la selección de cursos intacta). Mientras la respuesta no llega,
@@ -357,9 +395,10 @@
         // C11 (README): estas acciones llaman a Moodle de verdad y solo aceptan 1 curso a
         // la vez (a diferencia de "5. Generar Excel"/"Revisar asignación", que sí son
         // multi-select porque no tocan Moodle). "cargar_detalle" se suma a esta lista por
-        // el mismo motivo que las otras: visita Moodle una vez por tarea. El servidor ya lo
-        // rechaza igual si llega un POST armado a mano con varios; esto solo evita el viaje
-        // al servidor para avisar al instante.
+        // el mismo motivo que las otras: visita Moodle una vez por tarea (ahora también
+        // trae el material de apoyo del curso, fusionado en este mismo paso). El servidor
+        // ya lo rechaza igual si llega un POST armado a mano con varios; esto solo evita
+        // el viaje al servidor para avisar al instante.
         var ACCIONES_UN_SOLO_CURSO = ['cargar_tareas', 'cargar_detalle', 'cargar_estudiantes', 'cargar_ultimo_acceso'];
         // "ver_asignacion" también va por fetch() (sin spinner ni candado: no toca Moodle,
         // solo arma el modal) - antes era un submit normal que recargaba la página entera y
@@ -640,6 +679,40 @@
                     if (data.abrir_modal_asignacion) {
                         // Se re-pinta con lo que acaba de quedar guardado en la base, el
                         // modal se queda abierto por si hay más para corregir.
+                        pintarAsignacion(data.asignacion_detalle, data.categorias_peso);
+                    }
+                }).catch(function () {
+                    if (window.Swal) {
+                        Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor.', confirmButtonColor: '#9b5bf6' });
+                    }
+                });
+            });
+        }
+
+        // "Asignar automáticamente" del modal: recalcula categoría/parcial por fecha de
+        // cierre con la config de parciales actual, sin extraer de Moodle - para cuando esa
+        // config tenía una fecha mal puesta y ya se corrigió (ver
+        // run_reasignar_automatico_web en views.py). Repinta el modal con el resultado,
+        // igual que "Guardar cambios", en vez de cerrarlo.
+        var btnReasignarAuto = document.getElementById('asignacionReasignarAuto');
+        if (btnReasignarAuto) {
+            btnReasignarAuto.addEventListener('click', function () {
+                var datos = new FormData();
+                datos.set('action', 'reasignar_automatico');
+                datos.set('role', '{{ role|escapejs }}');
+                cursosDelModal.forEach(function (id) { datos.append('courses', id); });
+
+                fetch(window.location.pathname, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken },
+                    body: datos,
+                }).then(function (r) { return r.json(); }).then(function (data) {
+                    if (data.error) {
+                        mostrarResultado({ error: data.error, link: data.error_link, errorTitle: data.error_link ? null : 'No se pudo completar' });
+                        return;
+                    }
+                    if (data.action_result) mostrarResultado(data.action_result);
+                    if (data.abrir_modal_asignacion) {
                         pintarAsignacion(data.asignacion_detalle, data.categorias_peso);
                     }
                 }).catch(function () {

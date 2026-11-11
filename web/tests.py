@@ -107,6 +107,64 @@ class PreparacionExtraccionTests(TestCase):
 
 
 @override_settings(STORAGES=SIN_MANIFIESTO)
+class ReasignarAutomaticoTests(TestCase):
+    """'Asignar automáticamente' del modal "Revisar asignación" (ver
+    run_reasignar_automatico_web en web/views.py): recalcula categoría/parcial por fecha de
+    cierre con la config ACTUAL, sin pasar por Moodle - para cuando esa config tenía una
+    fecha mal puesta (ej. un año equivocado) y se corrigió después (bug reportado
+    2026-11-10)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='docente.reasignar', password='clave-123')
+        self.profesor = Profesor.objects.create(
+            moodle_id=434343, nombre='docente.reasignar', url='https://moodle.example/user/view.php?id=434343',
+            user=self.user,
+        )
+        facultad = Facultad.objects.create(nombre='Ingeniería Reasignar')
+        carrera = Carrera.objects.create(facultad=facultad, nombre='Sistemas Reasignar')
+        self.materia = Materia.objects.create(
+            moodle_nombre='Materia Reasignar 2026', nombre='Materia Reasignar', gestion=2026, carrera=carrera,
+        )
+        self.materia.profesores.add(self.profesor)
+        unidad = Unidad.objects.create(materia=self.materia, nombre='U1')
+        self.tarea = Tarea.objects.create(
+            unidad=unidad, moodle_id=919191, titulo='Examen final', tipo='assign',
+            cierre='miércoles, 11 de marzo de 2026, 23:59',
+            url='https://moodle.example/mod/assign/view.php?id=919191',
+        )
+        self.client.force_login(self.user)
+
+    def _post_xhr(self, action, **extra):
+        datos = {'action': action, 'courses': [str(self.materia.id)], 'role': 'all', **extra}
+        return self.client.post(reverse('dashboard'), datos, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+    def test_recalcula_sin_volver_a_extraer_tras_corregir_las_fechas(self):
+        # Fechas mal configuradas (2025) mientras la tarea es de 2026: la tarea queda sin
+        # categoria/parcial.
+        FechasParciales.objects.create(profesor=self.profesor, p1_inicio='2025-01-01', p1_fin='2025-04-01')
+        PesosCategorias.objects.create(profesor=self.profesor, examen=100)
+        self._post_xhr('reasignar_automatico')
+        self.tarea.refresh_from_db()
+        self.assertIsNone(self.tarea.parcial)
+        self.assertIsNone(self.tarea.categoria)
+
+        # Se corrigen las fechas (2026, sin tocar nada más) y se reasigna de nuevo sin
+        # pasar por "1." (sin cookie, sin Moodle): la tarea ahora sí debe quedar asignada.
+        FechasParciales.objects.filter(profesor=self.profesor).update(p1_inicio='2026-01-01', p1_fin='2026-04-01')
+        respuesta = self._post_xhr('reasignar_automatico')
+        datos = respuesta.json()
+        self.assertIsNone(datos['error'])
+        self.assertTrue(datos['abrir_modal_asignacion'])
+        self.tarea.refresh_from_db()
+        self.assertEqual(self.tarea.parcial, 1)
+        self.assertEqual(self.tarea.categoria, 'examen')
+
+    def test_sin_cursos_seleccionados_da_error_claro(self):
+        respuesta = self._post_xhr('reasignar_automatico', courses=[])
+        self.assertEqual(respuesta.json()['error'], 'Debes seleccionar al menos un curso para reasignar.')
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
 class GuiaDeUsoTests(TestCase):
     """La guía arranca sola la primera vez (Configuración, pasos 1-4), sigue en Extracción
     (pasos 5-10) y deja de salir sola una vez terminada o cerrada."""

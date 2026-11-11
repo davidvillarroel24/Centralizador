@@ -127,16 +127,31 @@ def datos_reporte_contenido(materias_qs, tipo, docente_id=''):
 
     filas = []
     for docente in docentes:
-        materias = docente.materias.filter(pk__in=materias_qs).order_by('nombre').prefetch_related('unidades__tareas')
+        materias = docente.materias.filter(pk__in=materias_qs).order_by('nombre').prefetch_related(
+            'unidades__tareas__archivos_tarea'
+        )
         for materia in materias:
             for unidad in materia.unidades.all().order_by('nombre'):
                 for tarea in unidad.tareas.filter(tipo=tipo).order_by('titulo'):
+                    if tipo == 'assign':
+                        extra = tarea.cierre
+                    else:
+                        # BUG (encontrado 2026-11-10): antes esto siempre mostraba
+                        # tarea.url (la pagina de Moodle de ese material), nunca el link
+                        # externo real que el docente puso (Drive, YouTube, etc.) - esa
+                        # extraccion no existia todavia (ver scraping/scrapers/
+                        # materiales.py). Ahora prefiere url_entrega (el link externo) y,
+                        # si no hay, el archivo propio (ArchivoTarea) cuando el material
+                        # es solo un archivo subido sin link - tarea.url queda de ultimo
+                        # recurso (ej. un cuestionario, que no tiene ninguna de las dos).
+                        archivo = tarea.archivos_tarea.all()[0] if tarea.archivos_tarea.all() else None
+                        extra = tarea.url_entrega or (archivo.url if archivo else None) or tarea.url
                     filas.append({
                         'docente': docente.nombre,
                         'materia': materia.nombre,
                         'unidad': unidad.nombre,
                         'titulo': tarea.titulo,
-                        'extra': tarea.cierre if tipo == 'assign' else tarea.url,
+                        'extra': extra,
                         'url': tarea.url,
                     })
     return filas

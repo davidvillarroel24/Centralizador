@@ -106,6 +106,9 @@
                         <label class="note" style="display:block; margin-bottom:4px;">Tipo</label>
                         <select id="avmFiltroTipo" class="form-select-custom" style="width:100%;">
                             <option value="assign">Evaluables (assign)</option>
+                            <option value="url">Enlaces</option>
+                            <option value="resource">Recursos/archivos</option>
+                            <option value="quiz">Cuestionarios</option>
                             <option value="">Todas</option>
                         </select>
                     </div>
@@ -179,9 +182,23 @@ new DataTable('#tblMaterias');
         var act = actividadesActuales[indice];
         if (!act) return;
         detalleTitulo.textContent = act.unidad + ' — ' + act.titulo;
-        if (act.tipo !== 'assign') {
-            detalleResumen.textContent = 'Esta actividad no es evaluable (tipo: ' + act.tipo + '), no tiene entregas de estudiantes.';
-            detalleTbody.innerHTML = '';
+        if (act.subtipo !== 'assign') {
+            var tieneMaterial = act.url_entrega || (act.archivos_tarea && act.archivos_tarea.length);
+            if (tieneMaterial) {
+                detalleResumen.textContent = 'Material de apoyo (tipo: ' + act.subtipo + '), no tiene entregas de estudiantes.';
+                var filas = '';
+                if (act.url_entrega) {
+                    filas += '<tr><td colspan="4">Enlace externo</td><td><a href="' + escapeAttr(act.url_entrega) +
+                        '" target="_blank">' + escapeTexto(act.url_entrega) + '</a></td></tr>';
+                }
+                if (act.archivos_tarea && act.archivos_tarea.length) {
+                    filas += '<tr><td colspan="4">Archivo propio</td><td>' + enlaceArchivos(act.archivos_tarea) + '</td></tr>';
+                }
+                detalleTbody.innerHTML = filas;
+            } else {
+                detalleResumen.textContent = 'Esta actividad no es evaluable (tipo: ' + act.subtipo + '), no tiene entregas de estudiantes ni material de apoyo.';
+                detalleTbody.innerHTML = '';
+            }
         } else {
             detalleResumen.textContent = act.entregados + ' de ' + act.total_estudiantes + ' estudiantes entregaron.';
             detalleTbody.innerHTML = act.entregas.map(function (e) {
@@ -206,14 +223,16 @@ new DataTable('#tblMaterias');
         tbody.innerHTML = '';
         actividadesActuales.forEach(function (act, indice) {
             if (texto && act.titulo.toLowerCase().indexOf(texto) === -1) return;
-            if (!texto && tipoFiltro && act.tipo !== tipoFiltro) return;
+            if (!texto && tipoFiltro && act.subtipo !== tipoFiltro) return;
             visibles.push(indice);
             var tr = document.createElement('tr');
-            var celdaEntregas = act.tipo === 'assign' ? (act.entregados + ' / ' + act.total_estudiantes) : '—';
+            var tieneMaterial = act.url_entrega || (act.archivos_tarea && act.archivos_tarea.length);
+            var celdaEntregas = act.subtipo === 'assign' ? (act.entregados + ' / ' + act.total_estudiantes)
+                : (tieneMaterial ? 'Ver material' : '—');
             tr.innerHTML =
                 '<td>' + escapeTexto(act.unidad) + '</td>' +
                 '<td><a href="' + act.url + '" target="_blank">' + escapeTexto(act.titulo) + '</a></td>' +
-                '<td>' + escapeTexto(act.tipo) + '</td>' +
+                '<td>' + escapeTexto(act.subtipo) + '</td>' +
                 '<td>' + escapeTexto(act.cierre) + '</td>' +
                 '<td><button type="button" class="btn btn-secondary btn-ver-detalle-actividad" ' +
                     'data-indice="' + indice + '" style="width:auto; padding:4px 10px; font-size:0.8rem;">' + celdaEntregas + '</button></td>';

@@ -1,6 +1,6 @@
 from gatfh import config
 from services.data_utils import cargarjson
-from data.models import Facultad, Carrera, Nivel, Materia, Unidad, Tarea, Estudiante, Entrega, Profesor, AccesoCurso
+from data.models import Facultad, Carrera, Nivel, Materia, Unidad, Tarea, Estudiante, Entrega, Profesor, AccesoCurso, ArchivoTarea
 from django.db import transaction
 import re
 
@@ -161,6 +161,46 @@ def import_participantes_a_accesos():
             resultado['creados'] += 1
         else:
             resultado['actualizados'] += 1
+
+    return resultado
+
+
+def import_materiales_from_json():
+    """Importa materiales.json (salida de 'Extraer material de apoyo', ver
+    scraping/scrapers/materiales.py) hacia Tarea.url_entrega (el link externo que puso el
+    docente) o ArchivoTarea (su archivo propio, cuando no hay link) - se reusan estos dos
+    campos/tabla ya existentes en vez de agregar uno nuevo, igual criterio que
+    detalles_tareas.py usa para las tareas tipo assign; aca `tipo` ya los distingue, asi
+    que no hay colision real de significado por fila."""
+    materiales = cargarjson.cargar_materiales()
+    resultado = {'con_enlace': 0, 'con_archivo': 0, 'sin_nada': 0, 'no_encontradas': 0}
+
+    for m in materiales:
+        tarea = Tarea.objects.filter(moodle_id=m.get('id')).first()
+        if not tarea:
+            resultado['no_encontradas'] += 1
+            continue
+
+        enlace = m.get('enlace_externo')
+        archivo = m.get('archivo')
+
+        tarea.url_entrega = enlace
+        tarea.save(update_fields=['url_entrega'])
+
+        if enlace:
+            resultado['con_enlace'] += 1
+        elif archivo and archivo.get('url'):
+            ArchivoTarea.objects.update_or_create(
+                tarea=tarea,
+                nombre=archivo.get('nombre') or tarea.titulo,
+                defaults={'url': archivo['url']},
+            )
+            resultado['con_archivo'] += 1
+        else:
+            resultado['sin_nada'] += 1
+
+    print(f"Materiales importados a BD: {resultado}")
+    return resultado
 
     print(f"[participantes] Importados a AccesoCurso: {resultado}")
     return resultado

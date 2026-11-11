@@ -23,7 +23,7 @@ from gatfh import config
 from services.utils import run_scraping
 from services.data_utils.import_to_db import (
     import_tareas_from_json, import_asignacion_from_json,
-    import_participantes_a_accesos,
+    import_participantes_a_accesos, import_materiales_from_json,
 )
 from services.data_utils.import_estudiantes_to_db import import_estudiantes_from_json
 from services.extraccion.trasformar import extraer_transformar
@@ -467,6 +467,22 @@ def run_importar_asignacion_web():
     }
 
 
+def run_reasignar_automatico_web(selected_ids, profesor):
+    """'Asignar automáticamente' del modal "Revisar asignación": recalcula categoría/
+    parcial por fecha de cierre con la config de parciales ACTUAL (/configuracion/), sin
+    volver a extraer de Moodle - antes, si esa config tenía una fecha mal puesta (ej. un
+    año equivocado) y se corregía después, la única forma de aplicar la corrección era
+    repetir "1." entero (otra vuelta completa por Moodle); esto solo relee Tarea (ya en la
+    base) y reescribe categoria/parcial, igual que hace "1." en sus pasos finales pero sin
+    la extracción pesada."""
+    pasos = []
+    resultado = run_asignacion_web(selected_ids, profesor)
+    pasos.append(resultado['detail'])
+    resultado = run_importar_asignacion_web()
+    pasos.append(resultado['detail'])
+    return {'title': 'Asignación recalculada', 'detail': ' | '.join(pasos), 'count': None}
+
+
 def run_extraer_carreras_web(cookie, stop_event=None):
     """Paso 0, previo a la seleccion de cursos: recorre todas las facultades/categorias de
     Moodle y arma la jerarquia Facultad > Carrera > Nivel > Materia (+ profesor por materia)
@@ -892,7 +908,11 @@ def run_importar_detalle_web():
 
 
 def run_cargar_detalle_web(selected_ids, cookie, stop_event):
-    """'2. Extraer detalle de tareas' -> 'Importar detalle de tareas'."""
+    """'2. Extraer detalle de tareas' -> 'Importar detalle' -> 'Extraer material de apoyo'
+    -> 'Importar material de apoyo'. Antes el material de apoyo era un botón aparte ("4b."),
+    pero visita Moodle tarea por tarea igual que el detalle, para los mismos cursos
+    seleccionados - separarlo solo obligaba a correr dos extracciones completas donde una
+    alcanza, así que queda fusionado en este único paso."""
     pasos = []
     resultado = run_extraer_detalle_web(selected_ids, cookie, stop_event)
     pasos.append(resultado['detail'])
@@ -905,7 +925,60 @@ def run_cargar_detalle_web(selected_ids, cookie, stop_event):
     except Exception as exc:
         raise ValueError(f"Se detuvo después de: {' | '.join(pasos)}. Error: {exc}") from exc
 
-    return {'title': 'Detalle de tareas extraído e importado', 'detail': ' | '.join(pasos), 'count': None}
+    try:
+        resultado = run_extraer_materiales_web(selected_ids, cookie, stop_event)
+    except ValueError:
+        # El curso seleccionado no tiene ninguna Tarea tipo 'url' (enlace/recurso/quiz) -
+        # no es un error, algunos cursos son solo 'assign'. El detalle de arriba ya quedó
+        # importado igual, así que no tiene sentido abortar todo el paso por esto.
+        pasos.append('Sin material de apoyo (tipo url) para este curso - nada que extraer.')
+        return {'title': 'Detalle de tareas extraído e importado', 'detail': ' | '.join(pasos), 'count': None}
+    pasos.append(resultado['detail'])
+    if resultado.get('detenido'):
+        return {'title': 'Detalle y material de apoyo extraídos (detenido)', 'detail': ' | '.join(pasos), 'count': None}
+
+    try:
+        resultado = run_importar_materiales_web()
+        pasos.append(resultado['detail'])
+    except Exception as exc:
+        raise ValueError(f"Se detuvo después de: {' | '.join(pasos)}. Error: {exc}") from exc
+
+    return {'title': 'Detalle de tareas y material de apoyo extraídos e importados', 'detail': ' | '.join(pasos), 'count': None}
+
+
+def run_extraer_materiales_web(selected_ids, cookie, stop_event=None):
+    """Material de apoyo (Tarea.tipo='url') de los cursos seleccionados: el link externo
+    que puso el docente, o su archivo propio cuando no hay link - ver
+    scraping/scrapers/materiales.py. Otra vuelta completa por Moodle, mismo costo que "2."/
+    "3.". Solo tiene sentido despues de que "1" ya haya importado esas tareas a la base."""
+    if not selected_ids:
+        raise ValueError('Debes seleccionar al menos un curso para extraer su material de apoyo.')
+
+    resultado, detenido = run_scraping.materiales(selected_ids, cookie=cookie, stop_event=stop_event)
+
+    detalle = (
+        f'Extracción de material de apoyo completada: {len(resultado)} material(es) procesado(s), '
+        f'guardados en {config.JSON_MATERIALES}.'
+    )
+    if detenido:
+        detalle = f'Extracción detenida manualmente. Resultados parciales: {detalle}'
+    return {
+        'title': 'Material de apoyo extraído',
+        'detail': detalle,
+        'count': len(resultado),
+        'detenido': detenido,
+    }
+
+
+def run_importar_materiales_web():
+    """Importa materiales.json (ya extraido por 'Extraer material de apoyo') hacia
+    Tarea.url_entrega (el link externo) o ArchivoTarea (su archivo propio)."""
+    resultado = import_materiales_from_json()
+    return {
+        'title': 'Material de apoyo importado',
+        'detail': f'Importación a la base de datos completada: {resultado}.',
+        'count': None,
+    }
 
 
 def resolver_cookie_moodle(request):
@@ -1080,13 +1153,19 @@ def dashboard(request):
             elif action == 'guardar_asignacion_manual':
                 action_result = run_guardar_asignacion_manual_web(request.POST, selected_ids)
                 abrir_modal_asignacion = True
+            elif action == 'reasignar_automatico':
+                if not selected_ids:
+                    error = 'Debes seleccionar al menos un curso para reasignar.'
+                else:
+                    action_result = run_reasignar_automatico_web(selected_ids, get_current_profesor(request))
+                    abrir_modal_asignacion = True
             elif action == 'importar_estudiantes':
                 action_result = run_importar_estudiantes_web()
             elif action == 'importar_participantes':
                 action_result = run_importar_participantes_web()
             elif action in ('cargar_carreras', 'cargar_tareas', 'cargar_detalle', 'cargar_estudiantes',
-                             'cargar_ultimo_acceso', 'extraer_carreras', 'extraer_tareas', 'estudiantes',
-                             'extraer_participantes'):
+                             'cargar_ultimo_acceso', 'extraer_carreras', 'extraer_tareas',
+                             'estudiantes', 'extraer_participantes'):
                 # Unicas acciones que llaman a Moodle de verdad: pasan por el candado global
                 # para que no arranquen dos extracciones de usuarios distintos en paralelo.
                 # "cargar_carreras" ademas es la unica que solo puede disparar un Administrador
@@ -1281,6 +1360,11 @@ def dashboard(request):
         # se filtro a proposito.
         'grupos_carrera_abiertos': bool(carrera_dash or materia_dash or busqueda),
     }
+    # El filtro de cursos (#formFiltrosCursos) manda este mismo GET por fetch() para no
+    # recargar la página entera - acá se le responde solo la grilla de cursos en vez del
+    # dashboard completo (ver dashboard.html).
+    if request.method == 'GET' and request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return render(request, 'web/_dashboard_cursos_panel.html', context)
     return render(request, 'web/dashboard.html', context)
 
 
@@ -2079,8 +2163,26 @@ def docente_avances(request, profesor_id):
     })
 
 
+def _subtipo_de_tarea(tarea):
+    """Desambigua Tarea.tipo='url' (catch-all en la BD) a partir de la URL real de Moodle,
+    para el filtro de "Ver avances" (ver materia_avances) - no se guarda en la BD, se
+    calcula al vuelo porque es solo para mostrar/filtrar, igual criterio que
+    scraping/scrapers/materiales.py usa para decidir dónde buscar el material."""
+    if tarea.tipo == 'assign':
+        return 'assign'
+    if '/mod/url/' in tarea.url:
+        return 'url'
+    if '/mod/resource/' in tarea.url:
+        return 'resource'
+    if '/mod/quiz/' in tarea.url:
+        return 'quiz'
+    return 'otro'
+
+
 @login_required
 @requiere_rol(*ROLES_STAFF)
+
+
 def materia_avances(request, materia_id):
     """JSON para el modal "Ver avances" de materias.html: a diferencia de docente_avances/
     estudiante_avances (una sola lista plana), acá el docente necesita revisar entregas
@@ -2104,7 +2206,7 @@ def materia_avances(request, materia_id):
     tareas = (
         Tarea.objects.filter(unidad__materia=materia)
         .select_related('unidad')
-        .prefetch_related('entregas__estudiante', 'entregas__archivos_entrega')
+        .prefetch_related('entregas__estudiante', 'entregas__archivos_entrega', 'archivos_tarea')
         .order_by('unidad__nombre', 'titulo')
     )
 
@@ -2116,7 +2218,18 @@ def materia_avances(request, materia_id):
             'unidad': t.unidad.nombre,
             'titulo': t.titulo,
             'tipo': t.tipo,
+            # Tarea.tipo es un catch-all en la BD: todo lo que no es 'assign' queda como
+            # 'url', aunque en Moodle sean 3 cosas distintas (enlace externo de verdad,
+            # archivo subido, cuestionario - ver scraping/scrapers/materiales.py). Acá se
+            # desambigua de nuevo por la URL real, solo para que el filtro del modal
+            # pueda distinguirlos sin tocar esa clasificación ya existente en la BD.
+            'subtipo': _subtipo_de_tarea(t),
             'url': t.url,
+            # Material de apoyo (tipo='url'): el link externo que puso el docente y/o su
+            # archivo propio (ver scraping/scrapers/materiales.py) - vacíos para 'assign'
+            # y para quizzes, que no tienen ninguno de los dos.
+            'url_entrega': t.url_entrega or None,
+            'archivos_tarea': _archivos_lista(t.archivos_tarea.all(), 'tarea'),
             'apertura': t.apertura or '—',
             'cierre': t.cierre or '—',
             'total_estudiantes': len(entregas),

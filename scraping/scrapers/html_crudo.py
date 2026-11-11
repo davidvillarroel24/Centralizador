@@ -24,12 +24,25 @@ CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
 async def _fetch(session, url, semaphore):
+    """Algunos recursos ("Mostrar: Automático") redirigen directo al archivo en vez de a
+    una pagina HTML intermedia - .text() sobre un PDF/imagen/etc. revienta con
+    UnicodeDecodeError porque ni es texto ni esta en UTF-8 (encontrado 2026-11-10,
+    intentando bajar el detalle de un curso con /mod/resource/ en modo automatico). Se
+    detecta por content-type antes de decodificar, y se deja una nota en vez de la pagina -
+    no hay HTML real que guardar, pero tampoco se quiere que la descarga entera se corte por
+    una sola URL."""
     async with semaphore:
         async with session.get(url) as resp:
-            text = await resp.text()
             if "/login/" in str(resp.url):
                 raise SesionExpiradaError("La sesión de Moodle expiró (la cookie ya no es válida).")
-            return text
+            tipo_contenido = resp.content_type or ''
+            es_texto = tipo_contenido.startswith('text/') or 'html' in tipo_contenido or 'xml' in tipo_contenido
+            if not es_texto:
+                return f"<!-- No es una página HTML: content-type={tipo_contenido!r}, url={url} -->"
+            try:
+                return await resp.text()
+            except UnicodeDecodeError:
+                return await resp.text(errors='replace')
 
 
 def _nombre_archivo(*partes):
@@ -40,20 +53,21 @@ def _nombre_archivo(*partes):
     return f"{texto[:150]}.html"
 
 
-def _tareas_filtradas_por_materia(ids):
-    """Mismo armado que run_scraping.detalle_tarea()/estudiantes(): Tarea tipo 'assign' de
-    los cursos seleccionados, agrupada por materia/unidad."""
-    tareas_qs = (
-        Tarea.objects.filter(tipo='assign', unidad__materia_id__in=ids)
-        .select_related('unidad__materia')
-        .order_by('unidad__materia_id', 'unidad_id')
-    )
+def _tareas_filtradas_por_materia(ids, tipos=None):
+    """Mismo armado que run_scraping.detalle_tarea()/estudiantes(): Tarea de los cursos
+    seleccionados, agrupada por materia/unidad. `tipos=None` trae todas (assign, url,
+    resource, lo que haya) - para "2. Detalle de tareas" interesa ver TODO lo que un docente
+    puede subir como material, no solo las assign (unica que filtraba antes)."""
+    qs = Tarea.objects.filter(unidad__materia_id__in=ids)
+    if tipos:
+        qs = qs.filter(tipo__in=tipos)
+    tareas_qs = qs.select_related('unidad__materia').order_by('unidad__materia_id', 'unidad_id')
     por_materia = {}
     for t in tareas_qs:
         materia = t.unidad.materia
         entrada = por_materia.setdefault(materia.id, {'asignatura': materia.moodle_nombre, 'tareas': {}})
         unidad_entrada = entrada['tareas'].setdefault(t.unidad_id, {'unidad': t.unidad.nombre, 'contenido': []})
-        unidad_entrada['contenido'].append({'Titulo': t.titulo, 'url': t.url})
+        unidad_entrada['contenido'].append({'Titulo': t.titulo, 'url': t.url, 'tipo': t.tipo})
     return [
         {'asignatura': e['asignatura'], 'tareas': list(e['tareas'].values())}
         for e in por_materia.values()
@@ -82,6 +96,9 @@ async def _descargar_tareas(moodle, cursos, stop_event=None):
 
 
 async def _descargar_detalle(moodle, tareas_filtradas, stop_event=None):
+    """`&action=editsubmission` solo existe (y da permiso) para tareas tipo 'assign' - el
+    resto (url, resource, lo que sea) se pide tal cual, con su URL normal de "ver la
+    actividad"."""
     semaphore = asyncio.Semaphore(5)
     paginas = {}
     cookies = moodle.session.cookies.get_dict()
@@ -91,8 +108,9 @@ async def _descargar_detalle(moodle, tareas_filtradas, stop_event=None):
                 break
             for t0 in t['tareas']:
                 for t1 in t0['contenido']:
-                    url = t1["url"] + "&action=editsubmission"
-                    nombre = _nombre_archivo(t["asignatura"], t0["unidad"], t1["Titulo"])
+                    tipo = t1.get('tipo') or 'assign'
+                    url = t1["url"] + "&action=editsubmission" if tipo == 'assign' else t1["url"]
+                    nombre = _nombre_archivo(t["asignatura"], t0["unidad"], t1["Titulo"], tipo)
                     paginas[nombre] = await _fetch(session, url, semaphore)
     return paginas
 
@@ -140,11 +158,12 @@ def _cursos_o_falla(ids):
     return cursos
 
 
-def _tareas_o_falla(ids):
-    tareas_filtradas = _tareas_filtradas_por_materia(ids)
+def _tareas_o_falla(ids, tipos=None):
+    tareas_filtradas = _tareas_filtradas_por_materia(ids, tipos=tipos)
     if not tareas_filtradas:
+        detalle_tipos = f' (tipo {", ".join(tipos)})' if tipos else ''
         raise ValueError(
-            'No se encontraron tareas (tipo assign) importadas para los cursos '
+            f'No se encontraron tareas{detalle_tipos} importadas para los cursos '
             'seleccionados. Corré primero "1. Extraer, asignar e importar tareas" para '
             'esos mismos cursos.'
         )
@@ -159,7 +178,9 @@ def descargar_html_tareas(ids, cookie=None, stop_event=None):
 
 
 def descargar_html_detalle(ids, cookie=None, stop_event=None):
-    """Paginas que visita '2. Extraer detalle de tareas': una por tarea tipo assign."""
+    """Paginas que visita '2. Extraer detalle de tareas' - PERO sin limitarse a tipo
+    assign: trae tambien url/resource/etc, para revisar como luce cada tipo de material
+    (ej. el link de Drive adentro de un recurso tipo url) antes de decidir como extraerlo."""
     tareas_filtradas = _tareas_o_falla(ids)
     moodle = MoodleSession(cookie=cookie)
     return asyncio.run(_descargar_detalle(moodle, tareas_filtradas, stop_event))
@@ -168,7 +189,7 @@ def descargar_html_detalle(ids, cookie=None, stop_event=None):
 def descargar_html_estudiantes(ids, cookie=None, stop_event=None):
     """Paginas que visita '3. Extraer estudiantes': la planilla de calificacion (primera
     pagina) de cada tarea tipo assign - la misma que detallesprofesores.py parsea."""
-    tareas_filtradas = _tareas_o_falla(ids)
+    tareas_filtradas = _tareas_o_falla(ids, tipos=['assign'])
     moodle = MoodleSession(cookie=cookie)
     return asyncio.run(_descargar_grading(moodle, tareas_filtradas, stop_event))
 

@@ -537,7 +537,11 @@
                 }).catch(function (err) { mostrarError(err.message); });
                 return;
             }
-            if (ext === 'txt' || ext === 'py') {
+            // html/css/js se muestran como código fuente (texto), no ejecutados: son
+            // entregas de los alumnos (ej. una práctica web para subir a Moodle) y renderizar
+            // su HTML en un iframe correría su JS con el blob: del archivo ajeno - no hace
+            // falta ese riesgo para que el docente revise el contenido.
+            if (['txt', 'py', 'html', 'htm', 'css', 'js'].indexOf(ext) !== -1) {
                 pedirArchivo(url).then(function (blob) { return blob.text(); }).then(function (texto) {
                     var pre = document.createElement('pre');
                     pre.className = 'preview-modal-txt';
@@ -564,7 +568,7 @@
                 }).catch(function (err) { mostrarError(err.message); });
                 return;
             }
-            if (ext === 'doc' || ext === 'docx') {
+            if (ext === 'docx') {
                 asegurarDocx().then(function () {
                     return pedirArchivo(url).then(function (blob) {
                         var contenedor = document.createElement('div');

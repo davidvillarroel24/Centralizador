@@ -47,6 +47,10 @@ out2.txt
 /Versioines Demo/
 /Proyecto de grado/
 
+# Carpeta de trabajo temporal (scripts/archivos intermedios de Claude Code, nunca
+# parte del repo) - se coló entera por accidente en un commit el 2026-11-12
+/scratchpad/
+
 # Editor / SO
 .vscode/
 *.swp

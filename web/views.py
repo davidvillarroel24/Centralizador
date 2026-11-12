@@ -1888,7 +1888,10 @@ PREVIEW_CONTENT_TYPES = {
     'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
     'gif': 'image/gif', 'webp': 'image/webp',
     'pdf': 'application/pdf',
-    'doc': 'application/msword',
+    # .doc (binario viejo de Word, pre-2007) no entra acá: docx-preview solo sabe leer el
+    # formato OOXML (zip) de .docx, con .doc tira error - mejor que se quede sin boton de
+    # previsualizar (como rar/zip) y vaya directo a la descarga de Moodle, en vez de abrir
+    # el modal para mostrarle un error.
     'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'ppt': 'application/vnd.ms-powerpoint',
     'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -1897,6 +1900,10 @@ PREVIEW_CONTENT_TYPES = {
     'txt': 'text/plain; charset=utf-8',
     'py': 'text/x-python; charset=utf-8',
     'ipynb': 'application/x-ipynb+json; charset=utf-8',
+    'html': 'text/html; charset=utf-8',
+    'htm': 'text/html; charset=utf-8',
+    'css': 'text/css; charset=utf-8',
+    'js': 'application/javascript; charset=utf-8',
 }
 
 

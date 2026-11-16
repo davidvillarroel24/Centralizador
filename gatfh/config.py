@@ -9,11 +9,15 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
 CONFIG_DIR = os.path.join(BASE_DIR, "gatfh")
 
-# Carpeta separada para el dataset del modelo de riesgo (exportar_dataset_ml): va aparte
-# de data/raw porque trae ids de estudiantes reales y no deberia mezclarse con el
+# Carpeta separada para los datasets de los modelos de riesgo (exportar_dataset_ml): va
+# aparte de data/raw porque trae ids de estudiantes reales y no deberia mezclarse con el
 # staging de scraping (que sigue reglas de gitignore distintas, ver .gitignore).
+# Dos datasets independientes (riesgo de acumulacion de tareas / riesgo de inactividad),
+# ver requerimientos_modelos_riesgo_academico.md - ambos se reconstruyen por completo
+# cada vez que corre exportar_dataset_ml, directo del historial de Tarea/Entrega.
 ML_DIR = os.path.join(BASE_DIR, "data", "ml")
-CSV_DATASET_ML = os.path.join(ML_DIR, "dataset_ml.csv")
+CSV_DATASET_ACUMULACION = os.path.join(ML_DIR, "dataset_riesgo_acumulacion.csv")
+CSV_DATASET_INACTIVIDAD = os.path.join(ML_DIR, "dataset_riesgo_inactividad.csv")
 
 # Asegurar que las carpetas existan
 os.makedirs(DATA_DIR, exist_ok=True)

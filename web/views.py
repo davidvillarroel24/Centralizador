@@ -2323,21 +2323,27 @@ def predicciones_view(request):
 
     flash = request.session.pop('predicciones_flash', None) or {}
 
-    dataset_existe = os.path.exists(config.CSV_DATASET_ML)
-    dataset_filas = None
-    dataset_generado_en = None
-    if dataset_existe:
-        with open(config.CSV_DATASET_ML, encoding='utf-8') as archivo:
-            dataset_filas = max(sum(1 for _ in archivo) - 1, 0)  # -1 por el encabezado
-        dataset_generado_en = dj_timezone.make_aware(
-            datetime.fromtimestamp(os.path.getmtime(config.CSV_DATASET_ML))
+    def _info_dataset(ruta):
+        if not os.path.exists(ruta):
+            return False, None, None
+        with open(ruta, encoding='utf-8') as archivo:
+            filas = max(sum(1 for _ in archivo) - 1, 0)  # -1 por el encabezado
+        generado_en = dj_timezone.make_aware(
+            datetime.fromtimestamp(os.path.getmtime(ruta))
         )
+        return True, filas, generado_en
+
+    acum_existe, acum_filas, acum_generado_en = _info_dataset(config.CSV_DATASET_ACUMULACION)
+    inact_existe, inact_filas, inact_generado_en = _info_dataset(config.CSV_DATASET_INACTIVIDAD)
 
     context = {
         'es_administrador': es_administrador(request.user),
-        'dataset_existe': dataset_existe,
-        'dataset_filas': dataset_filas,
-        'dataset_generado_en': dataset_generado_en,
+        'acum_existe': acum_existe,
+        'acum_filas': acum_filas,
+        'acum_generado_en': acum_generado_en,
+        'inact_existe': inact_existe,
+        'inact_filas': inact_filas,
+        'inact_generado_en': inact_generado_en,
         'flash_detalle': flash.get('detalle'),
         'flash_error': flash.get('error'),
     }
@@ -2347,16 +2353,23 @@ def predicciones_view(request):
 @login_required
 @requiere_rol(PerfilUsuario.ADMINISTRADOR)
 @require_http_methods(['GET'])
-def predicciones_descargar_csv(request):
-    if not os.path.exists(config.CSV_DATASET_ML):
+def predicciones_descargar_csv(request, dataset):
+    rutas = {
+        'acumulacion': (config.CSV_DATASET_ACUMULACION, 'dataset_riesgo_acumulacion.csv'),
+        'inactividad': (config.CSV_DATASET_INACTIVIDAD, 'dataset_riesgo_inactividad.csv'),
+    }
+    if dataset not in rutas:
+        return redirect('predicciones')
+    ruta, nombre_archivo = rutas[dataset]
+    if not os.path.exists(ruta):
         request.session['predicciones_flash'] = {
             'error': 'Todavía no se generó el dataset. Usá "Generar dataset" primero.'
         }
         return redirect('predicciones')
     return FileResponse(
-        open(config.CSV_DATASET_ML, 'rb'),
+        open(ruta, 'rb'),
         as_attachment=True,
-        filename='dataset_ml.csv',
+        filename=nombre_archivo,
         content_type='text/csv',
     )
 

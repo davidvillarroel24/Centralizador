@@ -4,12 +4,61 @@ from unittest import mock
 from django.test import TestCase
 from django.utils import timezone
 
-from data.models import Facultad, Carrera, Materia, Unidad, Tarea, Estudiante, Entrega
-from data.models import TrabajoExtraccion
+from data.models import Facultad, Carrera, Materia, Unidad, Tarea, Estudiante, Entrega, TrabajoExtraccion
 from services.data_utils import import_estudiantes_to_db
-from services.utils.extraction_lock import (
-    LOCK_TIMEOUT_SECONDS, try_acquire_lock, release_lock,
-)
+from services.utils import extraction_lock
+
+
+def _quien_tiene_el_candado():
+    candado = extraction_lock.current_lock()
+    return candado.usuario if candado else 'nadie (libre)'
+
+
+class CandadoExtraccionTests(TestCase):
+    """Una sola extracción a la vez contra Moodle (services/utils/extraction_lock.py): la
+    fila TrabajoExtraccion pk=1 hace de mutex. Los print() muestran cada paso en la consola
+    (para la demostración de la prueba)."""
+
+    def test_segundo_usuario_no_toma_el_candado(self):
+        print('\n[test_segundo_usuario_no_toma_el_candado] Dos usuarios intentan extraer al mismo tiempo')
+        job_a, _ = extraction_lock.try_acquire_lock('usuario.a')
+        print(f'  usuario.a pide el candado -> {"lo toma" if job_a else "bloqueado"} (job={job_a})')
+        job_b, aviso = extraction_lock.try_acquire_lock('usuario.b')
+        print(f'  usuario.b pide el candado -> {"lo toma" if job_b else "bloqueado"} (job={job_b})')
+        print(f'  candado en manos de: {_quien_tiene_el_candado()}')
+        self.assertIsNotNone(job_a)
+        self.assertIsNone(job_b)
+        self.assertIsNone(aviso)
+        self.assertEqual(extraction_lock.current_lock().usuario, 'usuario.a')
+
+    def test_al_liberar_el_candado_el_siguiente_usuario_si_puede_tomarlo(self):
+        print('\n[test_al_liberar_el_candado_el_siguiente_usuario_si_puede_tomarlo] El primero termina y libera; el segundo reintenta')
+        job_a, _ = extraction_lock.try_acquire_lock('usuario.a')
+        print(f'  usuario.a toma el candado (job={job_a})')
+        extraction_lock.release_lock(job_a)
+        print(f'  usuario.a termina y lo libera -> candado en manos de: {_quien_tiene_el_candado()}')
+        self.assertIsNone(extraction_lock.current_lock())
+        job_b, _ = extraction_lock.try_acquire_lock('usuario.b')
+        print(f'  usuario.b reintenta -> {"lo toma" if job_b else "bloqueado"} (job={job_b})')
+        print(f'  candado en manos de: {_quien_tiene_el_candado()}')
+        self.assertIsNotNone(job_b)
+        self.assertEqual(extraction_lock.current_lock().usuario, 'usuario.b')
+
+    def test_candado_vencido_se_libera_solo(self):
+        print('\n[test_candado_vencido_se_libera_solo] Un candado queda colgado (worker caído) y vence')
+        extraction_lock.try_acquire_lock('usuario.a')
+        # Simula un worker que murió hace más de LOCK_TIMEOUT_SECONDS sin liberar el candado.
+        TrabajoExtraccion.objects.filter(pk=1).update(
+            iniciado=timezone.now() - timedelta(seconds=extraction_lock.LOCK_TIMEOUT_SECONDS + 10)
+        )
+        print(f'  usuario.a lo tomó hace {extraction_lock.LOCK_TIMEOUT_SECONDS + 10}s y nunca lo liberó '
+              f'(límite: {extraction_lock.LOCK_TIMEOUT_SECONDS}s)')
+        job_b, aviso = extraction_lock.try_acquire_lock('usuario.b')
+        print(f'  usuario.b pide el candado -> {"lo toma" if job_b else "bloqueado"} (job={job_b})')
+        print(f'  candado en manos de: {_quien_tiene_el_candado()}')
+        self.assertIsNotNone(job_b)
+        self.assertIn('usuario.a', aviso)
+        self.assertEqual(extraction_lock.current_lock().usuario, 'usuario.b')
 
 
 class ImportarEntregasSinEmailTests(TestCase):

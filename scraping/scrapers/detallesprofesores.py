@@ -7,6 +7,7 @@ from urllib.parse import urlparse, parse_qs
 
 from .participantes import ultima_pagina
 from .tareas import SesionExpiradaError
+from . import texto_entrega
 
 CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
@@ -79,24 +80,57 @@ ORDEN_DOCENTE = [
 # que cada entrega se descartara por no encontrar userid (ver _columnas_de).
 ORDEN_DECANO = [c for c in ORDEN_DOCENTE if c not in ("seleccionar", "email", "editar")]
 
+# Cuando la tarea tiene habilitado "Texto en línea" como tipo de entrega (ademas o en vez
+# de archivo), Moodle agrega esta columna extra entre "ultima_mod_entrega" y "archivos" -
+# tanto en la vista de docente como en la de decano (bug reportado 2026-11-20: antes la fila
+# tenia 14/11 columnas en vez de las 13/10 conocidas, no matcheaba ningun caso y todo el
+# resto de la fila (archivos, comentarios, calificacion final...) se leia de la columna
+# equivocada o quedaba vacio).
+def _con_texto_en_linea(orden):
+    pos = orden.index("ultima_mod_entrega") + 1
+    return orden[:pos] + ["texto_en_linea"] + orden[pos:]
+
+
+ORDEN_DOCENTE_TEXTO = _con_texto_en_linea(ORDEN_DOCENTE)
+ORDEN_DECANO_TEXTO = _con_texto_en_linea(ORDEN_DECANO)
+
+CAMPOS_CONOCIDOS = ORDEN_DOCENTE_TEXTO  # el que tiene todos los campos posibles
+
 # Se elige por cuantas columnas trae la fila (lo que la cuenta ve), nunca por el texto de
-# los encabezados.
-ORDEN_POR_CANTIDAD = {len(ORDEN_DOCENTE): ORDEN_DOCENTE, len(ORDEN_DECANO): ORDEN_DECANO}
+# los encabezados. De mayor a menor: si Moodle agrega alguna columna mas que todavia no se
+# contempla, se prueba con el layout conocido mas grande que quepa en la fila en vez de
+# asumir directamente el mas chico (ORDEN_DOCENTE) y desalinear todo lo que sigue.
+_LAYOUTS = [ORDEN_DOCENTE_TEXTO, ORDEN_DOCENTE, ORDEN_DECANO_TEXTO, ORDEN_DECANO]
+ORDEN_POR_CANTIDAD = {len(orden): orden for orden in _LAYOUTS}
+_LAYOUTS_POR_TAMANO_DESC = sorted(_LAYOUTS, key=len, reverse=True)
+
+
+def _elegir_orden(total):
+    orden = ORDEN_POR_CANTIDAD.get(total)
+    if orden is not None:
+        return orden
+    # Sin match exacto: se prueba del layout conocido mas grande al mas chico, usando el
+    # primero que entre completo en la fila. No se adivina en silencio mas alla de esto -
+    # queda el aviso en el log para agregar la nueva disposicion si Moodle vuelve a cambiar
+    # la tabla.
+    for candidato in _LAYOUTS_POR_TAMANO_DESC:
+        if len(candidato) <= total:
+            print(f"[entregas] fila con {total} columnas (sin layout exacto conocido) - "
+                  f"usando el de {len(candidato)} columnas como aproximacion - revisar "
+                  f"ORDEN_* en detallesprofesores.py")
+            return candidato
+    print(f"[entregas] fila con {total} columnas (menor que cualquier layout conocido) - "
+          f"revisar ORDEN_* en detallesprofesores.py")
+    return ORDEN_DECANO
 
 
 def _columnas_de(fila):
-    """{campo: indice cN} segun la cantidad de celdas de la fila: 13 -> docente, 10 ->
-    decano. Un campo que esa planilla no tiene (ej. email o seleccionar para el decano)
-    queda en None."""
+    """{campo: indice cN} segun la cantidad de celdas de la fila (ver _elegir_orden). Un
+    campo que esa planilla no tiene (ej. email o seleccionar para el decano, o
+    texto_en_linea cuando la tarea no lo habilita) queda en None."""
     total = len(fila.find_all(["td", "th"], recursive=False))
-    orden = ORDEN_POR_CANTIDAD.get(total)
-    if orden is None:
-        # No se adivina en silencio: se usa la del docente (la de siempre) y queda el aviso
-        # en el log para agregar la nueva disposicion si Moodle cambia la tabla.
-        print(f"[entregas] fila con {total} columnas (se esperaban {len(ORDEN_DOCENTE)} o "
-              f"{len(ORDEN_DECANO)}) - revisar ORDEN_* en detallesprofesores.py")
-        orden = ORDEN_DOCENTE
-    return {campo: (orden.index(campo) if campo in orden else None) for campo in ORDEN_DOCENTE}
+    orden = _elegir_orden(total)
+    return {campo: (orden.index(campo) if campo in orden else None) for campo in CAMPOS_CONOCIDOS}
 
 
 def parsear_entregas(html):
@@ -144,6 +178,19 @@ def parsear_entregas(html):
                     archivos.append(link.get_text(strip=True))
                     archivo_urls.append(link.get("href"))
 
+            # Link "Ver entrega" (lupa) de ESTA fila para texto en linea - se saca de
+            # adentro de la propia celda, nunca cruzando por el "gid" de la URL (no es el
+            # userid del estudiante, son ids distintos de Moodle; confirmado 2026-11-20
+            # comparando un caso real donde no coincidian).
+            texto_en_linea_url = None
+            celda_texto = celda_de("texto_en_linea")
+            if celda_texto:
+                link_ver_completo = celda_texto.select_one(
+                    'a[href*="plugin=onlinetext"][href*="action=viewpluginassignsubmission"]'
+                )
+                if link_ver_completo:
+                    texto_en_linea_url = link_ver_completo.get("href")
+
             # LINK CALIFICAR
             calificar_tag = fila.find("a", class_="btn")
             link_calificar = calificar_tag["href"] if calificar_tag else None
@@ -155,6 +202,11 @@ def parsear_entregas(html):
                 "estado": texto("estado", " "),
                 "calificacion": texto("calificacion"),
                 "ultima_mod_entrega": texto("ultima_mod_entrega"),
+                # separador="\n" porque el texto en línea trae varios <p> (parrafos) y a
+                # veces un link suelto: sin separador, get_text() los pega todos juntos
+                # (ej. "...el linkhttps://drive..." en vez de quedar cada uno aparte).
+                "texto_en_linea": texto("texto_en_linea", "\n"),
+                "texto_en_linea_url": texto_en_linea_url,
                 "archivos": archivos,
                 "archivosurl": archivo_urls,
                 "comentarios_entrega": texto("comentarios_entrega"),
@@ -207,6 +259,13 @@ async def procesar_tarea_docente(session, url, unidad, titulo, semaphore, stop_e
     # Por si una pagina se repite (alguien entrego mientras se extraia y la lista se corrio).
     vistos = set()
     data = [e for e in data if not (e["userid"] in vistos or vistos.add(e["userid"]))]
+
+    # El "texto en linea" que trae la planilla viene truncado cuando es largo (confirmado
+    # 2026-11-20: Moodle corta hasta a mitad de un link) - se reemplaza por el texto
+    # completo bajando aparte la pagina dedicada ("Ver entrega", texto_en_linea_url) de
+    # quien la tenga (ver texto_entrega.py). Reusa este mismo fetch (y su deteccion de
+    # sesion vencida).
+    await texto_entrega.completar_truncados(lambda u: fetch(session, u, semaphore), data)
 
     if ultima:
         print(f"[entregas] tarea {id_tarea}: {ultima + 1} pagina(s), {len(data)} estudiante(s)")

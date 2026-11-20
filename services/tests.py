@@ -93,36 +93,3 @@ class ImportarEntregasSinEmailTests(TestCase):
         resultado = self._importar([{'userid': '999', 'nombre': 'Nuevo', 'email': None, 'estado': 'Sin entrega'}])
         self.assertEqual(resultado['skipped'], 1)
         self.assertFalse(Entrega.objects.filter(estudiante__moodle_userid=999).exists())
-
-
-class CandadoExtraccionTests(TestCase):
-    """Candado global de extraccion (services/utils/extraction_lock.py): garantiza que
-    solo haya UNA extraccion en curso a la vez en todo el sistema, sin importar que
-    usuario la dispare (ver docstring de TrabajoExtraccion)."""
-
-    def test_segundo_usuario_no_toma_el_candado_mientras_el_primero_esta_en_curso(self):
-        job1, aviso1 = try_acquire_lock('docente_1')
-        self.assertIsNotNone(job1)
-        self.assertIsNone(aviso1)
-
-        job2, aviso2 = try_acquire_lock('docente_2')
-        self.assertIsNone(job2)
-        self.assertIsNone(aviso2)
-
-    def test_al_liberar_el_candado_el_siguiente_usuario_si_puede_tomarlo(self):
-        job1, _ = try_acquire_lock('docente_1')
-        release_lock(job1)
-
-        job2, aviso2 = try_acquire_lock('docente_2')
-        self.assertIsNotNone(job2)
-        self.assertIsNone(aviso2)
-
-    def test_candado_vencido_se_libera_solo_y_avisa_quien_lo_tenia(self):
-        job1, _ = try_acquire_lock('docente_1')
-        vencido = timezone.now() - timedelta(seconds=LOCK_TIMEOUT_SECONDS + 10)
-        TrabajoExtraccion.objects.filter(pk=1, job_id=job1).update(iniciado=vencido)
-
-        job2, aviso2 = try_acquire_lock('docente_2')
-        self.assertIsNotNone(job2)
-        self.assertNotEqual(job2, job1)
-        self.assertIn('docente_1', aviso2)

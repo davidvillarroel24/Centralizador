@@ -498,10 +498,13 @@
             return contenedor;
         }
 
-        function abrir(tipo, id, nombre, urlOriginal) {
+        function abrir(tipo, id, nombre, urlOriginal, estudiante) {
             var url = '/archivos/' + tipo + '/' + id + '/previsualizar/';
             var ext = (nombre.split('.').pop() || '').toLowerCase();
-            titulo.textContent = nombre;
+            // Algunos estudiantes no ponen su nombre en el archivo (ej. "Práctica.docx"
+            // genérico) - antepone quién lo entregó cuando se conoce, para no tener que
+            // adivinar de quién es mirando la lista de atrás (bug reportado 2026-11-20).
+            titulo.textContent = estudiante ? (estudiante + ' — ' + nombre) : nombre;
             descargar.href = urlOriginal;
             liberarBlobActual();
             cuerpo.innerHTML = '';

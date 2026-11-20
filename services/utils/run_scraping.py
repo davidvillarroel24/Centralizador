@@ -9,6 +9,7 @@ from scraping.scrapers.detallesprofesores import obtener_tareas_docente_async
 from scraping.scrapers.participantes import obtener_participantes_async, PERPAGE_MINIMO
 from scraping.scrapers.materiales import obtener_materiales_async
 from scraping.scrapers import html_crudo
+from scraping.scrapers import texto_entrega
 from scraping.scrapers.asignartareas import  auto_asignar_tareas
 from scraping.scrapers.asignartareas import  mostrar_resumen_tareas
 from scraping.scrapers.asignartareas import  generar_config_final
@@ -384,7 +385,19 @@ def descargar_html_detalle(ids, cookie=None, stop_event=None):
 
 
 def descargar_html_estudiantes(ids, cookie=None, stop_event=None):
-    return html_crudo.descargar_html_estudiantes(ids, cookie=cookie, stop_event=stop_event)
+    paginas = html_crudo.descargar_html_estudiantes(ids, cookie=cookie, stop_event=stop_event)
+    # Encadenado aparte (ver scraping/scrapers/texto_entrega.py): ademas de la planilla de
+    # siempre, baja la pagina completa de cada "Ver entrega" de texto en linea que haya
+    # encontrado adentro - sin tocar html_crudo.py mientras se confirma como luce esa
+    # pagina real (auditoria 2026-11-20).
+    paginas.update(
+        asyncio.run(
+            texto_entrega.descargar_paginas_completas(
+                MoodleSession(cookie=cookie), paginas, stop_event=stop_event
+            )
+        )
+    )
+    return paginas
 
 
 def descargar_html_ultimo_acceso(ids, cookie=None, stop_event=None):

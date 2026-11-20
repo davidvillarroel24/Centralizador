@@ -453,6 +453,14 @@ class Entrega(models.Model):
         blank=True
     )
 
+    # Solo viene cuando el docente habilita "Texto en línea" como tipo de entrega de la
+    # tarea (ademas o en vez de archivo) - Moodle agrega esta columna extra en la planilla
+    # de calificacion en ese caso (ver detallesprofesores.py: ORDEN_*_TEXTO).
+    texto_en_linea = models.TextField(
+        null=True,
+        blank=True
+    )
+
     comentarios_feedback = models.TextField(
         null=True,
         blank=True

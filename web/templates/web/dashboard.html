@@ -13,11 +13,9 @@
         <div class="hero">
             <div class="status-card">
                 <p class="status-label">Estado de extracción</p>
-                {% if extraccion_en_curso %}
-                    <p class="status-value">En curso (iniciada por {{ extraccion_en_curso.usuario }})</p>
-                {% else %}
-                    <p class="status-value">Libre</p>
-                {% endif %}
+                <p class="status-value" id="estadoExtraccionTexto">
+                    {% if extraccion_en_curso %}En curso (iniciada por {{ extraccion_en_curso.usuario }}){% else %}Libre{% endif %}
+                </p>
                 <p class="status-label">Cursos cargados</p>
                 <p class="status-value">{{ course_count }}</p>
             </div>
@@ -414,6 +412,7 @@
         var form = document.getElementById('formAcciones');
         var overlay = document.getElementById('extraccionOverlay');
         var overlayTexto = document.getElementById('extraccionOverlayTexto');
+        var estadoExtraccionTexto = document.getElementById('estadoExtraccionTexto');
         var modalAsignacion = document.getElementById('modalAsignacion');
         var asignacionScroll = document.getElementById('asignacionScroll');
         var formAsignacionManual = document.getElementById('formAsignacionManual');
@@ -426,6 +425,23 @@
         // para el caso de entrar directo con esa URL en vez de clickear el botón.
         var cursosDelModal = [{% for cid in selected_ids_str %}"{{ cid|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}];
 
+        // El "Estado de extracción" de arriba se renderiza una sola vez al cargar la
+        // página (GET) - como todas las acciones van por fetch() sin recargar, se quedaba
+        // diciendo "Libre"/"En curso" para siempre, sin importar qué pasara después
+        // (bug reportado 2026-11-20). Esta función lo actualiza a mano cada vez que se
+        // sabe el estado real (durante el sondeo y al terminar una acción).
+        function actualizarEstadoExtraccion(enCurso, usuario) {
+            if (!estadoExtraccionTexto) return;
+            estadoExtraccionTexto.textContent = enCurso ? ('En curso (iniciada por ' + usuario + ')') : 'Libre';
+        }
+
+        function consultarEstadoExtraccion() {
+            fetch('{% url "progreso_extraccion" %}')
+                .then(function (r) { return r.json(); })
+                .then(function (data) { actualizarEstadoExtraccion(data.en_curso, data.usuario); })
+                .catch(function () {});
+        }
+
         function empezarSondeo() {
             intervaloSondeo = setInterval(function () {
                 fetch('{% url "progreso_extraccion" %}')
@@ -434,6 +450,7 @@
                         if (data.en_curso && data.paso_actual && overlayTexto) {
                             overlayTexto.textContent = data.paso_actual;
                         }
+                        actualizarEstadoExtraccion(data.en_curso, data.usuario);
                     })
                     .catch(function () {});
             }, 1500);
@@ -547,7 +564,7 @@
                 headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken },
                 body: datos,
             }).then(function (r) { return r.json(); }).then(function (data) {
-                if (esLarga) { pararSondeo(); overlay.style.display = 'none'; }
+                if (esLarga) { pararSondeo(); overlay.style.display = 'none'; consultarEstadoExtraccion(); }
                 if (data.error) {
                     mostrarResultado({
                         error: data.error,
@@ -559,7 +576,7 @@
                 if (data.action_result) mostrarResultado(data.action_result);
                 if (data.abrir_modal_asignacion) abrirModalAsignacion(data, cursosSeleccionados);
             }).catch(function () {
-                if (esLarga) { pararSondeo(); overlay.style.display = 'none'; }
+                if (esLarga) { pararSondeo(); overlay.style.display = 'none'; consultarEstadoExtraccion(); }
                 if (window.Swal) {
                     Swal.fire({ icon: 'error', title: 'Error de red', text: 'No se pudo contactar al servidor.', confirmButtonColor: '#9b5bf6' });
                 }
@@ -608,6 +625,7 @@
                 });
             }).then(function (res) {
                 overlay.style.display = 'none';
+                consultarEstadoExtraccion();
                 var url = URL.createObjectURL(res.blob);
                 var a = document.createElement('a');
                 a.href = url;
@@ -618,6 +636,7 @@
                 setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
             }).catch(function (err) {
                 overlay.style.display = 'none';
+                consultarEstadoExtraccion();
                 if (window.Swal) {
                     Swal.fire({ icon: 'error', title: 'No se pudo descargar', text: err.message, confirmButtonColor: '#9b5bf6' });
                 }

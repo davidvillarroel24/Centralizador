@@ -222,6 +222,68 @@ class GuiaDeUsoTests(TestCase):
 
 
 @override_settings(STORAGES=SIN_MANIFIESTO)
+class LoginSinProfesorTests(TestCase):
+    """El Administrador inicial se crea directo (no autoregistrado) y nunca tiene un
+    Profesor vinculado con su mismo nombre de usuario - el chequeo "el usuario debe
+    coincidir con un docente registrado" es para el flujo de autoregistro (ver
+    register_view) y no debería bloquear su login (bug reportado 2026-11-20: la cuenta
+    admin "tecba" no podía entrar ni guardar su cookie). Un Decano, en cambio, SIEMPRE tiene
+    Profesor: nace de ascender a un docente ya autoregistrado (gestionar_rol_docente exige
+    profesor.user, nunca crea una cuenta nueva) - no necesita (ni debe) esta excepción."""
+
+    def test_administrador_sin_profesor_puede_iniciar_sesion(self):
+        user = User.objects.create_user(username='admin.sinperfil', password='clave-123')
+        PerfilUsuario.objects.create(user=user, rol=PerfilUsuario.ADMINISTRADOR)
+        respuesta = self.client.post(reverse('login'), {'username': 'admin.sinperfil', 'password': 'clave-123'})
+        # 302 a Resumen o a la guía de uso (primera vez): lo que importa es que NO vuelva a
+        # mostrar el formulario de login con el error de "docente registrado".
+        self.assertEqual(respuesta.status_code, 302)
+
+    def test_decano_real_siempre_tiene_profesor_y_puede_iniciar_sesion(self):
+        # Caso real: un Decano nace de un Profesor ya autoregistrado (mismo username que su
+        # Profesor.nombre), nunca de una cuenta nueva - esto ya funcionaba sin ninguna
+        # excepción especial y debe seguir así.
+        user = User.objects.create_user(username='decano.prueba', password='clave-123')
+        Profesor.objects.create(
+            moodle_id=777777, nombre='decano.prueba',
+            url='https://moodle.example/user/view.php?id=777777', user=user,
+        )
+        PerfilUsuario.objects.create(user=user, rol=PerfilUsuario.DECANO)
+        respuesta = self.client.post(reverse('login'), {'username': 'decano.prueba', 'password': 'clave-123'})
+        self.assertEqual(respuesta.status_code, 302)
+
+    def test_decano_sin_profesor_sigue_bloqueado(self):
+        # Esto no debería poder pasar por la UI real (gestionar_rol_docente exige
+        # profesor.user), pero si alguna vez ocurre (dato corrupto, migración manual...) no
+        # hay que tratarlo como caso válido igual que al Administrador - sigue exigiendo el
+        # mismo chequeo que cualquier cuenta sin Profesor.
+        user = User.objects.create_user(username='decano.sinperfil', password='clave-123')
+        PerfilUsuario.objects.create(user=user, rol=PerfilUsuario.DECANO)
+        respuesta = self.client.post(reverse('login'), {'username': 'decano.sinperfil', 'password': 'clave-123'})
+        self.assertEqual(respuesta.context['error'], 'El usuario debe coincidir con un docente registrado.')
+
+    def test_docente_que_no_coincide_con_ningun_profesor_sigue_bloqueado(self):
+        # El chequeo sigue vigente para quien no es Administrador: evita loguearse con una
+        # cuenta que no corresponde a ningun docente real.
+        User.objects.create_user(username='nadie.conocido', password='clave-123')
+        respuesta = self.client.post(reverse('login'), {'username': 'nadie.conocido', 'password': 'clave-123'})
+        self.assertEqual(respuesta.context['error'], 'El usuario debe coincidir con un docente registrado.')
+
+    def test_administrador_sin_profesor_puede_guardar_su_cookie(self):
+        user = User.objects.create_user(username='admin.cookie', password='clave-123')
+        PerfilUsuario.objects.create(user=user, rol=PerfilUsuario.ADMINISTRADOR)
+        self.client.force_login(user)
+        respuesta = self.client.post(
+            reverse('guardar_cookie_extension'),
+            data='{"cookie": "cookie-del-admin"}',
+            content_type='application/json',
+        )
+        self.assertEqual(respuesta.json(), {'ok': True})
+        profesor = Profesor.objects.get(user=user)
+        self.assertIsNotNone(profesor.moodle_cookie_cifrada)
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
 class ExtraccionDecanoTests(TestCase):
     """Un Decano que además es Docente ve en Extracción su alcance asignado + lo que enseña.
     Antes daba error 500: el alcance del Decano usa .distinct() y Django no deja unir con
@@ -358,6 +420,28 @@ class MateriaAvancesTests(TestCase):
         resp = self.client.get(self._url(self.materia))
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/login/', resp.url)
+
+    def test_entrega_incluye_texto_en_linea_cuando_lo_tiene(self):
+        tarea = Tarea.objects.create(
+            unidad=Unidad.objects.create(materia=self.materia, nombre='Unidad 2'),
+            moodle_id=1003, titulo='Práctica con texto', tipo='assign',
+            url='https://moodle.example/mod/assign/view.php?id=2',
+        )
+        estudiante = Estudiante.objects.create(moodle_userid=5002, nombre='Luis Soria', email='luis@example.com')
+        Entrega.objects.create(
+            tarea=tarea, estudiante=estudiante, estado='Enviado para calificar',
+            texto_en_linea='Este es el link\nhttps://drive.example/x',
+        )
+        self.client.force_login(self.docente_user)
+        resp = self.client.get(self._url(self.materia))
+        datos = resp.json()
+        act = next(a for a in datos['actividades'] if a['titulo'] == 'Práctica con texto')
+        entrega = act['entregas'][0]
+        self.assertEqual(entrega['texto_en_linea'], 'Este es el link\nhttps://drive.example/x')
+
+        # La otra entrega (sin texto en línea) no debe traer basura en ese campo.
+        otra_act = next(a for a in datos['actividades'] if a['titulo'] == 'Práctica 1')
+        self.assertIsNone(otra_act['entregas'][0]['texto_en_linea'])
 
     def test_materia_inexistente_da_404(self):
         self.client.force_login(self.admin_user)

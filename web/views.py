@@ -152,9 +152,26 @@ def get_current_profesor(request):
         if profesor:
             profesor.user = request.user
             profesor.save(update_fields=['user'])
-        return profesor
+            return profesor
     except Exception:
         return None
+
+    # Un Administrador no tiene por qué ser un docente real dado de alta en Moodle, pero
+    # igual necesita guardar SU cookie de Moodle para poder extraer datos (como cualquier
+    # Decano/Docente) - si no hay ningún Profesor para vincularle, se le crea uno propio con
+    # un moodle_id ficticio (negativo, mismo patrón que el de Visitante) solo para eso.
+    if es_administrador(request.user):
+        profesor, _ = Profesor.objects.get_or_create(
+            user=request.user,
+            defaults={
+                'nombre': nombre_usuario,
+                'moodle_id': -(10000 + request.user.id),
+                'url': 'https://administrador.invalido/perfil-ficticio',
+            },
+        )
+        return profesor
+
+    return None
 
 
 def register_view(request):
@@ -212,9 +229,19 @@ def login_view(request):
             username = request.POST.get('username', '').strip()
             password = request.POST.get('password', '').strip()
             user = authenticate(request, username=username, password=password)
+            # El chequeo de "coincide con un docente" es para el flujo de autoregistro
+            # (ver register_view): ahí el username SE ELIGE igual al nombre del Profesor en
+            # Moodle. Un Decano siempre nace de un Profesor que ya se autoregistró así
+            # (gestionar_rol_docente exige profesor.user, nunca crea una cuenta nueva), asi
+            # que su username siempre va a coincidir solo y no necesita esta excepcion. El
+            # unico caso real que SI la necesita es el Administrador inicial, creado directo
+            # (no autoregistrado) y sin ningun Profesor que pueda coincidirle.
+            es_admin_sin_docente = PerfilUsuario.objects.filter(
+                user=user, rol=PerfilUsuario.ADMINISTRADOR,
+            ).exists() if user else False
             if user is None:
                 error = 'Usuario o contraseña incorrectos.'
-            elif not Profesor.objects.filter(nombre__iexact=username).exists():
+            elif not es_admin_sin_docente and not Profesor.objects.filter(nombre__iexact=username).exists():
                 error = 'El usuario debe coincidir con un docente registrado.'
             else:
                 login(request, user)
@@ -1026,7 +1053,23 @@ def responder_descarga_html(request, action, selected_ids):
         if not selected_ids:
             raise ValueError('Debes seleccionar al menos un curso para descargar su HTML.')
         cookie = resolver_cookie_moodle(request)
-        paginas = ACCIONES_DESCARGA_HTML[action](selected_ids, cookie=cookie)
+
+        # Esto también llama a Moodle de verdad (como "cargar_tareas"/etc) - pasa por el
+        # mismo candado global para que no corra en paralelo con una extracción real, ni con
+        # otra descarga (bug reportado 2026-11-20: esta acción nunca tomaba el candado, así
+        # que el estado de arriba seguía en "Libre" todo el tiempo mientras descargaba).
+        job_id, aviso_candado_vencido = extraction_lock.try_acquire_lock(request.user.username)
+        if job_id is None:
+            candado = extraction_lock.current_lock()
+            raise ValueError(
+                f'Ya hay una extracción en curso (iniciada por {candado.usuario}). '
+                'Esperá a que termine o cancelala vos mismo si es tuya, e intentá de nuevo.'
+            )
+        try:
+            paginas = ACCIONES_DESCARGA_HTML[action](selected_ids, cookie=cookie)
+        finally:
+            extraction_lock.release_lock(job_id)
+
         if not paginas:
             raise ValueError('No se obtuvo ninguna página (sin cursos/tareas que coincidan con la selección).')
 
@@ -2247,6 +2290,7 @@ def materia_avances(request, materia_id):
                 'nota': f'{e.nota}/{e.nota_maxima}' if e.nota is not None else '—',
                 'fecha_entrega': e.ultima_mod_entrega or '—',
                 'archivos_entrega': _archivos_lista(e.archivos_entrega.all(), 'entrega'),
+                'texto_en_linea': e.texto_en_linea or None,
             } for e in sorted(entregas, key=lambda e: e.estudiante.nombre)],
         })
 

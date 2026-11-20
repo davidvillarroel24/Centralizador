@@ -111,6 +111,7 @@ def import_estudiantes_from_json():
                         'comentarios_feedback': est_data.get('comentarios_feedback'),
                         'calificacion_final': calificacion_final_raw,
                         'link_calificar': est_data.get('link_calificar'),
+                        'texto_en_linea': est_data.get('texto_en_linea'),
                     }
                 )
                 if created_ent:
@@ -125,6 +126,7 @@ def import_estudiantes_from_json():
                     entrega.ultima_mod_calificacion = est_data.get('ultima_mod_calificacion', entrega.ultima_mod_calificacion)
                     entrega.comentarios_feedback = est_data.get('comentarios_feedback', entrega.comentarios_feedback)
                     entrega.calificacion_final = calificacion_final_raw
+                    entrega.texto_en_linea = est_data.get('texto_en_linea', entrega.texto_en_linea)
                     entrega.save()
                     created['updated'] += 1
 

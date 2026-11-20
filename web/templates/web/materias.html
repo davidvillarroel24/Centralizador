@@ -127,6 +127,18 @@
         </div>
     </div>
 
+    <div id="modalTextoEntregaOverlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box" style="max-width:640px;">
+            <div class="modal-header">
+                <h2 id="mteTitulo">Texto en línea</h2>
+                <button type="button" class="modal-close" id="mteCerrar">✕</button>
+            </div>
+            <div class="modal-scroll">
+                <pre id="mteContenido" style="white-space:pre-wrap; word-break:break-word; font-family:inherit; margin:0;"></pre>
+            </div>
+        </div>
+    </div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -146,6 +158,26 @@ new DataTable('#tblMaterias');
     var detalleResumen = document.getElementById('avmDetalleResumen');
     var detalleTbody = document.getElementById('avmDetalleTbody');
     var actividadesActuales = [];
+    var indiceActividadActual = null;
+
+    var mteOverlay = document.getElementById('modalTextoEntregaOverlay');
+    var mteTitulo = document.getElementById('mteTitulo');
+    var mteContenido = document.getElementById('mteContenido');
+    function linkificar(texto) {
+        // escapeTexto ya neutraliza &/</> antes de meter el texto como HTML - sin eso,
+        // un link con "&" en la query (ej. "...&usp=drive_link") rompería el atributo href.
+        return escapeTexto(texto).replace(/(https?:\/\/[^\s]+)/g, function (url) {
+            return '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>';
+        });
+    }
+    function abrirTextoEntrega(estudiante, texto) {
+        mteTitulo.textContent = 'Texto en línea — ' + estudiante;
+        mteContenido.innerHTML = linkificar(texto);
+        mteOverlay.style.display = 'flex';
+    }
+    function cerrarTextoEntrega() { mteOverlay.style.display = 'none'; }
+    document.getElementById('mteCerrar').addEventListener('click', cerrarTextoEntrega);
+    mteOverlay.addEventListener('click', function (ev) { if (ev.target === mteOverlay) cerrarTextoEntrega(); });
 
     function escapeAttr(s) {
         return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -154,23 +186,46 @@ new DataTable('#tblMaterias');
         return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    function enlaceArchivos(archivos) {
+    function enlaceArchivos(archivos, estudianteNombre) {
         if (!archivos || !archivos.length) return 'Sin archivo';
         return archivos.map(function (a) {
             if (a.previsualizable) {
                 return '<a href="' + a.url + '" class="archivo-preview" data-tipo="' + a.tipo + '" data-id="' + a.id +
-                    '" data-nombre="' + escapeAttr(a.nombre) + '" data-url="' + escapeAttr(a.url) + '">' +
+                    '" data-nombre="' + escapeAttr(a.nombre) + '" data-url="' + escapeAttr(a.url) +
+                    (estudianteNombre ? '" data-estudiante="' + escapeAttr(estudianteNombre) : '') + '">' +
                     escapeTexto(a.nombre) + '</a>';
             }
             return '<a href="' + a.url + '" target="_blank">' + escapeTexto(a.nombre) + '</a>';
         }).join('<br>');
     }
 
+    // Columna "Archivo" de una entrega puntual: los archivos adjuntos (si hay) más, aparte,
+    // un botón "Texto" cuando la tarea tenía habilitado "Texto en línea" como tipo de
+    // entrega (ver scraping/scrapers/detallesprofesores.py) - es un modal propio en vez de
+    // mostrarlo inline porque puede traer varios párrafos y links largos.
+    function celdaArchivoEntrega(entrega, indiceEntrega) {
+        var partes = [enlaceArchivos(entrega.archivos_entrega, entrega.estudiante)];
+        if (entrega.texto_en_linea) {
+            partes.push(
+                '<button type="button" class="btn btn-secondary btn-ver-texto-entrega" data-ent="' + indiceEntrega +
+                '" style="width:auto; padding:2px 8px; font-size:0.75rem; margin-left:6px;">Texto</button>'
+            );
+        }
+        return partes.join(' ');
+    }
+
     detalleTbody.addEventListener('click', function (e) {
+        var botonTexto = e.target.closest('.btn-ver-texto-entrega');
+        if (botonTexto) {
+            var act = actividadesActuales[indiceActividadActual];
+            var entrega = act && act.entregas[parseInt(botonTexto.dataset.ent, 10)];
+            if (entrega) abrirTextoEntrega(entrega.estudiante, entrega.texto_en_linea);
+            return;
+        }
         var link = e.target.closest('.archivo-preview');
         if (!link) return;
         e.preventDefault();
-        window.AvancesPreview.abrir(link.dataset.tipo, link.dataset.id, link.dataset.nombre, link.dataset.url);
+        window.AvancesPreview.abrir(link.dataset.tipo, link.dataset.id, link.dataset.nombre, link.dataset.url, link.dataset.estudiante);
     });
 
     function volverALaLista() {
@@ -181,6 +236,7 @@ new DataTable('#tblMaterias');
     function mostrarDetalle(indice) {
         var act = actividadesActuales[indice];
         if (!act) return;
+        indiceActividadActual = indice;
         detalleTitulo.textContent = act.unidad + ' — ' + act.titulo;
         if (act.subtipo !== 'assign') {
             var tieneMaterial = act.url_entrega || (act.archivos_tarea && act.archivos_tarea.length);
@@ -201,13 +257,13 @@ new DataTable('#tblMaterias');
             }
         } else {
             detalleResumen.textContent = act.entregados + ' de ' + act.total_estudiantes + ' estudiantes entregaron.';
-            detalleTbody.innerHTML = act.entregas.map(function (e) {
+            detalleTbody.innerHTML = act.entregas.map(function (e, indiceEntrega) {
                 return '<tr>' +
                     '<td>' + escapeTexto(e.estudiante) + '</td>' +
                     '<td>' + escapeTexto(e.estado) + '</td>' +
                     '<td>' + escapeTexto(e.nota) + '</td>' +
                     '<td>' + escapeTexto(e.fecha_entrega) + '</td>' +
-                    '<td>' + enlaceArchivos(e.archivos_entrega) + '</td>' +
+                    '<td>' + celdaArchivoEntrega(e, indiceEntrega) + '</td>' +
                     '</tr>';
             }).join('');
         }

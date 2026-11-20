@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from scraping.scrapers import detallesprofesores
 from scraping.scrapers.detallesprofesores import parsear_entregas, procesar_tarea_docente
 from scraping.scrapers.participantes import fetch_participantes_curso, ultima_pagina
+from scraping.scrapers.texto_entrega import links_texto_en_linea
 
 URL_TAREA = "https://moodle.example/mod/assign/view.php?id=77&action=grading&perpage=100"
 
@@ -24,6 +25,16 @@ ENCABEZADOS_DECANO = [
     "Última modificación", "Archivos enviados", "Comentarios",
     "Última modificación (calificación)", "Comentarios de retroalimentación", "Calificación final",
 ]
+
+# Cuando la tarea tiene habilitado "Texto en línea" como tipo de entrega, Moodle agrega esta
+# columna extra entre "Última modificación (entrega)" y "Archivos enviados", tanto para
+# docente como para decano (bug reportado 2026-11-20).
+ENCABEZADOS_DOCENTE_TEXTO = (
+    ENCABEZADOS_DOCENTE[:8] + ["Texto en línea"] + ENCABEZADOS_DOCENTE[8:]
+)
+ENCABEZADOS_DECANO_TEXTO = (
+    ENCABEZADOS_DECANO[:5] + ["Texto en línea"] + ENCABEZADOS_DECANO[5:]
+)
 
 
 def _celda(encabezado, userid, entrego, con_checkbox=True):
@@ -124,6 +135,89 @@ class ParsearEntregasTests(SimpleTestCase):
     def test_sin_tabla_devuelve_none(self):
         self.assertIsNone(parsear_entregas("<html>login</html>"))
 
+    def test_planilla_de_docente_con_texto_en_linea_no_desalinea_lo_demas(self):
+        # Antes: 14 columnas no matcheaba ningun caso conocido (13 o 10) y se caia al
+        # fallback de docente (13), desalineando todo lo que sigue a "texto_en_linea".
+        filas = parsear_entregas(_planilla(ENCABEZADOS_DOCENTE_TEXTO, [101], entregaron={101}))
+        f = filas[0]
+        self.assertEqual(f["estado"], "Enviado para calificar")
+        self.assertEqual(f["ultima_mod_entrega"], "Última modificación (entrega) 101")
+        self.assertEqual(f["texto_en_linea"], "Texto en línea 101")
+        self.assertEqual(f["archivos"], ["t.pdf"])
+        self.assertEqual(f["comentarios_entrega"], "Comentarios de la entrega 101")
+        self.assertEqual(f["calificacion_final"], "Calificación final 101")
+
+    def test_planilla_de_decano_con_texto_en_linea_no_desalinea_lo_demas(self):
+        filas = parsear_entregas(_planilla(ENCABEZADOS_DECANO_TEXTO, [101], entregaron={101}))
+        f = filas[0]
+        self.assertEqual(f["estado"], "Enviado para calificar")
+        self.assertEqual(f["texto_en_linea"], "Texto en línea 101")
+        self.assertEqual(f["archivos"], ["t.pdf"])
+        self.assertEqual(f["comentarios_entrega"], "Comentarios 101")
+        self.assertEqual(f["calificacion_final"], "Calificación final 101")
+
+    def test_texto_en_linea_con_varios_parrafos_no_queda_todo_pegado(self):
+        # Caso real (2026-11-20): un "Texto en línea" con más de un párrafo y un link
+        # quedaba todo concatenado sin espacios (ej. "el linkhttps://drive...") porque
+        # get_text() sin separador no distingue limites de <p>/<a>.
+        encabezados = ENCABEZADOS_DOCENTE_TEXTO
+        html = _planilla(encabezados, [101], entregaron={101})
+        celda_vieja = '<td class="cell c8">Texto en línea 101</td>'
+        celda_nueva = (
+            '<td class="cell c8"><div class="no-overflow">'
+            '<p>Este es el link <a href="https://drive.example/x">https://drive.example/x</a></p>'
+            '<p>y este otro</p>'
+            '</div></td>'
+        )
+        self.assertIn(celda_vieja, html)
+        html = html.replace(celda_vieja, celda_nueva)
+        texto = parsear_entregas(html)[0]["texto_en_linea"]
+        self.assertIn("Este es el link", texto)
+        self.assertIn("https://drive.example/x", texto)
+        self.assertIn("y este otro", texto)
+        self.assertNotIn("linkhttps://", texto)
+        self.assertNotIn("otrohttps://", texto)
+
+    def test_planilla_sin_texto_en_linea_sigue_sin_ese_campo(self):
+        # Las planillas de siempre (sin esa columna) no deben traer texto_en_linea de otra
+        # celda por error: tiene que quedar en None.
+        filas = parsear_entregas(_planilla(ENCABEZADOS_DOCENTE, [101], entregaron={101}))
+        self.assertIsNone(filas[0]["texto_en_linea"])
+
+
+class LinksTextoEnLineaTests(SimpleTestCase):
+    """links_texto_en_linea (scraping/scrapers/texto_entrega.py): ubica el link "Ver
+    entrega" de texto en línea (plugin=onlinetext) dentro de una planilla ya descargada,
+    para poder bajar aparte la página completa cuando Moodle la trunca."""
+
+    def test_encuentra_el_link_de_texto_en_linea_y_su_userid(self):
+        html = (
+            '<table class="generaltable"><tbody><tr>'
+            '<td class="cell c8">'
+            '<a href="https://moodle.example/mod/assign/view.php?id=1&amp;sid=24252&amp;'
+            'gid=24252&amp;plugin=onlinetext&amp;action=viewpluginassignsubmission">'
+            '<i class="fa fa-search-plus"></i></a>'
+            '<div class="no-overflow"><p>texto truncado...</p></div>'
+            '</td></tr></tbody></table>'
+        )
+        enlaces = links_texto_en_linea(html)
+        self.assertEqual(len(enlaces), 1)
+        self.assertEqual(enlaces[0]["userid"], "24252")
+        self.assertIn("plugin=onlinetext", enlaces[0]["url"])
+
+    def test_no_confunde_el_link_de_entrega_de_archivo(self):
+        html = (
+            '<td class="cell c8">'
+            '<a href="https://moodle.example/mod/assign/view.php?id=1&amp;sid=5&amp;'
+            'gid=5&amp;plugin=file&amp;action=viewpluginassignsubmission">'
+            '<i class="fa fa-search-plus"></i></a>'
+            '</td>'
+        )
+        self.assertEqual(links_texto_en_linea(html), [])
+
+    def test_sin_ningun_link_devuelve_lista_vacia(self):
+        self.assertEqual(links_texto_en_linea("<table></table>"), [])
+
 
 class UltimaPaginaTests(SimpleTestCase):
 
@@ -165,6 +259,102 @@ class PaginacionEntregasTests(SimpleTestCase):
     def test_sin_paginacion_hace_un_solo_pedido(self):
         resultado = self._procesar({URL_TAREA: _planilla(ENCABEZADOS_DOCENTE, [1, 2])})
         self.assertEqual(len(resultado["estudiantes"]), 2)
+
+
+class TextoEnLineaTruncadoTests(SimpleTestCase):
+    """Caso real confirmado 2026-11-20: la planilla trunca el "texto en línea" cuando es
+    largo (llegó a cortar a mitad de una URL) - procesar_tarea_docente debe reemplazarlo
+    por el texto completo, bajando aparte la página de "Ver entrega" de quien la tenga."""
+
+    def test_reemplaza_el_texto_truncado_por_el_completo(self):
+        url_completo = (
+            "https://moodle.example/mod/assign/view.php?id=1&sid=5&gid=5"
+            "&plugin=onlinetext&action=viewpluginassignsubmission"
+        )
+        html = _planilla(ENCABEZADOS_DOCENTE_TEXTO, [5], entregaron={5})
+        celda_vieja = '<td class="cell c8">Texto en línea 5</td>'
+        celda_nueva = (
+            '<td class="cell c8">'
+            f'<a href="{url_completo}"><i class="fa fa-search-plus"></i></a>'
+            '<div class="no-overflow"><p>texto truncado...</p></div>'
+            '</td>'
+        )
+        self.assertIn(celda_vieja, html)
+        html = html.replace(celda_vieja, celda_nueva)
+
+        pagina_completa = (
+            '<div role="main"><div class="box submissionfull">'
+            '<div class="no-overflow"><p>Primer párrafo completo</p>'
+            '<p>https://ejemplo.com/link-completo-sin-cortar</p></div></div></div>'
+        )
+        paginas = {URL_TAREA: html, url_completo: pagina_completa}
+
+        async def fetch_falso(session, url, semaphore):
+            return paginas[url]
+
+        with mock.patch.object(detallesprofesores, "fetch", side_effect=fetch_falso):
+            resultado = asyncio.run(
+                procesar_tarea_docente(None, URL_TAREA, "Unidad 1", "Práctica 1", asyncio.Semaphore(5))
+            )
+
+        texto = resultado["estudiantes"][0]["texto_en_linea"]
+        self.assertIn("Primer párrafo completo", texto)
+        self.assertIn("https://ejemplo.com/link-completo-sin-cortar", texto)
+        self.assertNotIn("texto truncado", texto)
+
+    def test_tambien_funciona_para_la_planilla_de_decano(self):
+        # Mismo caso, pero con el layout del Decano (sin seleccionar/email/editar) - la
+        # columna de texto en línea cae en otro índice (c5, no c8), pero el arreglo no
+        # depende de ese índice: busca el link adentro de la celda que ya se resolvió como
+        # "texto_en_linea" para esa fila, sea cual sea.
+        url_completo = (
+            "https://moodle.example/mod/assign/view.php?id=1&sid=5&gid=5"
+            "&plugin=onlinetext&action=viewpluginassignsubmission"
+        )
+        html = _planilla(ENCABEZADOS_DECANO_TEXTO, [5], entregaron={5})
+        celda_vieja = '<td class="cell c5">Texto en línea 5</td>'
+        celda_nueva = (
+            '<td class="cell c5">'
+            f'<a href="{url_completo}"><i class="fa fa-search-plus"></i></a>'
+            '<div class="no-overflow"><p>texto truncado...</p></div>'
+            '</td>'
+        )
+        self.assertIn(celda_vieja, html)
+        html = html.replace(celda_vieja, celda_nueva)
+
+        pagina_completa = (
+            '<div role="main"><div class="box submissionfull">'
+            '<div class="no-overflow"><p>Texto completo del decano</p></div></div></div>'
+        )
+        paginas = {URL_TAREA: html, url_completo: pagina_completa}
+
+        async def fetch_falso(session, url, semaphore):
+            return paginas[url]
+
+        with mock.patch.object(detallesprofesores, "fetch", side_effect=fetch_falso):
+            resultado = asyncio.run(
+                procesar_tarea_docente(None, URL_TAREA, "Unidad 1", "Práctica 1", asyncio.Semaphore(5))
+            )
+
+        texto = resultado["estudiantes"][0]["texto_en_linea"]
+        self.assertEqual(texto, "Texto completo del decano")
+
+    def test_sin_link_de_ver_entrega_no_toca_el_texto(self):
+        # Entregas de texto en linea sin ese link (caso normal, no truncado): el texto
+        # original de la planilla queda tal cual, sin intentar pedir nada de mas.
+        resultado = self._procesar_simple(
+            _planilla(ENCABEZADOS_DOCENTE_TEXTO, [5], entregaron={5})
+        )
+        self.assertEqual(resultado["estudiantes"][0]["texto_en_linea"], "Texto en línea 5")
+
+    def _procesar_simple(self, html):
+        async def fetch_falso(session, url, semaphore):
+            return html
+
+        with mock.patch.object(detallesprofesores, "fetch", side_effect=fetch_falso):
+            return asyncio.run(
+                procesar_tarea_docente(None, URL_TAREA, "Unidad 1", "Práctica 1", asyncio.Semaphore(5))
+            )
 
 
 # Tabla de participantes vista por un Decano - columnas confirmadas en TECBA.

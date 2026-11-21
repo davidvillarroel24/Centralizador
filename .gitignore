@@ -24,9 +24,12 @@ data/raw/*.json
 !data/raw/categorias.json
 !data/raw/carreras.json
 !data/raw/linkcarreras.json
-# Dataset del modelo de riesgo (contiene ids de estudiantes reales) y volcados de
-# auditoria (contienen datos reales de estudiantes/docentes) - carpetas completas
-/data/ml/
+# Datasets del modelo de riesgo (contienen ids de estudiantes reales) y volcados de
+# auditoria (contienen datos reales de estudiantes/docentes). Los .joblib de data/ml/
+# (los modelos ya entrenados) NO se excluyen a proposito: no traen datos de estudiantes,
+# son los pesos del Random Forest, y se versionan para que el deploy en Docker los sirva
+# sin infraestructura extra (ver README, seccion 11).
+/data/ml/*.csv
 /data/auditoria/
 
 # Fixtures de HTML real usadas para probar el parser de participantes.py (contienen

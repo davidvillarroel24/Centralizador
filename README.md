@@ -259,6 +259,8 @@ revisión; resumen accionable acá.
 | C12 | **`estudiantes()` sobrescribía `estudiantes.json` entero, sin el candado de profesor que sí tiene `tareas()`.** `tareas()` (`services/utils/run_scraping.py:49-106`) guarda un marcador `{"profesor": id}` como primer elemento del JSON: si el `profesor_id` de la corrida actual coincide, conserva/mergea lo de otros cursos del mismo profesor; si no coincide (otro usuario), descarta todo y arranca de cero. `estudiantes()` no tenía ningún chequeo equivalente: llamaba a `exportarjson.save_estudiantes(estudiantes_resultado)` con *solo* el resultado de la corrida actual | `services/utils/run_scraping.py` (función `estudiantes()`), `services/data_utils/cargarjson.py` | ✅ Corregido (2026-10-23): portado a `estudiantes()` el mismo patrón de marcador + merge que ya tenía `tareas()` (acá la clave de merge es el `id` de tarea, no `asignatura`, porque cada entrada de `estudiantes.json` es por-tarea). De paso se arregló `cargar_estudiantes()`, que no manejaba archivo inexistente/corrupto (a diferencia de `cargar_tareas()`) y hubiera roto el merge en la primera extracción de un VPS nuevo. **Importante — esto es defensa en profundidad, no el único mecanismo:** al revisar el código vigente se confirmó que `cargar_tareas`/`cargar_estudiantes`/`cargar_ultimo_acceso` ya ejecutan extracción **e importación** dentro de la misma función (`run_cargar_tareas_web`/`run_cargar_estudiantes_web`/`run_cargar_ultimo_acceso_web`), bajo un único `try/finally` que retiene el candado de `extraction_lock` hasta que *todo* termina (`web/views.py:704-934`) — no solo durante el scraping. Eso ya cerraba el caso principal (nadie más puede extraer mientras el actual no terminó de importar); el marcador de esta fila cubre lo que ese candado no cubre: si la extracción tiene éxito pero el *import* falla a mitad de camino, el candado ya se liberó con datos sin importar en el JSON |
 | C13 | **"Guardar cambios" del modal de asignación perdía el listener del spinner de extracción.** El modal (`#modalAsignacion`) tenía su propio `<form>` aparte de `#formAcciones`, con submit normal: al guardar, recargaba la página entera (Post-Redirect-Get). Eso reinicia todo el `<script>` de `dashboard.html` desde cero, y si algo fallaba al reconstruirlo (se vio un `Uncaught SyntaxError` en la consola del navegador, pero no se logró aislar su causa exacta), ningún listener volvía a engancharse — incluido el de `#formAcciones` que muestra el spinner. Reproducido en 2 laptops distintas con los mismos pasos: abrir "Revisar asignación" → "Guardar cambios" → cualquier botón de extracción después hacía un submit nativo del navegador (se veía como `302` en el log en vez del `200` JSON esperado) en lugar de pasar por `fetch()`, sin mostrar spinner ni sondear el progreso | `web/templates/web/dashboard.html`, `web/views.py:dashboard` | ✅ Corregido (2026-10-29): "Revisar asignación" y "Guardar cambios" pasan a `fetch()`, igual que "1"–"4" — la vista ya devolvía JSON por ese camino para esas acciones, solo le faltaba incluir `asignacion_detalle`/`categorias_peso` en la respuesta para poder pintar el modal en JS sin ningún GET de por medio. Ninguno de los dos vuelve a navegar la página, así que el script nunca se reinicia y el bug deja de poder pasar, sin depender de haber encontrado la causa exacta del `SyntaxError` original |
 
+| C14 | **"Sobrecarga" tiene dos definiciones incompatibles, y la de Alertas está rota.** Resumen (`overload_student_count`, `web/views.py:1460`) cuenta estudiantes con ≥3 tareas que cierran el mismo día — con datos reales del servidor, da 122. Alertas (`web/views.py:2326`) cuenta estudiantes con >8 `Entrega.calificacion` vacío — pero `calificacion` es el campo de texto crudo viejo pegado del botón de Moodle ("Calificar16,70/100,00"), no `nota`/`nota_maxima` (los que de verdad están parseados y en uso en todos lados desde hace rato). Con datos reales casi nunca queda vacío, así que la tabla de Alertas siempre muestra "No hay datos disponibles" aunque Resumen diga 122 — visto en vivo al cargar el volcado del servidor (2026-11-21) | `web/views.py` (`overload_student_count` y `alertas_view`) | ⛔ Sin corregir. Fix: que Alertas use el mismo criterio que Resumen (o al menos `nota__isnull=True` en vez de `calificacion` crudo), y que sea una sola función compartida en vez de dos definiciones por separado |
+
 **Antes/después de C13** — el cambio central fue mover "Guardar cambios" de un `<form>` con submit normal a uno interceptado por `fetch()`, y que el backend entregara el contenido del modal como JSON en vez de HTML server-rendered:
 
 ```html
@@ -447,64 +449,96 @@ Compose + un proxy Caddy compartido que maneja HTTPS para los 4. Guía operativa
 
 ## 11. Predicciones — modelo de riesgo (Random Forest)
 
-**Estado: en progreso, iniciado 2026-10-14.** `/predicciones/` sigue siendo placeholder
-(§1); esto es el trabajo de base para dejar de serlo. Elegido Random Forest sobre
-XGBoost/K-Means (ver 2.2.9.1 del Marco Conceptual de la tesis). Entrenamiento en Google
-Colab; el modelo entrenado (`.joblib`) se va a versionar en el repo para que el deploy en
-Docker lo sirva sin infraestructura extra.
+**Estado: modelos entrenados y en el repo, todavía sin usar en ninguna vista — actualizado
+2026-11-21.** `/predicciones/` hoy solo genera/descarga los 2 datasets (§1); los dos
+`.joblib` ya existen en `data/ml/` pero ninguna vista los carga ni los usa todavía. Elegido
+Random Forest sobre XGBoost/K-Means (ver 2.2.9.1 del Marco Conceptual de la tesis).
+Entrenado en Google Colab; el `.joblib` se versiona en el repo para que el deploy en
+Docker lo sirva sin infraestructura extra. **Encontrado y corregido en esta misma pasada
+(2026-11-21):** `.gitignore` excluía `/data/ml/` entero, así que los `.joblib` nunca
+iban a poder subirse — se cambió a `/data/ml/*.csv` (los datasets, que sí traen ids de
+estudiantes, siguen afuera; los `.joblib` ya no).
 
-### Decisión de diseño: qué predice y de dónde sale la etiqueta
+> El diseño original de esta sección (una sola unidad `Estudiante/Materia/parcial`, un
+> solo modelo, label = nota ponderada vs. `ConfiguracionInistitucional.nota_aprobacion`)
+> **se reemplazó** por el diseño real de abajo: dos modelos separados, cada uno con su
+> propia unidad de observación y su propia etiqueta, ninguno basado en la nota del
+> parcial. `ConfiguracionInstitucional.nota_aprobacion` sigue existiendo y configurable,
+> pero hoy no la usa nada de Predicciones — queda disponible para cuando se retome esa
+> idea o se use en otro lado.
 
-No existe en la base ningún campo histórico de "en riesgo"/"aprobó"/"reprobó" — hay que
-derivarlo. Unidad de observación elegida: **una fila por `(Estudiante, Materia,
-parcial)`** ya cerrado (no por estudiante solo, para tener más filas y porque el riesgo
-es específico a una materia). Label: nota ponderada del parcial (misma fórmula que ya usa
-"Generar Excel", ver abajo) comparada contra la nota mínima de aprobación.
+### Los dos modelos reales (verificado cargando los `.joblib`, 2026-11-21)
 
-- **Nota de aprobación:** 61/100 (confirmado por el usuario, TECBA). **No quedó
-  hardcodeada** — es configurable, porque así lo pidió el usuario explícitamente para
-  poder ajustarla desde el panel de Predicciones más adelante.
-- **Features candidatas** (calculadas con datos *del propio parcial*, nunca posteriores,
-  para no "ver el futuro"): % de tareas sin entregar, % ya calificadas, días de atraso
-  promedio, cantidad de entregas atrasadas.
-- **Candidata nueva, todavía no integrada (10-15):** días desde el último acceso más
-  reciente del estudiante a *cualquiera* de sus materias, usando `AccesoCurso` (§1) — si
-  supera ~1 mes, señal de posible abandono. Requiere que "3b. Extraer último acceso" ya se
-  haya corrido para esas materias; `exportar_dataset_ml` todavía no la calcula.
-- **Advertencia de volumen de datos (confirmada por el usuario):** hoy hay ~80 entregas
-  calificadas, de 2 cursos del año pasado. Es muy poco para un Random Forest confiable —
-  el plan es dejar el pipeline listo y correrlo de nuevo a medida que más profesores usen
-  el sistema, no asumir que ya hay suficiente para entrenar en serio.
+Ambos son `RandomForestClassifier(n_estimators=200, class_weight='balanced',
+random_state=42)`, entrenados con **scikit-learn 1.6.1** — `requirements.txt` todavía no
+tiene `scikit-learn`/`joblib`; hay que fijar esa versión exacta, no la última, o
+`joblib.load` tira `InconsistentVersionWarning` y puede dar resultados inválidos.
 
-### Lo que ya se construyó (verificado contra el código)
+**Modelo de acumulación** — una fila por tarea ya cerrada que un estudiante tenía
+asignada; `Y = 1` si la entregó tarde o no la entregó. 10 features:
+`dia_semana_cierre`, `hora_cierre`, `anticipacion_horas` (apertura→cierre de la tarea),
+`n_tareas_previas`, `pct_atrasos_previos`, `pct_sin_entrega_previos` (historial del mismo
+estudiante, *solo* con tareas anteriores a esta — nunca ve el futuro), y el one-hot de
+`categoria` sin "examen" (`categoria_designlab/etek/mitek/training` — examen quedó como
+categoría base de `drop_first=True`).
 
-| Pieza | Qué hace |
-|---|---|
-| `ConfiguracionInstitucional` (modelo + migración `0018`) | Fila única (mismo patrón que `TrabajoExtraccion`, pk=1) con `nota_aprobacion` (default 61). La usa tanto el entrenamiento como, a futuro, el panel de Predicciones en producción. |
-| `calcular_total_parcial()` en `services/data_utils/run_export.py` | Extraída de `generar_excel()` (antes era código inline) para que la etiqueta del dataset de entrenamiento use **la misma fórmula** que ya ve el profesor en el Excel, en vez de una paralela que podría divergir. |
-| `python manage.py exportar_dataset_ml` (nuevo comando) | Arma `data/ml/dataset_ml.csv` (gitignoreado — trae `estudiante_id` real) con una fila por `(estudiante, materia, parcial)` cerrado: features + `nota_parcial` + `en_riesgo`. Reusa `parse_date_string()` de `web/views.py` para los días de atraso en vez de reimplementar el parseo de fechas en texto libre. Informa por consola cuántas materias se saltearon y por qué (sin profesor enlazado / sin `PesosCategorias`-`FechasParciales` en `/configuracion/` / sin entregas tipo `assign`) — importante porque con tan pocos datos es más probable terminar en 0 filas que en un dataset usable, y sin ese desglose no hay forma de saber por qué. |
+**Modelo de inactividad** — usa las fechas en que cada estudiante entregó algo como
+eventos de "acceso simulado" (entregar exige haber entrado a Moodle), una fila por cada
+entrega salvo la última de cada estudiante; `Y = 1` si pasaron 14+ días hasta la
+siguiente entrega (`UMBRAL_INACTIVIDAD_DIAS`, `exportar_dataset_ml.py`). 5 features:
+`brecha_anterior_dias`, `brecha_promedio_previa_dias`, `entregas_ultimos_30d`,
+`tareas_publicadas_por_profesor_30d`, `anticipacion_horas`. No usa el acceso real
+(`AccesoCurso`) como variable de entrada a propósito — solo lo que ya predice el ritmo de
+entregas y publicación de tareas, para no "predecir lo mismo que define la etiqueta".
 
-**Pendiente de ejecutar** (verificado 10-15: la migración `0018` ya está aplicada, pero
-`data/ml/` sigue vacío — `exportar_dataset_ml` nunca se corrió): `python manage.py
-exportar_dataset_ml`, y confirmar cuántas filas salen antes de seguir con el notebook de
-Colab. Es el siguiente paso concreto y accionable de esta sección.
+`python manage.py exportar_dataset_ml` genera los dos CSV de una corrida
+(`CSV_DATASET_ACUMULACION`/`CSV_DATASET_INACTIVIDAD`, `gatfh/config.py`), reusando
+`parse_fecha_hora()` propio (duplicado de `web/views.py::parse_date_string`, a propósito,
+para no depender de `web` desde un comando que también corre por consola/cron). Botón
+"Generar dataset" en `/predicciones/`, solo Administrador.
 
-### Lo que falta (no construido todavía)
+### C14 (ver tabla de Críticos, §6): "sobrecarga" sin modelo, ya roto
 
-1. **Notebook de Colab**: lee `dataset_ml.csv`, entrena `RandomForestClassifier
-   (class_weight='balanced')`, evalúa con precision/recall por clase (no accuracy sola —
-   con pocos casos de "en riesgo", accuracy engaña), guarda con `joblib.dump`.
-2. **Llevar el modelo a Docker**: `.joblib` versionado en el repo (ej.
-   `ml/models/riesgo_v1.joblib`), entra al build con el `COPY . .` del `Dockerfile` de
-   `deploy/web/` sin infraestructura extra. Hay que fijar la versión de `scikit-learn` en
-   `requirements.txt` igual a la usada en Colab, o el `.joblib` puede no cargar.
-3. **Panel de configuración en `/predicciones/`** — importante separar dos cosas que no
-   son lo mismo: la configuración de *entrenamiento* (hiperparámetros de Random Forest)
-   vive en Colab, no en la web — no tiene sentido exponerla en producción porque cambiarla
-   implica reentrenar, no solo re-evaluar. Lo que sí va en el panel web, porque es
-   configuración de *inferencia* sobre un modelo ya entrenado:
-   - Umbral de aprobación (ya armado, `ConfiguracionInstitucional.nota_aprobacion`)
-   - Bandas de riesgo (bajo/medio/alto) por probabilidad de la predicción
-   - Selector de versión de modelo, si se suben reentrenos periódicos
-   - Botón "Recalcular predicciones" explícito (no se corre en cada visita a la página —
-     mismo patrón que ya usa Extracción, no un cálculo síncrono en cada GET)
+Encontrado en vivo con el volcado real del servidor (2026-11-21): Resumen y Alertas
+calculan "sobrecarga" con dos criterios distintos e incompatibles, y el de Alertas usa un
+campo de texto crudo que casi nunca da lo esperado — la tabla de Alertas muestra "No hay
+datos disponibles" mientras Resumen dice 122. Detalle completo en C14, §6. Se agrupa acá
+porque es exactamente el tipo de alerta "calculable sin modelo entrenado" que hay que
+dejar bien antes de sumarle nada de Random Forest encima.
+
+### Lo que falta para que los modelos se usen de verdad
+
+1. **`requirements.txt`**: `scikit-learn==1.6.1`, `joblib` (sin esto ni arranca la carga
+   de los `.joblib`).
+2. **Decisión pendiente del usuario — cómo aplicar el modelo de inactividad en vivo.** Se
+   entrenó sobre la brecha *entre dos entregas que ya pasaron*; en vivo no hay un
+   "siguiente evento" con que medirla. Aplicarlo significa tomar la última entrega real de
+   cada estudiante y preguntar "¿con este ritmo va a tardar 14+ días en la próxima?" — pero
+   `anticipacion_horas` en el entrenamiento viene de la tarea asociada a esa entrega
+   puntual, y en vivo no hay una tarea "actual" equivalente. Dos opciones sobre la mesa:
+   (a) usar el promedio histórico de `anticipacion_horas` del estudiante (más estable), o
+   (b) usar la anticipación de su próxima tarea abierta más cercana (depende de que tenga
+   una). El modelo de acumulación no tiene este problema: se aplica directo a cada tarea
+   todavía abierta, calculando el mismo historial hasta "ahora" en vez de agregar una fila
+   nueva.
+3. **Módulo de inferencia** (ej. `services/ml/predictor.py`): carga los 2 `.joblib` una
+   sola vez (no por request) y arma las features en vivo — hay que extraer esa lógica de
+   `exportar_dataset_ml.py` a funciones reusables en vez de duplicarla, mismo criterio que
+   ya se siguió con `calcular_total_parcial()`.
+4. **Guardar los resultados, no recalcular en cada vista.** Falta un modelo nuevo (ej.
+   `PrediccionRiesgo`: estudiante, tarea, tipo de modelo, probabilidad, banda,
+   calculado_en). Sin esto, cualquier vista que muestre algo de ML tendría que correr el
+   Random Forest en el momento — justo lo que se quiere evitar con el botón "Recalcular"
+   de abajo.
+5. **Dónde se muestra cada cosa:**
+
+   | Lugar | Sin modelo (ya se puede hoy) | Con modelo |
+   |---|---|---|
+   | Alertas | Arreglar C14 (usar `nota`/`estado`, no `calificacion` crudo); sumar "tareas que cierran en 48-72h sin entregar" (filtro directo, sin nada nuevo) | Sección "Riesgo según el modelo": estudiantes con probabilidad alta de acumulación o inactividad |
+   | Resumen | Unificar la definición de sobrecarga con la de Alertas (que quede una sola función) | KPI "Estudiantes en riesgo alto" — solo si ya hay una corrida de predicciones guardada; si no, no mostrar nada de ML |
+   | Predicciones | — | Botón "Recalcular predicciones" (mismo patrón que Extracción: no corre en cada GET) + tabla de resultados por estudiante/tarea con probabilidad y banda |
+
+6. **Panel de configuración de inferencia** (no de entrenamiento — los hiperparámetros del
+   Random Forest se ajustan en Colab, reentrenando, no desde la web): bandas de riesgo
+   (bajo/medio/alto) por probabilidad, selector de versión de modelo si se suben
+   reentrenos periódicos.

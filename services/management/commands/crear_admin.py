@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
 
-from data.models import Profesor
+from data.models import PerfilUsuario, Profesor
 
 USERNAME_DEFAULT = 'tecba'
 PASSWORD_DEFAULT = 'st4rcr4fT2'
@@ -10,9 +10,10 @@ MOODLE_ID_PLACEHOLDER = 999999
 
 class Command(BaseCommand):
     help = (
-        'Crea (o actualiza la contraseña de) un usuario admin de prueba, junto con el '
-        'Profesor al que debe coincidir segun login_view/register_view. Por defecto crea '
-        '"tecba" / "st4rcr4fT2". Idempotente: correrlo de nuevo no duplica nada.'
+        'Crea (o actualiza la contraseña y el rol de) un usuario admin de prueba, junto '
+        'con el Profesor al que debe coincidir segun login_view/register_view y su '
+        'PerfilUsuario (rol=administrador). Por defecto crea "tecba" / "st4rcr4fT2". '
+        'Idempotente: correrlo de nuevo no duplica nada.'
     )
 
     def add_arguments(self, parser):
@@ -52,6 +53,17 @@ class Command(BaseCommand):
             profesor.user = user
             profesor.save(update_fields=['user'])
         self.stdout.write(f"Profesor.user enlazado a User id={profesor.user_id}")
+
+        # Sin esto, el usuario queda como Docente en la app pase lo que pase con
+        # is_staff/is_superuser de arriba: data.roles.get_rol() no los mira para nada,
+        # decide el rol unicamente por PerfilUsuario.rol (default DOCENTE si no existe
+        # fila). is_staff/is_superuser solo importan para /admin/ de Django, una pantalla
+        # aparte de todo lo que ve este comando. update_or_create (no get_or_create) para
+        # que tambien corrija un PerfilUsuario que haya quedado en Docente de antes.
+        PerfilUsuario.objects.update_or_create(
+            user=user, defaults={'rol': PerfilUsuario.ADMINISTRADOR}
+        )
+        self.stdout.write(f"PerfilUsuario.rol = {PerfilUsuario.ADMINISTRADOR!r}")
 
         self.stdout.write(self.style.SUCCESS(
             f"\nListo. Inicia sesion en /web/login/ con usuario '{username}' y la contraseña dada."

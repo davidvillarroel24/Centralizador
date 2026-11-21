@@ -53,8 +53,6 @@
                         <td>{{ f.ultimo_acceso_texto }}</td>
                         <td>{{ f.fecha_aprox|date:"d/m/Y H:i"|default:"—" }}</td>
                     </tr>
-                    {% empty %}
-                    <tr><td colspan="5" class="note">Sin datos: corré "3. Extraer e importar último acceso" para algún curso primero.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -94,8 +92,6 @@
                         <td>{{ f.extra|default:"—" }}</td>
                         <td>{% if f.url %}<a href="{{ f.url }}" target="_blank">Abrir</a>{% else %}—{% endif %}</td>
                     </tr>
-                    {% empty %}
-                    <tr><td colspan="6" class="note">Sin tareas importadas todavía.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -133,8 +129,6 @@
                         <td>{{ f.titulo }}</td>
                         <td>{% if f.extra %}<a href="{{ f.extra }}" target="_blank">Abrir</a>{% else %}—{% endif %}</td>
                     </tr>
-                    {% empty %}
-                    <tr><td colspan="5" class="note">Sin material importado todavía.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -147,15 +141,35 @@
 {% block scripts %}
 <script>
     $(document).ready(function () {
-        $('#tblReporteAcceso').DataTable({ pageLength: 25, order: [] });
+        // Las 3 tablas de este archivo tenian una fila "sin datos" con colspan metida a
+        // mano en el <tbody> (ver {% templatetag openblock %} empty {% templatetag closeblock %}
+        // de Django) para cuando no hay filas. DataTables no entiende colspan al leer el
+        // HTML inicial: cuenta celdas reales, espera tantas como <th> declara el <thead>
+        // (5 o 6 segun la tabla), encuentra 1 en esa fila, y revienta con "Requested
+        // unknown parameter '1' for row 0, column 1" apenas la tabla queda vacia. El fix
+        // es dejar el <tbody> realmente vacio y usar el mensaje propio de DataTables
+        // (language.emptyTable) en vez de inventar la fila en el template.
+        $('#tblReporteAcceso').DataTable({
+            pageLength: 25,
+            order: [],
+            language: { emptyTable: 'Sin datos: corré "3. Extraer e importar último acceso" para algún curso primero.' },
+        });
         {% if ver_secciones_docente %}
         // BUG (encontrado 2026-11-07): para un Docente estas dos secciones ni se renderizan
         // (ver "{% templatetag openblock %} if ver_secciones_docente {% templatetag closeblock %}" mas arriba), asi que
         // #tblReporteTareas/#tblReporteMaterial no existen en el DOM - inicializar DataTable
         // sobre ellas igual tiraba un error de consola ("columna que no existe") cada vez
         // que un Docente entraba a Reportes.
-        $('#tblReporteTareas').DataTable({ pageLength: 25, order: [] });
-        $('#tblReporteMaterial').DataTable({ pageLength: 25, order: [] });
+        $('#tblReporteTareas').DataTable({
+            pageLength: 25,
+            order: [],
+            language: { emptyTable: 'Sin tareas importadas todavía.' },
+        });
+        $('#tblReporteMaterial').DataTable({
+            pageLength: 25,
+            order: [],
+            language: { emptyTable: 'Sin material importado todavía.' },
+        });
         {% endif %}
     });
 </script>

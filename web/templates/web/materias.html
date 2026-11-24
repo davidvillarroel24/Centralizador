@@ -50,7 +50,7 @@
                 {% if es_admin %}
                 <td class="materia-td-accion-admin">
                     <form method="post" style="display:inline;"
-                          {% if m.activo %}onsubmit="return confirm('¿Inhabilitar esta materia? Deja de verla todo el mundo y de poder usarse para extracción. Sus datos (tareas/entregas) no se borran, se puede reactivar después.');"{% endif %}>
+                          {% if m.activo %}class="form-confirmar-swal" data-mensaje="¿Inhabilitar esta materia? Deja de verla todo el mundo y de poder usarse para extracción. Sus datos (tareas/entregas) no se borran, se puede reactivar después."{% endif %}>
                         {% csrf_token %}
                         <input type="hidden" name="accion" value="toggle_activo">
                         <input type="hidden" name="materia_id" value="{{ m.id }}">
@@ -144,6 +144,30 @@
 {% block scripts %}
 <script>
 new DataTable('#tblMaterias');
+
+// Reemplaza confirm() nativo (dejaba un diálogo gris del navegador en vez del look del
+// resto de la app) por SweetAlert - un solo listener delegado, no uno por fila.
+document.querySelectorAll('.form-confirmar-swal').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+        if (form.dataset.confirmado) return;
+        e.preventDefault();
+        if (!window.Swal) { form.dataset.confirmado = '1'; form.submit(); return; }
+        Swal.fire({
+            icon: 'warning',
+            title: '¿Estás seguro?',
+            text: form.dataset.mensaje,
+            showCancelButton: true,
+            confirmButtonText: 'Sí, continuar',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#9b5bf6',
+        }).then(function (resultado) {
+            if (resultado.isConfirmed) {
+                form.dataset.confirmado = '1';
+                form.submit();
+            }
+        });
+    });
+});
 
 (function () {
     var overlay = document.getElementById('modalAvancesMateriaOverlay');

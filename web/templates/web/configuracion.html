@@ -38,6 +38,26 @@
         </section>
 
         <section class="panel" style="margin-bottom:20px;">
+            <h2>Unidades por parcial</h2>
+            <div class="note">
+                Cuántas Unidades (UT) abarca cada parcial. Se usa para la alerta "Materias
+                con retraso" de Resumen: una Unidad que todavía tiene el título por defecto
+                sin editar ("UT 6: XXXX") solo cuenta como retraso si, según este número y
+                la fecha de hoy, ya debería tener contenido real.
+            </div>
+            <form method="post" style="margin-top:10px; display:flex; gap:12px; align-items:flex-end;">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="guardar_unidades_por_parcial">
+                <div>
+                    <label for="unidadesPorParcial" class="note" style="display:block; margin-bottom:4px;">Unidades por parcial</label>
+                    <input type="number" name="unidades_por_parcial" id="unidadesPorParcial" class="config-input"
+                           min="1" step="1" value="{{ unidades_por_parcial }}" style="width:110px;">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:auto; padding:10px 18px;">Guardar</button>
+            </form>
+        </section>
+
+        <section class="panel" style="margin-bottom:20px;">
             <h2>Exportar base de datos</h2>
             <div class="note">
                 Descarga un JSON con las tablas académicas (materias, docentes, tareas,
@@ -162,8 +182,8 @@
             </button>
         </form>
 
-        <form method="post" style="margin-top:10px;"
-              onsubmit="return confirm('Esto va a pisar las fechas y pesos actuales con el default institucional del año en curso. ¿Continuar?');">
+        <form method="post" style="margin-top:10px;" class="form-confirmar-swal"
+              data-mensaje="Esto va a pisar las fechas y pesos actuales con el default institucional del año en curso. ¿Continuar?">
             {% csrf_token %}
             <input type="hidden" name="accion" value="restablecer">
             <button type="submit" class="btn btn-secondary" style="width:auto; padding:10px 20px;">
@@ -202,6 +222,29 @@
 
 {% block scripts %}
 <script>
+    // Reemplaza confirm() nativo por SweetAlert - mismo patrón que materias.html.
+    document.querySelectorAll('.form-confirmar-swal').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            if (form.dataset.confirmado) return;
+            e.preventDefault();
+            if (!window.Swal) { form.dataset.confirmado = '1'; form.submit(); return; }
+            Swal.fire({
+                icon: 'warning',
+                title: '¿Estás seguro?',
+                text: form.dataset.mensaje,
+                showCancelButton: true,
+                confirmButtonText: 'Sí, continuar',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#9b5bf6',
+            }).then(function (resultado) {
+                if (resultado.isConfirmed) {
+                    form.dataset.confirmado = '1';
+                    form.submit();
+                }
+            });
+        });
+    });
+
     (function () {
         var btn = document.getElementById('themeToggle');
         var icon = document.getElementById('themeIcon');

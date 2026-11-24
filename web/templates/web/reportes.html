@@ -4,6 +4,22 @@
 {% block content %}
     <div class="page-shell">
 
+        {% if ver_secciones_docente %}
+        <div class="reportes-tabs" style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;">
+            <a href="?tab=acceso" class="btn {% if tab == 'acceso' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:auto; padding:9px 18px;">Último acceso</a>
+            <a href="?tab=tareas" class="btn {% if tab == 'tareas' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:auto; padding:9px 18px;">Tareas asignadas</a>
+            <a href="?tab=material" class="btn {% if tab == 'material' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:auto; padding:9px 18px;">Material de apoyo</a>
+        </div>
+        {% comment %}
+        Pestañas en vez de las 3 secciones juntas (2026-11-24): "Tareas"/"Material" tardaban
+        varios segundos y pesaban mucho (ver datos_reporte_contenido) por calcularse y
+        renderizarse SIEMPRE, aunque nadie las mirara. Ahora cada pestaña recarga la página
+        con ?tab= y la vista solo calcula/renderiza los datos de esa pestaña - sin ajax, así
+        que la descarga en Excel/PDF (reportes_descargar, vista aparte) sigue igual.
+        {% endcomment %}
+        {% endif %}
+
+        {% if tab == 'acceso' %}
         <section class="panel" style="margin-bottom:20px;">
             <h2>Último acceso</h2>
             <div class="note">
@@ -13,6 +29,7 @@
                 e importar último acceso" para esa materia - no es la hora exacta de la conexión.
             </div>
             <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
+                <input type="hidden" name="tab" value="acceso">
                 {% if ver_secciones_docente %}
                 <div style="min-width:180px;">
                     <label class="note" style="display:block; margin-bottom:4px;">Rol</label>
@@ -57,12 +74,14 @@
                 </tbody>
             </table>
         </section>
+        {% endif %}
 
-        {% if ver_secciones_docente %}
+        {% if ver_secciones_docente and tab == 'tareas' %}
         <section class="panel" style="margin-bottom:20px;">
             <h2>Tareas asignadas por docente</h2>
             <div class="note">Tareas con entrega (Tarea.tipo = "assign") que cada docente publicó, agrupadas por materia y tema.</div>
             <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
+                <input type="hidden" name="tab" value="tareas">
                 <div style="min-width:220px;">
                     <label class="note" style="display:block; margin-bottom:4px;">Docente</label>
                     <select name="docente_tareas" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
@@ -96,11 +115,14 @@
                 </tbody>
             </table>
         </section>
+        {% endif %}
 
+        {% if ver_secciones_docente and tab == 'material' %}
         <section class="panel">
             <h2>Material de apoyo subido por docente</h2>
             <div class="note">Enlaces y archivos que no son tareas con entrega (Tarea.tipo = "url"): Drive, recursos, avisos, etc.</div>
             <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
+                <input type="hidden" name="tab" value="material">
                 <div style="min-width:220px;">
                     <label class="note" style="display:block; margin-bottom:4px;">Docente</label>
                     <select name="docente_material" class="form-select-custom" style="width:100%;" onchange="this.form.submit()">
@@ -141,7 +163,7 @@
 {% block scripts %}
 <script>
     $(document).ready(function () {
-        // Las 3 tablas de este archivo tenian una fila "sin datos" con colspan metida a
+        // Las tablas de este archivo tenian una fila "sin datos" con colspan metida a
         // mano en el <tbody> (ver {% templatetag openblock %} empty {% templatetag closeblock %}
         // de Django) para cuando no hay filas. DataTables no entiende colspan al leer el
         // HTML inicial: cuenta celdas reales, espera tantas como <th> declara el <thead>
@@ -149,28 +171,32 @@
         // unknown parameter '1' for row 0, column 1" apenas la tabla queda vacia. El fix
         // es dejar el <tbody> realmente vacio y usar el mensaje propio de DataTables
         // (language.emptyTable) en vez de inventar la fila en el template.
-        $('#tblReporteAcceso').DataTable({
-            pageLength: 25,
-            order: [],
-            language: { emptyTable: 'Sin datos: corré "3. Extraer e importar último acceso" para algún curso primero.' },
-        });
-        {% if ver_secciones_docente %}
-        // BUG (encontrado 2026-11-07): para un Docente estas dos secciones ni se renderizan
-        // (ver "{% templatetag openblock %} if ver_secciones_docente {% templatetag closeblock %}" mas arriba), asi que
-        // #tblReporteTareas/#tblReporteMaterial no existen en el DOM - inicializar DataTable
-        // sobre ellas igual tiraba un error de consola ("columna que no existe") cada vez
-        // que un Docente entraba a Reportes.
-        $('#tblReporteTareas').DataTable({
-            pageLength: 25,
-            order: [],
-            language: { emptyTable: 'Sin tareas importadas todavía.' },
-        });
-        $('#tblReporteMaterial').DataTable({
-            pageLength: 25,
-            order: [],
-            language: { emptyTable: 'Sin material importado todavía.' },
-        });
-        {% endif %}
+        //
+        // Desde que cada pestaña (ver ?tab= en reportes_view) solo renderiza SU PROPIA
+        // tabla, las otras dos ni existen en el DOM - inicializar DataTable sobre una
+        // tabla que no existe tira error de consola, así que cada init está guardado
+        // detrás de un chequeo de que el elemento esté presente.
+        if (document.getElementById('tblReporteAcceso')) {
+            $('#tblReporteAcceso').DataTable({
+                pageLength: 25,
+                order: [],
+                language: { emptyTable: 'Sin datos: corré "3. Extraer e importar último acceso" para algún curso primero.' },
+            });
+        }
+        if (document.getElementById('tblReporteTareas')) {
+            $('#tblReporteTareas').DataTable({
+                pageLength: 25,
+                order: [],
+                language: { emptyTable: 'Sin tareas importadas todavía.' },
+            });
+        }
+        if (document.getElementById('tblReporteMaterial')) {
+            $('#tblReporteMaterial').DataTable({
+                pageLength: 25,
+                order: [],
+                language: { emptyTable: 'Sin material importado todavía.' },
+            });
+        }
     });
 </script>
 {% endblock %}

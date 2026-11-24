@@ -19,6 +19,12 @@ ML_DIR = os.path.join(BASE_DIR, "data", "ml")
 CSV_DATASET_ACUMULACION = os.path.join(ML_DIR, "dataset_riesgo_acumulacion.csv")
 CSV_DATASET_INACTIVIDAD = os.path.join(ML_DIR, "dataset_riesgo_inactividad.csv")
 
+# Modelos ya entrenados en Colab (Random Forest, ver services/ml/predictor.py). Se
+# versionan en el repo (excepcion en .gitignore) para que el deploy los sirva sin
+# infraestructura extra.
+MODELO_ACUMULACION = os.path.join(ML_DIR, "modelo_acumulacion.joblib")
+MODELO_INACTIVIDAD = os.path.join(ML_DIR, "modelo_inactividad.joblib")
+
 # Asegurar que las carpetas existan
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(ML_DIR, exist_ok=True)

@@ -1,6 +1,6 @@
 {% extends 'web/base.html' %}
 {% block title %}Resumen - Centralizador{% endblock %}
-{% block header %}Resumen ejecutivo{% endblock %}
+{% block header %}Resumen Académico{% endblock %}
 {% block content %}
   {% if es_visitante %}
   <section class="panel" style="margin-bottom:20px;">
@@ -28,106 +28,349 @@
     </form>
   </section>
   {% endif %}
+
+  <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px;">
+      {% if facultad_seleccionada %}<input type="hidden" name="facultad" value="{{ facultad_seleccionada }}">{% endif %}
+      {% if carrera_seleccionada %}<input type="hidden" name="carrera" value="{{ carrera_seleccionada }}">{% endif %}
+      <div>
+          <label for="filtroAnioResumen" class="note" style="display:block; margin-bottom:4px;">Gestión</label>
+          <select name="anio" id="filtroAnioResumen" class="config-input" onchange="this.form.submit();">
+              <option value="">Todas</option>
+              {% for g in gestiones_filtro %}
+                  <option value="{{ g }}" {% if anio_seleccionado == g|stringformat:"s" %}selected{% endif %}>{{ g }}</option>
+              {% endfor %}
+          </select>
+      </div>
+  </form>
+
   <div class="kpi-grid">
     <div class="kpi-card">Materias monitoreadas<br><strong>{{ kpis.materias }}</strong></div>
-    <div class="kpi-card">Docentes monitoreados<br><strong>{{ kpis.docentes }}</strong></div>
-    <div class="kpi-card">Estudiantes monitoreados<br><strong>{{ kpis.estudiantes }}</strong></div>
+    <div class="kpi-card">Docentes con cuenta<br><strong>{{ kpis.docentes_con_cuenta }}/{{ kpis.docentes }}</strong></div>
+    <div class="kpi-card">Estudiantes activos<br><strong>{{ kpis.estudiantes_activos }}</strong></div>
+    <div class="kpi-card">Estudiantes con posible abandono<br><strong>{{ kpis.estudiantes_posible_abandono }}</strong></div>
     <div class="kpi-card">Actividades registradas<br><strong>{{ kpis.actividades }}</strong></div>
-    <div class="kpi-card">Actividades pendientes<br><strong>{{ kpis.actividades_pendientes }}</strong></div>
+    <div class="kpi-card">Actividades no entregadas<br><strong>{{ kpis.actividades_no_entregadas }}</strong></div>
     <div class="kpi-card">Materias con retraso<br><strong>{{ kpis.materias_con_retraso }}</strong></div>
-    <div class="kpi-card">Posibles sobrecargas<br><strong>{{ kpis.posibles_sobrecargas }}</strong></div>
     <div class="kpi-card">Última sincronización<br><strong>{{ kpis.ultima_sincronizacion|default:'Desconocida' }}</strong></div>
   </div>
   <section class="charts">
-    <h2>Visualizaciones</h2>
-    <div class="charts-row-top">
-
-        <div class="chart-col-1">
+    <div class="chart-box-wide" style="height:auto; margin-bottom:28px; max-width:420px;">
+        <h3 class="note" style="margin:0 0 8px;">% de cumplimiento de tareas</h3>
+        <div style="position:relative; height:260px;">
             <canvas id="kpiDonut"></canvas>
         </div>
+    </div>
 
-        <div class="chart-col-2">
+    <div class="chart-box-wide" style="height:auto; margin-bottom:28px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h3 class="note" style="margin:0;" id="materiasTitulo">Materias con menos tareas asignadas</h3>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <label class="note" for="materiasFiltroCarrera" style="margin:0;">Carrera</label>
+                <select id="materiasFiltroCarrera" class="form-select-custom" style="width:auto; max-width:260px;">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+        </div>
+        <div style="position:relative; height:320px; margin-top:10px;">
             <canvas id="materiasBar"></canvas>
         </div>
-
+        <p class="note" id="materiasVacio" style="display:none; text-align:center; margin-top:10px;">No hay materias con tareas cargadas en esta gestión (o en esta carrera).</p>
+        <div style="display:flex; justify-content:center; align-items:center; gap:14px; margin-top:10px;">
+            <button type="button" id="materiasAnterior" class="btn btn-secondary" style="width:auto; padding:8px 18px;">← Anteriores</button>
+            <span class="note" id="materiasRango"></span>
+            <button type="button" id="materiasSiguiente" class="btn btn-secondary" style="width:auto; padding:8px 18px;">Siguientes →</button>
+        </div>
     </div>
 
-    <div class="chart-box-wide">
-        <canvas id="yearlyBar"></canvas>
+    <div class="chart-box-wide" style="height:auto; margin-top:28px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h3 class="note" style="margin:0;" id="sobrecargaTitulo">Estudiantes con sobrecarga</h3>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <label class="note" for="sobrecargaCantidad" style="margin:0;">Mostrar</label>
+                <select id="sobrecargaCantidad" class="form-select-custom" style="width:auto;">
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                </select>
+                <button type="button" id="sobrecargaFiltroActivos" class="btn btn-secondary" style="width:auto; padding:6px 14px; font-size:0.85rem;">Activos</button>
+                <button type="button" id="sobrecargaFiltroAbandono" class="btn btn-secondary" style="width:auto; padding:6px 14px; font-size:0.85rem;">Posible abandono</button>
+            </div>
+        </div>
+        <div style="position:relative; height:320px; margin-top:10px;">
+            <canvas id="sobrecargaBar"></canvas>
+        </div>
+        <p class="note" id="sobrecargaVacio" style="display:none; text-align:center; margin-top:10px;">No hay estudiantes con sobrecarga en este grupo.</p>
+        <div style="display:flex; justify-content:center; align-items:center; gap:14px; margin-top:10px;">
+            <button type="button" id="sobrecargaAnterior" class="btn btn-secondary" style="width:auto; padding:8px 18px;">← Anteriores</button>
+            <span class="note" id="sobrecargaRango"></span>
+            <button type="button" id="sobrecargaSiguiente" class="btn btn-secondary" style="width:auto; padding:8px 18px;">Siguientes →</button>
+        </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
     <script>
       const kpiData = JSON.parse('{{ chart_kpis_json|escapejs }}');
       const materiasData = JSON.parse('{{ chart_materias_json|escapejs }}');
-      const yearlyData = JSON.parse('{{ chart_yearly_json|escapejs }}');
+      const sobrecargaData = JSON.parse('{{ chart_sobrecarga_json|escapejs }}');
 
       const ctx = document.getElementById('kpiDonut').getContext('2d');
       new Chart(ctx, {
         type: 'doughnut',
+        plugins: [ChartDataLabels],
         data: {
           labels: kpiData.labels,
-          datasets: [{ data: kpiData.data, backgroundColor: ['#FF6384','#36A2EB'] }]
+          datasets: [{ data: kpiData.data, backgroundColor: ['#36A2EB', '#FF6384'] }]
         },
-        options: { responsive: true,
-            maintainAspectRatio: true,
-            aspectRatio: 1.5, }
-      });
-
-        const ctx2 = document.getElementById('materiasBar').getContext('2d');
-
-        new Chart(ctx2, {
-            type: 'bar',
-            data: {
-                labels: materiasData.labels,
-                datasets: [{
-                    label: 'Tareas por materia',
-                    data: materiasData.data,
-                    backgroundColor: '#4BC0C0'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    },
-                    x: {
-                        ticks: {
-                            maxRotation: 90,
-                            minRotation: 90
-                        }
-                    }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                tooltip: { callbacks: { label: function (c) { return c.label + ': ' + c.raw + '%'; } } },
+                datalabels: {
+                    color: '#fff',
+                    font: { weight: 'bold', size: 14 },
+                    formatter: function (valor) { return valor + '%'; },
                 }
             }
+        }
+      });
+
+      // "Materias con menos tareas asignadas": el promedio varía mucho de una carrera a
+      // otra, así que se recalcula sobre la carrera elegida (o sobre todas si "Todas"), no
+      // una sola vez globalmente - decisión 2026-11-25. Igual que "Estudiantes con
+      // sobrecarga", "siguientes/anteriores" reemplazan la ventana mostrada en vez de
+      // acumular barras.
+      (function () {
+        var todasLasMaterias = materiasData.materias || [];
+        var carreraActual = '';
+        var pagina = 0;
+        var cantidad = 8;
+        var titulo = document.getElementById('materiasTitulo');
+        var selectCarrera = document.getElementById('materiasFiltroCarrera');
+        var btnAnterior = document.getElementById('materiasAnterior');
+        var btnSiguiente = document.getElementById('materiasSiguiente');
+        var rangoTexto = document.getElementById('materiasRango');
+        var vacio = document.getElementById('materiasVacio');
+        var canvas = document.getElementById('materiasBar');
+        var chart = null;
+
+        // Dropdown de carreras, armado a partir de las carreras que realmente aparecen en
+        // los datos (no una lista aparte que podría desalinearse) - "Todas" reorganiza
+        // todo en una sola lista sin agrupar por carrera, tal como se pidió.
+        var carrerasVistas = {};
+        todasLasMaterias.forEach(function (f) {
+            if (f.carrera_id != null && !carrerasVistas[f.carrera_id]) {
+                carrerasVistas[f.carrera_id] = f.carrera_nombre;
+            }
+        });
+        Object.keys(carrerasVistas).sort(function (a, b) {
+            return carrerasVistas[a].localeCompare(carrerasVistas[b]);
+        }).forEach(function (id) {
+            var opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = carrerasVistas[id];
+            selectCarrera.appendChild(opt);
         });
 
-      const ctx3 = document.getElementById('yearlyBar').getContext('2d');
-      new Chart(ctx3, {
-        type: 'line',
-        data: {
-          labels: yearlyData.labels,
-          datasets: [
-            { label: 'Tareas por año', data: yearlyData.tareas, borderColor: '#FF9F40', backgroundColor: 'rgba(255,159,64,0.2)', fill: true },
-            { label: 'Entregas por año', data: yearlyData.entregas, borderColor: '#36A2EB', backgroundColor: 'rgba(54,162,235,0.2)', fill: true }
-          ]
-        },
-        options: { responsive: true,
-            maintainAspectRatio: true },
-            scales: { y: { beginAtZero: true } }
-      });
-    </script>
-  </section>
+        function materiasDelGrupo() {
+            if (!carreraActual) return todasLasMaterias;
+            return todasLasMaterias.filter(function (f) { return String(f.carrera_id) === carreraActual; });
+        }
 
-  <section class="alerts">
-    <h2>Alertas</h2>
-    <ul>
-      {% for a in alertas %}
-        <li>{{ a }}</li>
-      {% empty %}
-        <li>No hay alertas críticas asignadas.</li>
-      {% endfor %}
-    </ul>
+        function render() {
+            var grupo = materiasDelGrupo();
+            if (!grupo.length) {
+                vacio.style.display = 'block';
+                canvas.style.display = 'none';
+                btnAnterior.style.display = 'none';
+                btnSiguiente.style.display = 'none';
+                rangoTexto.textContent = '';
+                titulo.textContent = 'Materias con menos tareas asignadas';
+                if (chart) { chart.destroy(); chart = null; }
+                return;
+            }
+
+            var promedio = grupo.reduce(function (acc, f) { return acc + f.tareas; }, 0) / grupo.length;
+            var bajoPromedio = grupo.filter(function (f) { return f.tareas < promedio; })
+                .sort(function (a, b) { return a.tareas - b.tareas || a.etiqueta.localeCompare(b.etiqueta); });
+
+            titulo.textContent = 'Materias con menos tareas asignadas (promedio: ' + Math.round(promedio) + ')';
+
+            var totalPaginas = Math.max(1, Math.ceil(bajoPromedio.length / cantidad));
+            if (pagina >= totalPaginas) pagina = totalPaginas - 1;
+            if (pagina < 0) pagina = 0;
+
+            var inicio = pagina * cantidad;
+            var visibles = bajoPromedio.slice(inicio, inicio + cantidad);
+
+            vacio.style.display = visibles.length ? 'none' : 'block';
+            canvas.style.display = visibles.length ? 'block' : 'none';
+            btnAnterior.style.display = bajoPromedio.length > cantidad ? 'inline-block' : 'none';
+            btnSiguiente.style.display = bajoPromedio.length > cantidad ? 'inline-block' : 'none';
+            btnAnterior.disabled = pagina === 0;
+            btnSiguiente.disabled = pagina >= totalPaginas - 1;
+            rangoTexto.textContent = bajoPromedio.length
+                ? (inicio + 1) + '–' + (inicio + visibles.length) + ' de ' + bajoPromedio.length
+                : '';
+
+            var datos = {
+                labels: visibles.map(function (f) { return f.etiqueta; }),
+                datasets: [{
+                    label: 'Tareas dentro de los parciales (promedio: ' + Math.round(promedio) + ')',
+                    data: visibles.map(function (f) { return f.tareas; }),
+                    backgroundColor: '#4BC0C0'
+                }]
+            };
+
+            if (chart) {
+                chart.data = datos;
+                chart.options.plugins.tooltip.callbacks.title = function (items) { return visibles[items[0].dataIndex].nombre_completo; };
+                chart.update();
+            } else {
+                chart = new Chart(canvas.getContext('2d'), {
+                    type: 'bar',
+                    data: datos,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            // Nombre completo de la materia (la etiqueta es sigla+grupo+turno,
+                            // no autoexplicativa) al pasar el mouse.
+                            tooltip: {
+                                callbacks: { title: function (items) { return visibles[items[0].dataIndex].nombre_completo; } }
+                            }
+                        },
+                        scales: {
+                            y: { beginAtZero: true, ticks: { precision: 0 } },
+                            x: { ticks: { maxRotation: 90, minRotation: 90 } }
+                        }
+                    }
+                });
+            }
+        }
+
+        selectCarrera.addEventListener('change', function () { carreraActual = selectCarrera.value; pagina = 0; render(); });
+        btnAnterior.addEventListener('click', function () { pagina -= 1; render(); });
+        btnSiguiente.addEventListener('click', function () { pagina += 1; render(); });
+
+        render();
+      })();
+
+      // "Estudiantes con sobrecarga" (ya viene ordenado desc por pendientes desde
+      // _estudiantes_sobrecarga), con filtro activos/posible-abandono EXCLUYENTE (uno u
+      // otro, no comparados lado a lado), tamaño de página configurable, y "siguientes/
+      // anteriores" que REEMPLAZAN la ventana mostrada en vez de ir acumulando barras en
+      // el mismo gráfico - decisiones confirmadas el 2026-11-24/25. En "Posible abandono"
+      // la métrica que importa no son las tareas pendientes (ya se sabe que son muchas)
+      // sino hace cuánto no entra - mismo dato que "Inactividad (acceso real a Moodle)"
+      // en Alertas, acá como barra en vez de tabla.
+      (function () {
+        var filas = sobrecargaData.filas || [];
+        var grupoActual = 'activo';
+        var pagina = 0;
+        var titulo = document.getElementById('sobrecargaTitulo');
+        var selectCantidad = document.getElementById('sobrecargaCantidad');
+        var btnActivos = document.getElementById('sobrecargaFiltroActivos');
+        var btnAbandono = document.getElementById('sobrecargaFiltroAbandono');
+        var btnAnterior = document.getElementById('sobrecargaAnterior');
+        var btnSiguiente = document.getElementById('sobrecargaSiguiente');
+        var rangoTexto = document.getElementById('sobrecargaRango');
+        var vacio = document.getElementById('sobrecargaVacio');
+        var canvas = document.getElementById('sobrecargaBar');
+        var chart = null;
+
+        // Nombres muy largos (nombre completo + 2 apellidos) hacían el eje X ilegible -
+        // 1ra y 3ra palabra alcanza para reconocer a la persona (nombre + 1er apellido).
+        function nombreCorto(nombre) {
+            var partes = (nombre || '').trim().split(/\s+/).filter(Boolean);
+            return [partes[0], partes[2]].filter(Boolean).join(' ') || nombre;
+        }
+
+        function cantidadPorPagina() {
+            return parseInt(selectCantidad.value, 10) || 10;
+        }
+
+        function filasDelGrupo() {
+            return filas.filter(function (f) { return grupoActual === 'abandono' ? f.posible_abandono : !f.posible_abandono; });
+        }
+
+        function actualizarBotones() {
+            btnActivos.classList.toggle('btn-primary', grupoActual === 'activo');
+            btnActivos.classList.toggle('btn-secondary', grupoActual !== 'activo');
+            btnAbandono.classList.toggle('btn-primary', grupoActual === 'abandono');
+            btnAbandono.classList.toggle('btn-secondary', grupoActual !== 'abandono');
+            titulo.textContent = grupoActual === 'abandono' ? 'Posibles abandonos' : 'Estudiantes con sobrecarga';
+        }
+
+        function render() {
+            actualizarBotones();
+            var grupo = filasDelGrupo();
+            var cantidad = cantidadPorPagina();
+            var totalPaginas = Math.max(1, Math.ceil(grupo.length / cantidad));
+            if (pagina >= totalPaginas) pagina = totalPaginas - 1;
+            if (pagina < 0) pagina = 0;
+
+            var inicio = pagina * cantidad;
+            var visibles = grupo.slice(inicio, inicio + cantidad);
+            var esAbandono = grupoActual === 'abandono';
+
+            vacio.style.display = visibles.length ? 'none' : 'block';
+            canvas.style.display = visibles.length ? 'block' : 'none';
+            btnAnterior.style.display = grupo.length > cantidad ? 'inline-block' : 'none';
+            btnSiguiente.style.display = grupo.length > cantidad ? 'inline-block' : 'none';
+            btnAnterior.disabled = pagina === 0;
+            btnSiguiente.disabled = pagina >= totalPaginas - 1;
+            rangoTexto.textContent = grupo.length
+                ? (inicio + 1) + '–' + (inicio + visibles.length) + ' de ' + grupo.length
+                : '';
+
+            var datos = {
+                labels: visibles.map(function (f) { return nombreCorto(f.nombre); }),
+                datasets: [{
+                    label: esAbandono ? 'Días sin ingresar' : 'Tareas pendientes',
+                    data: visibles.map(function (f) { return esAbandono ? (f.dias_inactivo || 0) : f.pendientes; }),
+                    backgroundColor: esAbandono ? '#FF6384' : '#9b5bf6',
+                }]
+            };
+            if (chart) {
+                chart.data = datos;
+                chart.options.plugins.tooltip.callbacks.title = function (items) { return visibles[items[0].dataIndex].nombre; };
+                chart.update();
+            } else {
+                chart = new Chart(canvas.getContext('2d'), {
+                    type: 'bar',
+                    data: datos,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            tooltip: {
+                                callbacks: { title: function (items) { return visibles[items[0].dataIndex].nombre; } }
+                            }
+                        },
+                        scales: {
+                            y: { beginAtZero: true, ticks: { precision: 0 } },
+                            x: { ticks: { maxRotation: 90, minRotation: 90 } }
+                        }
+                    }
+                });
+            }
+        }
+
+        btnActivos.addEventListener('click', function () { grupoActual = 'activo'; pagina = 0; render(); });
+        btnAbandono.addEventListener('click', function () { grupoActual = 'abandono'; pagina = 0; render(); });
+        selectCantidad.addEventListener('change', function () { pagina = 0; render(); });
+        btnAnterior.addEventListener('click', function () { pagina -= 1; render(); });
+        btnSiguiente.addEventListener('click', function () { pagina += 1; render(); });
+
+        if (!sobrecargaData.calculada || !filas.length) {
+            document.getElementById('sobrecargaFiltroActivos').closest('.chart-box-wide').style.display = 'none';
+        } else {
+            render();
+        }
+      })();
+    </script>
   </section>
 {% endblock %}

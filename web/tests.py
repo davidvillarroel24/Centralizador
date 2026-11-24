@@ -10,6 +10,7 @@ from django.utils import timezone
 from data.models import (
     Profesor, FechasParciales, PesosCategorias, asegurar_config_tareas_default,
     Facultad, Carrera, Materia, Unidad, Tarea, Estudiante, Entrega, PerfilUsuario, ArchivoTarea,
+    PrediccionRiesgo, ConfiguracionInstitucional, AccesoCurso,
 )
 from services.utils import run_scraping
 
@@ -568,3 +569,425 @@ class PrevisualizarArchivoTests(TestCase):
             resp = self._get()
         self.assertEqual(resp.status_code, 409)
         get.assert_not_called()
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
+class RecalcularPrediccionesTests(TestCase):
+    """Botón 'Recalcular predicciones' (/predicciones/): corre los 2 modelos ya
+    entrenados (services/ml/predictor.py) sobre el estado actual y pisa por completo las
+    PrediccionRiesgo de cada tipo. Usa los .joblib reales del repo, no un mock - esto
+    también sirve de prueba de que el pipeline de inferencia corre de punta a punta."""
+
+    def setUp(self):
+        carrera = Carrera.objects.create(facultad=Facultad.objects.create(nombre='Ingeniería'), nombre='Sistemas')
+        materia = Materia.objects.create(
+            gestion=2026, nombre='Bases de Datos', moodle_nombre='2026/BDD',
+            moodle_url='https://moodle.example/course/view.php?id=1', carrera=carrera, activo=True,
+        )
+        unidad = Unidad.objects.create(materia=materia, nombre='Unidad 1')
+        self.estudiante = Estudiante.objects.create(moodle_userid=9001, nombre='Ana Pérez', email='ana9001@example.com')
+
+        # Dos tareas ya cerradas (historial real) con fechas bien separadas, para que el
+        # modelo de inactividad tenga una brecha real que evaluar.
+        tarea_cerrada_1 = Tarea.objects.create(
+            unidad=unidad, moodle_id=9101, titulo='Práctica 1', tipo='assign', categoria='etek',
+            apertura='lunes, 25 de diciembre de 2023, 10:00',
+            cierre='lunes, 1 de enero de 2024, 10:00',
+            url='https://moodle.example/mod/assign/view.php?id=9101',
+        )
+        Entrega.objects.create(
+            tarea=tarea_cerrada_1, estudiante=self.estudiante, estado='Enviado para calificar',
+            ultima_mod_entrega='lunes, 1 de enero de 2024, 09:00',
+        )
+        tarea_cerrada_2 = Tarea.objects.create(
+            unidad=unidad, moodle_id=9102, titulo='Práctica 2', tipo='assign', categoria='mitek',
+            apertura='lunes, 15 de enero de 2024, 10:00',
+            cierre='lunes, 22 de enero de 2024, 10:00',
+            url='https://moodle.example/mod/assign/view.php?id=9102',
+        )
+        Entrega.objects.create(
+            tarea=tarea_cerrada_2, estudiante=self.estudiante, estado='Enviado para calificar',
+            ultima_mod_entrega='martes, 20 de febrero de 2024, 09:00',  # +29 dias: brecha real
+        )
+
+        # Tarea todavia abierta (cierre bien en el futuro) - lo que debe evaluar el
+        # modelo de acumulacion.
+        self.tarea_abierta = Tarea.objects.create(
+            unidad=unidad, moodle_id=9103, titulo='Práctica 3', tipo='assign', categoria='training',
+            apertura='lunes, 1 de enero de 2029, 10:00',
+            cierre='martes, 1 de enero de 2030, 10:00',
+            url='https://moodle.example/mod/assign/view.php?id=9103',
+        )
+        Entrega.objects.create(tarea=self.tarea_abierta, estudiante=self.estudiante, estado='Sin entrega')
+
+        self.admin_user = User.objects.create_user(username='admin.predicciones', password='clave-123')
+        PerfilUsuario.objects.create(user=self.admin_user, rol=PerfilUsuario.ADMINISTRADOR)
+        self.docente_user = User.objects.create_user(username='docente.predicciones', password='clave-123')
+        PerfilUsuario.objects.create(user=self.docente_user, rol=PerfilUsuario.DOCENTE)
+
+    def _post(self):
+        return self.client.post(reverse('recalcular_predicciones'), HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+    def test_administrador_puede_recalcular_y_guarda_ambos_modelos(self):
+        self.client.force_login(self.admin_user)
+        resp = self._post()
+        self.assertEqual(resp.status_code, 200)
+        datos = resp.json()
+        self.assertNotIn('error', datos)
+
+        pred_acum = PrediccionRiesgo.objects.get(
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, estudiante=self.estudiante, tarea=self.tarea_abierta,
+        )
+        self.assertIn(pred_acum.banda, ('bajo', 'medio', 'alto'))
+        self.assertTrue(0.0 <= pred_acum.probabilidad <= 1.0)
+
+        pred_inact = PrediccionRiesgo.objects.get(
+            tipo_modelo=PrediccionRiesgo.INACTIVIDAD, estudiante=self.estudiante,
+        )
+        self.assertIsNone(pred_inact.tarea)
+        self.assertTrue(0.0 <= pred_inact.probabilidad <= 1.0)
+
+    def test_recalcular_pisa_las_predicciones_anteriores_sin_duplicar(self):
+        self.client.force_login(self.admin_user)
+        self._post()
+        total_primera_vez = PrediccionRiesgo.objects.count()
+        self._post()
+        self.assertEqual(PrediccionRiesgo.objects.count(), total_primera_vez)
+
+    def test_docente_no_puede_recalcular(self):
+        self.client.force_login(self.docente_user)
+        resp = self._post()
+        self.assertNotEqual(resp.status_code, 200)
+        self.assertFalse(PrediccionRiesgo.objects.exists())
+
+    def test_guardar_configuracion_cambia_las_bandas(self):
+        self.client.force_login(self.admin_user)
+        resp = self.client.post(
+            reverse('guardar_configuracion_predicciones'),
+            {'banda_riesgo_medio_desde': '0.10', 'banda_riesgo_alto_desde': '0.20', 'sobrecarga_tareas_minimas': '5'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(resp.json(), {'ok': True})
+        config_inst = ConfiguracionInstitucional.actual()
+        self.assertEqual(float(config_inst.banda_riesgo_medio_desde), 0.10)
+        self.assertEqual(float(config_inst.banda_riesgo_alto_desde), 0.20)
+        self.assertEqual(config_inst.sobrecarga_tareas_minimas, 5)
+
+    def test_guardar_configuracion_rechaza_medio_mayor_o_igual_a_alto(self):
+        self.client.force_login(self.admin_user)
+        resp = self.client.post(
+            reverse('guardar_configuracion_predicciones'),
+            {'banda_riesgo_medio_desde': '0.80', 'banda_riesgo_alto_desde': '0.60', 'sobrecarga_tareas_minimas': '4'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertIn('error', resp.json())
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
+class AlertasPrediccionesTests(TestCase):
+    """alertas_view: 'Sobrecarga' es una sola fuente de verdad (el modelo de acumulación,
+    ver README §11 C14) - vacía hasta la primera corrida, y requiere banda alta + un
+    mínimo de tareas pendientes a la vez; no una cuenta manual aparte."""
+
+    def setUp(self):
+        carrera = Carrera.objects.create(facultad=Facultad.objects.create(nombre='Ingeniería'), nombre='Sistemas')
+        self.materia = Materia.objects.create(
+            gestion=2026, nombre='Bases de Datos', moodle_nombre='2026/BDD',
+            moodle_url='https://moodle.example/course/view.php?id=1', carrera=carrera, activo=True,
+        )
+        unidad = Unidad.objects.create(materia=self.materia, nombre='Unidad 1')
+        self.estudiante = Estudiante.objects.create(moodle_userid=9201, nombre='Ana Pérez', email='ana9201@example.com')
+
+        self.tarea_abierta = Tarea.objects.create(
+            unidad=unidad, moodle_id=9301, titulo='Práctica abierta', tipo='assign', categoria='etek',
+            apertura='lunes, 1 de enero de 2029, 10:00', cierre='martes, 1 de enero de 2030, 10:00',
+            url='https://moodle.example/mod/assign/view.php?id=9301',
+        )
+        # 5 tareas sin entregar (>= el minimo default de 4) para que el estudiante
+        # cuente como "muchas tareas pendientes".
+        for i in range(5):
+            tarea = Tarea.objects.create(
+                unidad=unidad, moodle_id=9400 + i, titulo=f'Tarea {i}', tipo='assign', categoria='etek',
+                cierre='martes, 1 de enero de 2030, 10:00',
+                url=f'https://moodle.example/mod/assign/view.php?id={9400 + i}',
+            )
+            Entrega.objects.create(tarea=tarea, estudiante=self.estudiante, estado='Sin entrega')
+
+        self.admin_user = User.objects.create_user(username='admin.alertas', password='clave-123')
+        PerfilUsuario.objects.create(user=self.admin_user, rol=PerfilUsuario.ADMINISTRADOR)
+        self.client.force_login(self.admin_user)
+
+    def test_sobrecarga_vacia_sin_predicciones(self):
+        resp = self.client.get(reverse('alertas'))
+        self.assertFalse(resp.context['alertas_detalle']['sobrecarga_calculada'])
+
+    def test_sobrecarga_aparece_con_banda_alta_y_suficientes_pendientes(self):
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=self.tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.9, banda=PrediccionRiesgo.ALTO,
+        )
+        resp = self.client.get(reverse('alertas'))
+        detalle = resp.context['alertas_detalle']
+        self.assertTrue(detalle['sobrecarga_calculada'])
+        nombres = [f['estudiante__nombre'] for f in detalle['estudiantes_sobrecarga']]
+        self.assertIn('Ana Pérez', nombres)
+
+    def test_sobrecarga_muestra_la_probabilidad_promedio_y_su_banda(self):
+        otra_tarea_abierta = Tarea.objects.create(
+            unidad=self.tarea_abierta.unidad, moodle_id=9302, titulo='Otra práctica abierta',
+            tipo='assign', categoria='mitek',
+            apertura='lunes, 1 de enero de 2029, 10:00', cierre='martes, 1 de enero de 2030, 10:00',
+            url='https://moodle.example/mod/assign/view.php?id=9302',
+        )
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=self.tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.9, banda=PrediccionRiesgo.ALTO,
+        )
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=otra_tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.1, banda=PrediccionRiesgo.BAJO,
+        )
+        resp = self.client.get(reverse('alertas'))
+        fila = resp.context['alertas_detalle']['estudiantes_sobrecarga'][0]
+        self.assertEqual(fila['probabilidad'], 0.5)  # promedio de 0.9 y 0.1
+        self.assertEqual(fila['banda'], PrediccionRiesgo.MEDIO)  # banda del promedio, no siempre "alto"
+
+    def test_sobrecarga_separa_abiertas_de_vencidas(self):
+        # Las 5 tareas del setUp cierran en 2030 (abiertas); agrego 2 ya vencidas aparte.
+        for i in range(2):
+            tarea_vencida = Tarea.objects.create(
+                unidad=self.tarea_abierta.unidad, moodle_id=9500 + i, titulo=f'Vencida {i}',
+                tipo='assign', categoria='etek', cierre='martes, 1 de enero de 2020, 10:00',
+                url=f'https://moodle.example/mod/assign/view.php?id={9500 + i}',
+            )
+            Entrega.objects.create(tarea=tarea_vencida, estudiante=self.estudiante, estado='Sin entrega')
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=self.tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.9, banda=PrediccionRiesgo.ALTO,
+        )
+        resp = self.client.get(reverse('alertas'))
+        fila = resp.context['alertas_detalle']['estudiantes_sobrecarga'][0]
+        self.assertEqual(fila['abiertas'], 5)
+        self.assertEqual(fila['vencidas'], 2)
+        self.assertEqual(fila['pendientes'], 7)
+
+    def test_filtro_de_anio_excluye_materias_de_otra_gestion(self):
+        otra_materia = Materia.objects.create(
+            gestion=2025, nombre='Materia Vieja', moodle_nombre='2025/MV',
+            moodle_url='https://moodle.example/course/view.php?id=2', carrera=self.materia.carrera, activo=True,
+        )
+        otra_unidad = Unidad.objects.create(materia=otra_materia, nombre='Unidad 1')
+        otro_estudiante = Estudiante.objects.create(moodle_userid=9202, nombre='Otro Estudiante', email='otro@example.com')
+        otra_tarea = Tarea.objects.create(
+            unidad=otra_unidad, moodle_id=9600, titulo='Tarea vieja', tipo='assign', categoria='etek',
+            cierre='martes, 1 de enero de 2030, 10:00', url='https://moodle.example/mod/assign/view.php?id=9600',
+        )
+        for i in range(5):
+            tarea = Tarea.objects.create(
+                unidad=otra_unidad, moodle_id=9700 + i, titulo=f'Vieja {i}', tipo='assign', categoria='etek',
+                cierre='martes, 1 de enero de 2030, 10:00', url=f'https://moodle.example/mod/assign/view.php?id={9700 + i}',
+            )
+            Entrega.objects.create(tarea=tarea, estudiante=otro_estudiante, estado='Sin entrega')
+        PrediccionRiesgo.objects.create(
+            estudiante=otro_estudiante, tarea=otra_tarea,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.9, banda=PrediccionRiesgo.ALTO,
+        )
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=self.tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.9, banda=PrediccionRiesgo.ALTO,
+        )
+
+        resp_2026 = self.client.get(reverse('alertas'), {'anio': '2026'})
+        nombres_2026 = [f['estudiante__nombre'] for f in resp_2026.context['alertas_detalle']['estudiantes_sobrecarga']]
+        self.assertIn('Ana Pérez', nombres_2026)
+        self.assertNotIn('Otro Estudiante', nombres_2026)
+
+        resp_2025 = self.client.get(reverse('alertas'), {'anio': '2025'})
+        nombres_2025 = [f['estudiante__nombre'] for f in resp_2025.context['alertas_detalle']['estudiantes_sobrecarga']]
+        self.assertIn('Otro Estudiante', nombres_2025)
+        self.assertNotIn('Ana Pérez', nombres_2025)
+
+    def test_modal_detalle_agrupa_tareas_por_cercania_de_fecha(self):
+        tarea_vencida_mucho = Tarea.objects.create(
+            unidad=self.tarea_abierta.unidad, moodle_id=9800, titulo='Muy vencida',
+            tipo='assign', categoria='etek', cierre='martes, 1 de enero de 2020, 10:00',
+            url='https://moodle.example/mod/assign/view.php?id=9800',
+        )
+        Entrega.objects.create(tarea=tarea_vencida_mucho, estudiante=self.estudiante, estado='Sin entrega')
+        # self.tarea_abierta NO tiene Entrega propia (solo sirve para calificar al
+        # estudiante como "banda alta" en el setUp) - acá se la entrega también, para
+        # poder verificar que SU probabilidad puntual viaja junto con ella en el modal.
+        Entrega.objects.create(tarea=self.tarea_abierta, estudiante=self.estudiante, estado='Sin entrega')
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=self.tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.77, banda=PrediccionRiesgo.ALTO,
+        )
+
+        resp = self.client.get(reverse('sobrecarga_detalle_estudiante', args=[self.estudiante.id]))
+        self.assertEqual(resp.status_code, 200)
+        datos = resp.json()
+        self.assertEqual(datos['estudiante'], 'Ana Pérez')
+        self.assertEqual(len(datos['grupos']['vencidas_hace_mucho']), 1)
+        self.assertEqual(datos['grupos']['vencidas_hace_mucho'][0]['titulo'], 'Muy vencida')
+        # Las 5 del setUp + tarea_abierta cierran en 2030: quedan como "por vencer lejos".
+        self.assertEqual(len(datos['grupos']['por_vencer_lejos']), 6)
+        # La probabilidad viaja con SU tarea puntual, no con las demás (que no tienen
+        # PrediccionRiesgo propia y deben quedar en None).
+        por_titulo = {t['titulo']: t['probabilidad'] for t in datos['grupos']['por_vencer_lejos']}
+        self.assertEqual(por_titulo[self.tarea_abierta.titulo], 0.77)
+        self.assertIsNone(por_titulo['Tarea 0'])
+
+    def test_sobrecarga_no_aparece_con_banda_baja_aunque_tenga_muchas_pendientes(self):
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=self.tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.1, banda=PrediccionRiesgo.BAJO,
+        )
+        resp = self.client.get(reverse('alertas'))
+        detalle = resp.context['alertas_detalle']
+        self.assertTrue(detalle['sobrecarga_calculada'])
+        self.assertEqual(detalle['estudiantes_sobrecarga'], [])
+
+    def test_inactividad_modelo_se_muestra_sin_ningun_aviso_pegado(self):
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tipo_modelo=PrediccionRiesgo.INACTIVIDAD,
+            probabilidad=0.4, banda=PrediccionRiesgo.MEDIO,
+        )
+        resp = self.client.get(reverse('alertas'))
+        self.assertContains(resp, 'Ana Pérez')
+        self.assertContains(resp, '0.40')
+        # Decisión 2026-11-23: nada de texto de advertencia sobre el recall del modelo.
+        self.assertNotContains(resp, 'recall')
+        self.assertNotContains(resp, 'referencial')
+
+    def test_inactividad_estatica_por_materia_y_general(self):
+        ahora = timezone.now()
+        acceso = AccesoCurso.objects.create(materia=self.materia, moodle_userid=9201, ultimo_acceso='45 dias 0 horas')
+        AccesoCurso.objects.filter(pk=acceso.pk).update(actualizado=ahora)
+        resp = self.client.get(reverse('alertas'))
+        detalle = resp.context['alertas_detalle']
+        self.assertEqual(len(detalle['inactivos_general']), 1)
+        self.assertEqual(detalle['inactivos_por_materia'][0]['materia'], 'Bases de Datos')
+
+    def test_resumen_nunca_muestra_estudiantes_en_riesgo_alto(self):
+        # Decisión 2026-11-24: ese KPI se oculta de Resumen (sigue viéndose en Alertas,
+        # con más detalle) - ni con predicciones calculadas ni sin ellas.
+        resp_sin = self.client.get(reverse('resumen'))
+        self.assertNotIn('sobrecarga_calculada', resp_sin.context['kpis'])
+        self.assertNotContains(resp_sin, 'Estudiantes en riesgo alto')
+
+        PrediccionRiesgo.objects.create(
+            estudiante=self.estudiante, tarea=self.tarea_abierta,
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, probabilidad=0.9, banda=PrediccionRiesgo.ALTO,
+        )
+        resp_con = self.client.get(reverse('resumen'))
+        self.assertNotContains(resp_con, 'Estudiantes en riesgo alto')
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
+class ResumenKpisTests(TestCase):
+    """KPIs de Resumen rediseñados 2026-11-24: solo materias activas, docentes con cuenta
+    sobre el total, estudiantes activos/posible abandono (acceso real, no proxy del
+    modelo), actividades NO entregadas (excluye a los de posible abandono), y "materias
+    con retraso" redefinido (Unidad con título placeholder "UT N: XXXX" que ya debería
+    tener contenido real según la fecha y los parciales configurados)."""
+
+    def setUp(self):
+        self.carrera = Carrera.objects.create(facultad=Facultad.objects.create(nombre='Ingeniería'), nombre='Sistemas')
+        self.materia_activa = Materia.objects.create(
+            gestion=2026, nombre='Materia Activa', moodle_nombre='2026/MA',
+            moodle_url='https://moodle.example/course/view.php?id=1', carrera=self.carrera, activo=True,
+        )
+        Materia.objects.create(
+            gestion=2026, nombre='Materia Inhabilitada', moodle_nombre='2026/MI',
+            moodle_url='https://moodle.example/course/view.php?id=2', carrera=self.carrera, activo=False,
+        )
+
+        self.docente_con_cuenta = User.objects.create_user(username='docente.cuenta', password='clave-123')
+        self.profesor_con_cuenta = Profesor.objects.create(
+            moodle_id=5001, nombre='Docente Con Cuenta',
+            url='https://moodle.example/user/view.php?id=5001', user=self.docente_con_cuenta,
+        )
+        self.profesor_sin_cuenta = Profesor.objects.create(
+            moodle_id=5002, nombre='Docente Sin Cuenta', url='https://moodle.example/user/view.php?id=5002',
+        )
+        self.materia_activa.profesores.add(self.profesor_con_cuenta, self.profesor_sin_cuenta)
+
+        self.unidad = Unidad.objects.create(materia=self.materia_activa, nombre='Unidad 1')
+        self.estudiante_activo = Estudiante.objects.create(moodle_userid=6001, nombre='Estudiante Activo', email='activo@example.com')
+        self.estudiante_abandono = Estudiante.objects.create(moodle_userid=6002, nombre='Estudiante Abandono', email='abandono@example.com')
+
+        tarea = Tarea.objects.create(
+            unidad=self.unidad, moodle_id=6100, titulo='Práctica E-Tek 1', tipo='assign', categoria='etek',
+            cierre='martes, 1 de enero de 2030, 10:00', url='https://moodle.example/mod/assign/view.php?id=6100',
+        )
+        Entrega.objects.create(tarea=tarea, estudiante=self.estudiante_activo, estado='Sin entrega')
+        Entrega.objects.create(tarea=tarea, estudiante=self.estudiante_abandono, estado='Sin entrega')
+
+        ahora = timezone.now()
+        acceso_activo = AccesoCurso.objects.create(materia=self.materia_activa, moodle_userid=6001, ultimo_acceso='1 dia 0 horas')
+        AccesoCurso.objects.filter(pk=acceso_activo.pk).update(actualizado=ahora)
+        acceso_abandono = AccesoCurso.objects.create(materia=self.materia_activa, moodle_userid=6002, ultimo_acceso='45 dias 0 horas')
+        AccesoCurso.objects.filter(pk=acceso_abandono.pk).update(actualizado=ahora)
+
+        self.admin_user = User.objects.create_user(username='admin.resumen', password='clave-123')
+        PerfilUsuario.objects.create(user=self.admin_user, rol=PerfilUsuario.ADMINISTRADOR)
+        self.client.force_login(self.admin_user)
+
+    def test_materias_monitoreadas_solo_cuenta_las_activas(self):
+        resp = self.client.get(reverse('resumen'))
+        self.assertEqual(resp.context['kpis']['materias'], 1)
+
+    def test_docentes_muestra_con_cuenta_sobre_el_total(self):
+        resp = self.client.get(reverse('resumen'))
+        self.assertEqual(resp.context['kpis']['docentes'], 2)
+        self.assertEqual(resp.context['kpis']['docentes_con_cuenta'], 1)
+        self.assertContains(resp, '1/2')
+
+    def test_estudiantes_separados_en_activos_y_posible_abandono(self):
+        resp = self.client.get(reverse('resumen'))
+        self.assertEqual(resp.context['kpis']['estudiantes_activos'], 1)
+        self.assertEqual(resp.context['kpis']['estudiantes_posible_abandono'], 1)
+
+    def test_actividades_no_entregadas_excluye_a_los_de_posible_abandono(self):
+        # La tarea la deben los dos estudiantes, pero solo el activo cuenta - si ya la
+        # deben solo los de posible abandono, no debería sumar acá.
+        resp = self.client.get(reverse('resumen'))
+        self.assertEqual(resp.context['kpis']['actividades_no_entregadas'], 1)
+
+    def test_materias_con_retraso_detecta_placeholder_dentro_de_fecha(self):
+        Unidad.objects.create(materia=self.materia_activa, nombre='UT 2: XXXX')
+        FechasParciales.objects.create(
+            profesor=self.profesor_con_cuenta,
+            p1_inicio=timezone.now().date() - timedelta(days=10), p1_fin=timezone.now().date() + timedelta(days=10),
+        )
+        resp = self.client.get(reverse('resumen'))
+        self.assertEqual(resp.context['kpis']['materias_con_retraso'], 1)
+
+    def test_materias_con_retraso_no_alerta_antes_de_que_le_toque(self):
+        # UT 8 todavía no debería tener contenido: con unidades_por_parcial=2 (default) y
+        # solo el parcial 1 en curso (los parciales 2-4 configurados explícitamente en el
+        # futuro, para que no entre el default institucional), lo esperado hasta ahora es
+        # UT 1-2.
+        Unidad.objects.create(materia=self.materia_activa, nombre='UT 8: XXXX')
+        futuro = timezone.now().date() + timedelta(days=200)
+        FechasParciales.objects.create(
+            profesor=self.profesor_con_cuenta,
+            p1_inicio=timezone.now().date() - timedelta(days=10), p1_fin=timezone.now().date() + timedelta(days=10),
+            p2_inicio=futuro, p2_fin=futuro + timedelta(days=10),
+            p3_inicio=futuro + timedelta(days=20), p3_fin=futuro + timedelta(days=30),
+            p4_inicio=futuro + timedelta(days=40), p4_fin=futuro + timedelta(days=50),
+        )
+        resp = self.client.get(reverse('resumen'))
+        self.assertEqual(resp.context['kpis']['materias_con_retraso'], 0)
+
+    def test_materias_con_retraso_sin_fechas_configuradas_usa_el_default_institucional(self):
+        # Decisión 2026-11-24: una materia cuyo profesor nunca configuró FechasParciales no
+        # queda afuera para siempre - se usa el rango institucional por defecto para juzgarla.
+        Unidad.objects.create(materia=self.materia_activa, nombre='UT 1: XXXX')
+        resp = self.client.get(reverse('resumen'))
+        self.assertEqual(resp.context['kpis']['materias_con_retraso'], 1)
+
+    def test_guardar_unidades_por_parcial_desde_configuracion(self):
+        self.client.post(reverse('configuracion'), {'accion': 'guardar_unidades_por_parcial', 'unidades_por_parcial': '5'})
+        config_inst = ConfiguracionInstitucional.objects.get(pk=1)
+        self.assertEqual(config_inst.unidades_por_parcial, 5)

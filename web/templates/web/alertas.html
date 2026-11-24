@@ -2,54 +2,31 @@
 {% block title %}Alertas - Centralizador{% endblock %}
 {% block header %}Alertas académicas{% endblock %}
 {% block content %}
-  <h3>Materias sin actividades</h3>
-  <table id="tblMateriasSinActividades" class="display">
-      <thead>
-          <tr>
-              <th>ID</th>
-              <th>Materia</th>
-          </tr>
-      </thead>
+  <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px;">
+      <div>
+          <label for="filtroAnio" class="note" style="display:block; margin-bottom:4px;">Gestión</label>
+          <select name="anio" id="filtroAnio" class="config-input" onchange="this.form.submit();">
+              <option value="">Todas</option>
+              {% for g in gestiones_filtro %}
+                  <option value="{{ g }}" {% if anio_seleccionado == g|stringformat:"s" %}selected{% endif %}>{{ g }}</option>
+              {% endfor %}
+          </select>
+      </div>
+  </form>
 
-      <tbody>
-          {% for m in alertas_detalle.materias_sin_actividades %}
-          <tr>
-              <td>{{ m.id }}</td>
-              <td>{{ m.nombre }}</td>
-          </tr>
-          {% empty %}
-          {% endfor %}
-      </tbody>
-  </table>
-
-  <h3>Tareas sin fecha de cierre</h3>
-
-  <table id="tblTareasSinCierre" class="display">
-      <thead>
-          <tr>
-              <th>ID Moodle</th>
-              <th>Tarea</th>
-          </tr>
-      </thead>
-
-      <tbody>
-          {% for t in alertas_detalle.tareas_sin_cierre %}
-          <tr>
-              <td>{{ t.moodle_id }}</td>
-              <td>{{ t.titulo }}</td>
-          </tr>
-          {% empty %}
-          {% endfor %}
-      </tbody>
-  </table>
-
-  <h3>Estudiantes con posible sobrecarga</h3>
-
+  <h3>Estudiantes con sobrecarga</h3>
+  {% if not alertas_detalle.sobrecarga_calculada %}
+      <p class="note">Todavía no se corrieron los modelos de riesgo. Corré "Recalcular predicciones" en Predicciones para ver esta alerta.</p>
+  {% else %}
   <table id="tblSobrecarga" class="display">
       <thead>
           <tr>
               <th>Estudiante</th>
-              <th>Pendientes</th>
+              <th>Tareas abiertas</th>
+              <th>Tareas vencidas</th>
+              <th>Probabilidad</th>
+              <th>Banda</th>
+              <th></th>
           </tr>
       </thead>
 
@@ -57,7 +34,91 @@
           {% for s in alertas_detalle.estudiantes_sobrecarga %}
           <tr>
               <td>{{ s.estudiante__nombre }}</td>
-              <td>{{ s.pendientes }}</td>
+              <td>{{ s.abiertas }}</td>
+              <td>{{ s.vencidas }}</td>
+              <td>{{ s.probabilidad|floatformat:2 }}</td>
+              <td>{{ s.banda }}</td>
+              <td>
+                  <button type="button" class="btn btn-secondary btn-ver-tareas-sobrecarga"
+                          data-estudiante-id="{{ s.estudiante_id }}" data-estudiante-nombre="{{ s.estudiante__nombre }}"
+                          style="width:auto; padding:4px 10px; font-size:0.8rem;">
+                      Ver tareas
+                  </button>
+              </td>
+          </tr>
+          {% empty %}
+          {% endfor %}
+      </tbody>
+  </table>
+  {% endif %}
+
+  <div id="modalTareasSobrecargaOverlay" class="modal-overlay" style="display:none;">
+      <div class="modal-box">
+          <div class="modal-header">
+              <h2>Tareas pendientes de <span id="mtsNombre"></span></h2>
+              <button type="button" class="modal-close" id="mtsCerrar">✕</button>
+          </div>
+          <div class="modal-scroll" id="mtsContenido"></div>
+      </div>
+  </div>
+
+  <h3>Inactividad según el modelo</h3>
+  <table id="tblInactividadModelo" class="display">
+      <thead>
+          <tr>
+              <th>Estudiante</th>
+              <th>Probabilidad</th>
+              <th>Banda</th>
+          </tr>
+      </thead>
+      <tbody>
+          {% for s in alertas_detalle.inactividad_modelo %}
+          <tr>
+              <td>{{ s.estudiante__nombre }}</td>
+              <td>{{ s.probabilidad|floatformat:2 }}</td>
+              <td>{{ s.banda }}</td>
+          </tr>
+          {% empty %}
+          {% endfor %}
+      </tbody>
+  </table>
+
+  <h3>Inactividad (acceso real a Moodle)</h3>
+
+  <h4>General</h4>
+  <table id="tblInactivosGeneral" class="display">
+      <thead>
+          <tr>
+              <th>Estudiante</th>
+              <th>Días sin acceder a ninguna materia</th>
+          </tr>
+      </thead>
+      <tbody>
+          {% for s in alertas_detalle.inactivos_general %}
+          <tr>
+              <td>{{ s.estudiante_nombre }}</td>
+              <td>{{ s.dias_inactivo }}</td>
+          </tr>
+          {% empty %}
+          {% endfor %}
+      </tbody>
+  </table>
+
+  <h4>Por materia</h4>
+  <table id="tblInactivosPorMateria" class="display">
+      <thead>
+          <tr>
+              <th>Estudiante</th>
+              <th>Materia</th>
+              <th>Días sin acceder</th>
+          </tr>
+      </thead>
+      <tbody>
+          {% for s in alertas_detalle.inactivos_por_materia %}
+          <tr>
+              <td>{{ s.estudiante_nombre }}</td>
+              <td>{{ s.materia }}</td>
+              <td>{{ s.dias_inactivo }}</td>
           </tr>
           {% empty %}
           {% endfor %}
@@ -69,19 +130,105 @@
 <script>
 $(document).ready(function () {
 
-    $('#tblMateriasSinActividades').DataTable({
-        pageLength: 10
-    });
-
-    $('#tblTareasSinCierre').DataTable({
-        pageLength: 10
-    });
-
     $('#tblSobrecarga').DataTable({
+        pageLength: 10,
+        order: [[3, 'desc']],
+        columnDefs: [{ targets: -1, orderable: false }]
+    });
+
+    $('#tblInactivosGeneral').DataTable({
+        pageLength: 10,
+        order: [[1, 'desc']]
+    });
+
+    $('#tblInactivosPorMateria').DataTable({
+        pageLength: 10,
+        order: [[2, 'desc']]
+    });
+
+    $('#tblInactividadModelo').DataTable({
         pageLength: 10,
         order: [[1, 'desc']]
     });
 
 });
+
+(function () {
+    var overlay = document.getElementById('modalTareasSobrecargaOverlay');
+    var nombreSpan = document.getElementById('mtsNombre');
+    var contenido = document.getElementById('mtsContenido');
+    var anioActual = '{{ anio_seleccionado|escapejs }}';
+
+    var TITULOS_GRUPO = {
+        vencidas_hace_mucho: 'Vencidas hace más de 30 días',
+        vencidas_recientes: 'Vencidas en los últimos 30 días',
+        por_vencer_pronto: 'Por vencer en los próximos 7 días',
+        por_vencer_lejos: 'Por vencer, a más de 7 días',
+    };
+    var ORDEN_GRUPOS = ['vencidas_hace_mucho', 'vencidas_recientes', 'por_vencer_pronto', 'por_vencer_lejos'];
+
+    function escapeTexto(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function textoDias(dias) {
+        if (dias < 0) return 'venció hace ' + Math.abs(dias) + ' día' + (Math.abs(dias) === 1 ? '' : 's');
+        if (dias === 0) return 'vence hoy';
+        return 'vence en ' + dias + ' día' + (dias === 1 ? '' : 's');
+    }
+
+    function pintarGrupos(grupos) {
+        var html = '';
+        ORDEN_GRUPOS.forEach(function (clave) {
+            var tareas = grupos[clave] || [];
+            html += '<h4>' + TITULOS_GRUPO[clave] + ' (' + tareas.length + ')</h4>';
+            if (!tareas.length) {
+                html += '<p class="note">Sin tareas en este grupo.</p>';
+                return;
+            }
+            html += '<table class="asignacion-tabla"><thead><tr><th>Materia</th><th>Tarea</th><th>Apertura</th><th>Cierre</th><th>Días</th>' +
+                (clave.indexOf('por_vencer') === 0 ? '<th>Probabilidad</th>' : '') + '</tr></thead><tbody>';
+            tareas.forEach(function (t) {
+                html += '<tr>' +
+                    '<td>' + escapeTexto(t.materia) + '</td>' +
+                    '<td><a href="' + escapeTexto(t.url) + '" target="_blank">' + escapeTexto(t.titulo) + '</a></td>' +
+                    '<td>' + escapeTexto(t.apertura) + '</td>' +
+                    '<td>' + escapeTexto(t.cierre) + '</td>' +
+                    '<td>' + textoDias(t.dias) + '</td>' +
+                    (clave.indexOf('por_vencer') === 0
+                        ? '<td>' + (t.probabilidad != null ? t.probabilidad.toFixed(2) : '—') + '</td>'
+                        : '') +
+                    '</tr>';
+            });
+            html += '</tbody></table>';
+        });
+        contenido.innerHTML = html;
+    }
+
+    // Delegado en document (no un listener por botón): DataTables solo deja en el DOM
+    // las filas de la página actual, así que los botones de la página 2 en adelante no
+    // existían al cargar y nunca recibirían el click (mismo motivo que en materias.html).
+    document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest('.btn-ver-tareas-sobrecarga');
+        if (!btn) return;
+        nombreSpan.textContent = btn.dataset.estudianteNombre;
+        contenido.innerHTML = '<p class="note">Cargando...</p>';
+        overlay.style.display = 'flex';
+        var url = '/alertas/sobrecarga/' + btn.dataset.estudianteId + '/' + (anioActual ? '?anio=' + encodeURIComponent(anioActual) : '');
+        fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+            if (data.error) {
+                contenido.innerHTML = '<p class="note">' + escapeTexto(data.error) + '</p>';
+                return;
+            }
+            pintarGrupos(data.grupos);
+        }).catch(function () {
+            contenido.innerHTML = '<p class="note">No se pudo contactar al servidor.</p>';
+        });
+    });
+
+    function cerrar() { overlay.style.display = 'none'; }
+    document.getElementById('mtsCerrar').addEventListener('click', cerrar);
+    overlay.addEventListener('click', function (ev) { if (ev.target === overlay) cerrar(); });
+})();
 </script>
 {% endblock %}

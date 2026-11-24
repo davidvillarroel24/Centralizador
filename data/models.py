@@ -544,6 +544,35 @@ class ConfiguracionInstitucional(models.Model):
                    'cuenta a una sesion de solo lectura (Resumen, Estudiantes, Reportes).',
     )
 
+    # Bandas de riesgo de PrediccionRiesgo.probabilidad (0-1): bajo si es menor a
+    # banda_riesgo_medio_desde, medio si esta entre esa y banda_riesgo_alto_desde, alto
+    # desde ahi en adelante. Configurable sin tocar codigo (ver /predicciones/).
+    banda_riesgo_medio_desde = models.DecimalField(
+        max_digits=3, decimal_places=2, default=0.30,
+        help_text='Probabilidad (0-1) desde la cual una prediccion pasa de banda "bajo" a "medio".',
+    )
+    banda_riesgo_alto_desde = models.DecimalField(
+        max_digits=3, decimal_places=2, default=0.60,
+        help_text='Probabilidad (0-1) desde la cual una prediccion pasa de banda "medio" a "alto".',
+    )
+    # "Sobrecarga" (Alertas/Resumen): estudiante con esta cantidad de tareas pendientes de
+    # entregar o mas, Y en banda de riesgo alto segun el modelo de acumulacion.
+    sobrecarga_tareas_minimas = models.PositiveSmallIntegerField(
+        default=4,
+        help_text='Cantidad minima de tareas pendientes (vencidas o no) para considerar sobrecarga, '
+                   'junto con riesgo alto del modelo de acumulacion.',
+    )
+
+    # "Materias con retraso" (Resumen): cuantas Unidades (UT) cubre cada parcial, para
+    # saber si una Unidad que todavia tiene el titulo placeholder ("UT 6: XXXX", nunca
+    # editado) ya deberia tener contenido real segun la fecha de hoy, o si todavia no le
+    # toca y no hay que alertar nada.
+    unidades_por_parcial = models.PositiveSmallIntegerField(
+        default=2,
+        help_text='Cantidad de Unidades (UT) que cada parcial abarca, para saber si una '
+                   'Unidad sin titulo real ya deberia estar cargada segun la fecha de hoy.',
+    )
+
     actualizado = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -553,6 +582,13 @@ class ConfiguracionInstitucional(models.Model):
     def actual(cls):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+    def banda_de(self, probabilidad):
+        if probabilidad >= float(self.banda_riesgo_alto_desde):
+            return PrediccionRiesgo.ALTO
+        if probabilidad >= float(self.banda_riesgo_medio_desde):
+            return PrediccionRiesgo.MEDIO
+        return PrediccionRiesgo.BAJO
 
 
 class TrabajoExtraccion(models.Model):
@@ -709,3 +745,45 @@ class PerfilUsuario(models.Model):
 
     def __str__(self):
         return f"{self.user.username} ({self.get_rol_display()})"
+
+
+class PrediccionRiesgo(models.Model):
+    """Resultado guardado de correr los modelos de riesgo (services/ml/predictor.py)
+    sobre el estado actual de la base - "Recalcular predicciones" los pisa por completo
+    en cada corrida (sin historial: ver README §11, decision 2026-11-23), no se
+    recalculan en cada vista."""
+
+    ACUMULACION = 'acumulacion'
+    INACTIVIDAD = 'inactividad'
+    TIPOS = [
+        (ACUMULACION, 'Riesgo de acumulación'),
+        (INACTIVIDAD, 'Riesgo de inactividad'),
+    ]
+
+    BAJO = 'bajo'
+    MEDIO = 'medio'
+    ALTO = 'alto'
+    BANDAS = [
+        (BAJO, 'Bajo'),
+        (MEDIO, 'Medio'),
+        (ALTO, 'Alto'),
+    ]
+
+    estudiante = models.ForeignKey(
+        Estudiante, on_delete=models.CASCADE, related_name='predicciones_riesgo',
+    )
+    # Solo para ACUMULACION (una prediccion por tarea todavia abierta); INACTIVIDAD es
+    # una sola prediccion por estudiante, sin tarea asociada.
+    tarea = models.ForeignKey(
+        Tarea, on_delete=models.CASCADE, null=True, blank=True, related_name='predicciones_riesgo',
+    )
+    tipo_modelo = models.CharField(max_length=20, choices=TIPOS)
+    probabilidad = models.FloatField()
+    banda = models.CharField(max_length=10, choices=BANDAS)
+    calculado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['tipo_modelo', 'banda'])]
+
+    def __str__(self):
+        return f"{self.estudiante} - {self.get_tipo_modelo_display()} ({self.banda})"

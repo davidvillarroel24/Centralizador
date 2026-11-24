@@ -33,13 +33,15 @@ from services.imports.niveles import importar_niveles
 from services.imports.profesores import importar_profesores
 from services.imports.materias import importar_materias
 from services.imports.detalles_tareas import importar_detalles_tareas
-from services.utils import extraction_lock
+from services.utils import extraction_lock, reportes
+from services.ml import features
 from services.utils.reportes import datos_reporte_acceso, datos_reporte_contenido, generar_excel_reporte, generar_pdf_reporte
 
 REPORTES_DISPONIBLES = ('acceso', 'tareas', 'material')
 from data.models import (
-    Materia, Profesor, Estudiante, Tarea, Entrega, FechasParciales, PesosCategorias, AccesoCurso,
+    Materia, Profesor, Estudiante, Tarea, Unidad, Entrega, FechasParciales, PesosCategorias, AccesoCurso,
     ArchivoEntrega, ArchivoTarea, asegurar_config_tareas_default, ConfiguracionInstitucional,
+    PrediccionRiesgo, _rango_parcial_default,
 )
 from data.cookie_crypto import cifrar_cookie, descifrar_cookie
 from data.roles import (
@@ -53,6 +55,7 @@ from collections import Counter
 from django.db.models import Count, Q
 from collections import defaultdict
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 ROLES_STAFF = (PerfilUsuario.ADMINISTRADOR, PerfilUsuario.DECANO, PerfilUsuario.DOCENTE)
 ROLES_GESTION = (PerfilUsuario.ADMINISTRADOR, PerfilUsuario.DECANO)
@@ -1431,6 +1434,11 @@ def detener_extraccion(request):
 @login_required
 def resumen(request):
     def parse_date_string(fecha_str):
+        if not fecha_str:
+            # Tarea.apertura/cierre vacio (nunca se configuro en Moodle) - esperable para
+            # muchas tareas tipo 'url'/'resource', no es un error real: no hay nada que
+            # parsear ni que loguear.
+            return None
         try:
             partes = fecha_str.split(',')
 
@@ -1457,62 +1465,56 @@ def resumen(request):
             print("Error fecha:", fecha_str, e)
             return None
         
-    def overload_student_count(entregas):
-
-        cargas = defaultdict(int)
-
-        for entrega in entregas:
-            fecha = parse_date_string(entrega.tarea.cierre)
-            if not fecha:
-                continue
-            fecha = fecha.date() if hasattr(fecha, 'date') else fecha
-            clave = (
-                entrega.estudiante_id,
-                fecha
-            )
-            cargas[clave] += 1
-                
-        print("TOTAL CLAVES:", len(cargas))
-            
-        for clave, cantidad in list(cargas.items())[:20]:
-            print(clave, cantidad)
-            
-        estudiantes_sobrecargados = set()
-        for (estudiante_id, fecha), cantidad in cargas.items():
-            if cantidad >= 3:                    
-                print("SOBRECARGA:", estudiante_id, fecha, cantidad)
-                estudiantes_sobrecargados.add(estudiante_id)
-        return len(estudiantes_sobrecargados)
-
     kpis = {
         'materias': 0,
         'docentes': 0,
-        'estudiantes': 0,
+        'docentes_con_cuenta': 0,
+        'estudiantes_activos': 0,
+        'estudiantes_posible_abandono': 0,
         'actividades': 0,
-        'actividades_pendientes': 0,
+        'actividades_no_entregadas': 0,
         'materias_con_retraso': 0,
-        'posibles_sobrecargas': 0,
         'ultima_sincronizacion': None,
     }
 
     # Alcance por rol: Administrador ve todo; Decano/Docente, solo lo suyo
     # (materias_visibles); Visitante no ve nada salvo que filtre por facultad o carrera.
+    # Solo materias activas en los dos casos - una inhabilitada (ver materias_view) no
+    # debería inflar ningún conteo del Resumen (materias_visibles() ya lo hacía así para
+    # todos los roles salvo Administrador, que veía TODAS sin ese filtro).
     rol = get_rol(request.user)
     facultad_id = request.GET.get('facultad') or None
     carrera_id = request.GET.get('carrera') or None
+    anio = request.GET.get('anio') or ''
     if rol == PerfilUsuario.ADMINISTRADOR:
-        materias_qs = Materia.objects.all()
+        materias_qs = Materia.objects.filter(activo=True)
     else:
         materias_qs = materias_visibles(request.user, facultad_id=facultad_id, carrera_id=carrera_id)
+    if anio:
+        materias_qs = materias_qs.filter(gestion=anio)
 
     try:
         from django.db.models import Count, Q, Max
 
         kpis['materias'] = materias_qs.count()
-        kpis['docentes'] = Profesor.objects.filter(materias__in=materias_qs).distinct().count()
-        kpis['estudiantes'] = Estudiante.objects.filter(
+
+        docentes_qs = Profesor.objects.filter(materias__in=materias_qs).distinct()
+        kpis['docentes'] = docentes_qs.count()
+        kpis['docentes_con_cuenta'] = docentes_qs.filter(user__isnull=False).count()
+
+        # Estudiantes: activos vs. posible abandono (mismo criterio "estático" que Alertas
+        # - 30+ días sin acceder a NINGUNA materia, acceso real de AccesoCurso, no el proxy
+        # del modelo de inactividad).
+        estudiantes_qs = Estudiante.objects.filter(
             entregas__tarea__unidad__materia__in=materias_qs
-        ).distinct().count()
+        ).distinct()
+        estudiantes_ids = set(estudiantes_qs.values_list('id', flat=True))
+        dias_inactivo_por_estudiante = {
+            f['estudiante_id']: f['dias_inactivo'] for f in reportes.estudiantes_inactivos_general(materias_qs)
+        }
+        posible_abandono_ids = set(dias_inactivo_por_estudiante) & estudiantes_ids
+        kpis['estudiantes_posible_abandono'] = len(posible_abandono_ids)
+        kpis['estudiantes_activos'] = len(estudiantes_ids) - len(posible_abandono_ids)
 
         # contar tareas totalesfiltranndo por mitek etek y examen
 
@@ -1534,89 +1536,27 @@ def resumen(request):
 
         kpis['actividades'] = len(tarea_ids)
 
-        #kpis['actividades'] = Tarea.objects.count()
-        #tareas pendientes en rango de entrga
-        
+        # Actividades NO entregadas: tareas con al menos un estudiante ACTIVO (no en
+        # "posible abandono") que todavía no la entregó - si solo la deben estudiantes ya
+        # inactivos, no suma acá (eso ya lo refleja el conteo de abandono).
         pendientes = Entrega.objects.filter(
             tarea_id__in=tarea_ids
         ).filter(
             Q(estado__icontains='sin entrega')
-        )
+        ).exclude(estudiante_id__in=posible_abandono_ids)
 
-        kpis['actividades_pendientes'] = (
+        kpis['actividades_no_entregadas'] = (
             pendientes
             .values('tarea_id')
             .distinct()
             .count()
         )
 
-        #kpis['actividades_pendientes'] = pendientes.count()
-
-        #pendientes = Entrega.objects.filter(
-        #    Q(estado__icontains='sin entregar') |
-        #    Q(estado__icontains='enviado para calificar') |
-        #    Q(calificacion__isnull=True) |
-        #    Q(calificacion__exact='')
-        #)
-        #kpis['actividades_pendientes'] = pendientes.count()
-
-        #Sobrecargas
-        entregas = Entrega.objects.select_related(
-            'tarea',
-            'estudiante'
-        ).filter(
-            tarea_id__in=tarea_ids
-        )
-
-        for entrega in entregas[:5]:
-            print("dato:", entrega.tarea.cierre, entrega.estudiante_id)
-            print("Entrega:",len(entregas))
-
-        kpis['posibles_sobrecargas'] = overload_student_count(entregas)
-
-        #Tareas con retraso 
-        hoy = datetime.now().date()
-        materia_retraso_ids = set()
-        entregas = Entrega.objects.filter(
-            tarea_id__in=tarea_ids
-        )
-
-        #for entrega in entregas[:5]:
-        #    print("FECHA:", entrega.tarea.cierre)
-        #    print("PARSE:", parse_date_string(entrega.tarea.cierre))
-        #    print("HOY:", hoy)
-        #    print("Entregas:",len(entregas))
-
-        for entrega in entregas:
-            cierre_date = parse_date_string(entrega.tarea.cierre)
-        #    print("cierre_date:", cierre_date)
-
-            if not cierre_date:
-                continue
-            cierre_date = cierre_date.date()
-            if (
-                cierre_date < hoy and
-                entrega.estado and
-                'sin entrega' in entrega.estado.lower()
-
-            ):
-                #print(
-                #    "TAREA:", entrega.tarea.titulo,
-                #    "| ESTADO:", repr(entrega.estado),
-                #    "| materia_id:", entrega.tarea.unidad.materia_id
-                #)
-                materia_retraso_ids.add(
-                    entrega.tarea.unidad.materia_id
-                )
-
-        kpis['materias_con_retraso'] = len(materia_retraso_ids)
-        ##hoy = datetime.now().date()
-        ##materia_retraso_ids = set()
-        ##for tarea in Tarea.objects.exclude(cierre__isnull=True).exclude(cierre__exact=''):
-        ##    cierre_date = parse_date_string(tarea.cierre)
-        ##    if cierre_date and cierre_date < hoy and tarea.unidad_id:
-        ##        materia_retraso_ids.add(tarea.unidad.materia_id)
-        ##kpis['materias_con_retraso'] = len(materia_retraso_ids)
+        # Materias con retraso: redefinido (ver _materias_con_retraso) - unidades con
+        # título placeholder ("UT 6: XXXX") que ya deberían tener contenido real según la
+        # fecha de hoy y los parciales configurados, no "alguna tarea vencida sin entregar"
+        # (eso ya lo cubre "Actividades no entregadas"/Alertas).
+        kpis['materias_con_retraso'] = _materias_con_retraso(materias_qs)
 
         ultima_actualizacion = Materia.objects.aggregate(last=Max('actualizado')).get('last')
         ultima_actualizacion = max(filter(None, [ultima_actualizacion, Profesor.objects.aggregate(last=Max('actualizado')).get('last')]))
@@ -1625,96 +1565,50 @@ def resumen(request):
     except Exception:
         pass
 
-    alertas = []
-    try:
-        if kpis['materias'] == 0:
-            alertas.append('No hay materias monitoreadas.')
-
-        materias_sin_actividades = Materia.objects.filter(
-            unidades__tareas__isnull=True, pk__in=materias_qs
-        ).distinct()
-        if materias_sin_actividades.exists():
-            alertas.append(f"Materias sin actividades: {materias_sin_actividades.count()}")
-
-        tareas_sin_cierre = Tarea.objects.filter(
-            Q(cierre__isnull=True) | Q(cierre__exact=''), unidad__materia__in=materias_qs
-        )
-        if tareas_sin_cierre.exists():
-            alertas.append(f"Tareas sin fecha de cierre: {tareas_sin_cierre.count()}")
-
-        if kpis['posibles_sobrecargas'] > 0:
-            alertas.append(f"Estudiantes con posible sobrecarga: {kpis['posibles_sobrecargas']}")
-
-        if kpis['materias_con_retraso'] > 0:
-            alertas.append(f"Materias con retraso: {kpis['materias_con_retraso']}")
-    except Exception:
-        pass
-
     context = {
         'kpis': kpis,
-        'alertas': alertas,
+        'gestiones_filtro': Materia.objects.order_by('-gestion').values_list('gestion', flat=True).distinct(),
+        'anio_seleccionado': anio,
     }
-    #alertas detalladas: listar materias sin actividades, tareas sin cierre y estudiantes sobrecargados
 
     try:
-        from django.db.models import Count
+        # Donut: % de cumplimiento de tareas (antes mostraba conteos crudos de "no
+        # entregadas"/"entregadas" - ahora el porcentaje sobre el total, que es lo que
+        # realmente se quería leer de un vistazo).
+        total_actividades = kpis['actividades']
+        if total_actividades:
+            pct_entregadas = round((total_actividades - kpis['actividades_no_entregadas']) / total_actividades * 100, 1)
+            pct_no_entregadas = round(100 - pct_entregadas, 1)
+        else:
+            pct_entregadas = pct_no_entregadas = 0
         chart_kpis = {
-            'labels': ['Pendientes', 'Calificadas'],
-            'data': [kpis['actividades_pendientes'], max(0, kpis['actividades'] - kpis['actividades_pendientes'])]
+            'labels': ['% Cumplimiento', '% Sin cumplir'],
+            'data': [pct_entregadas, pct_no_entregadas],
         }
 
-        materias_counts = (
-            Tarea.objects.filter(unidad__materia__in=materias_qs)
-            .values('unidad__materia__nombre')
-            .annotate(count=Count('id'))
-            .order_by('-count')[:8]
-        )
-        labels = [m.get('unidad__materia__nombre') or 'Desconocida' for m in materias_counts]
-        data = [m.get('count') for m in materias_counts]
-        chart_materias = {'labels': labels, 'data': data}
+        chart_materias = _materias_con_menos_tareas(materias_qs)
 
-        datos_tareas_por_ano = (
-            Tarea.objects.filter(unidad__materia__in=materias_qs)
-            .values('unidad__materia__gestion').annotate(count=Count('id')).order_by('unidad__materia__gestion')
-        )
-        datos_entregas_por_ano = (
-            Entrega.objects.filter(tarea__unidad__materia__in=materias_qs)
-            .values('tarea__unidad__materia__gestion').annotate(count=Count('id')).order_by('tarea__unidad__materia__gestion')
-        )
-
-        yearly_data = {}
-        for item in datos_tareas_por_ano:
-            year = item.get('unidad__materia__gestion') or 'Sin año'
-            yearly_data[year] = {'tareas': item.get('count', 0), 'entregas': 0}
-        for item in datos_entregas_por_ano:
-            year = item.get('tarea__unidad__materia__gestion') or 'Sin año'
-            yearly_data.setdefault(year, {'tareas': 0, 'entregas': 0})
-            yearly_data[year]['entregas'] = item.get('count', 0)
-
-        def sort_year_key(value):
-            try:
-                return (int(value), '')
-            except Exception:
-                return (9999, str(value))
-
-        sorted_years = sorted(yearly_data.keys(), key=sort_year_key)
-        year_labels = [str(year) for year in sorted_years]
-        year_tareas = [yearly_data[year]['tareas'] for year in sorted_years]
-        year_entregas = [yearly_data[year]['entregas'] for year in sorted_years]
-
-        chart_yearly = {
-            'labels': year_labels,
-            'tareas': year_tareas,
-            'entregas': year_entregas,
+        sobrecarga_calculada, filas_sobrecarga = _estudiantes_sobrecarga(materias_qs)
+        chart_sobrecarga = {
+            'calculada': sobrecarga_calculada,
+            'filas': [
+                {
+                    'nombre': f['estudiante__nombre'],
+                    'pendientes': f['pendientes'],
+                    'posible_abandono': f['estudiante_id'] in posible_abandono_ids,
+                    'dias_inactivo': dias_inactivo_por_estudiante.get(f['estudiante_id']),
+                }
+                for f in filas_sobrecarga
+            ],
         }
 
         context['chart_kpis_json'] = json.dumps(chart_kpis)
         context['chart_materias_json'] = json.dumps(chart_materias)
-        context['chart_yearly_json'] = json.dumps(chart_yearly)
+        context['chart_sobrecarga_json'] = json.dumps(chart_sobrecarga)
     except Exception:
         context['chart_kpis_json'] = json.dumps({'labels': [], 'data': []})
-        context['chart_materias_json'] = json.dumps({'labels': [], 'data': []})
-        context['chart_yearly_json'] = json.dumps({'labels': [], 'tareas': [], 'entregas': []})
+        context['chart_materias_json'] = json.dumps({'materias': []})
+        context['chart_sobrecarga_json'] = json.dumps({'calculada': False, 'filas': []})
 
     if rol == PerfilUsuario.VISITANTE:
         context['es_visitante'] = True
@@ -2124,9 +2018,13 @@ def estudiante_avances(request, estudiante_id):
     # una entrega, sin aplicar el filtro de materia_id (si no, la opcion elegida seria la
     # unica que queda en la lista una vez filtrado).
     materias_filtro = sorted(
-        Materia.objects.filter(unidades__tareas__entregas__estudiante=estudiante, pk__in=materias_qs)
-        .distinct().values_list('id', 'nombre'),
-        key=lambda par: par[1],
+        (
+            {'id': mid, 'nombre': f'{nombre} ({gestion})' + ('' if activo else ' - inhabilitada')}
+            for mid, nombre, gestion, activo in Materia.objects.filter(
+                unidades__tareas__entregas__estudiante=estudiante, pk__in=materias_qs
+            ).distinct().values_list('id', 'nombre', 'gestion', 'activo')
+        ),
+        key=lambda m: m['nombre'],
     )
 
     materia_id = request.GET.get('materia_id')
@@ -2136,7 +2034,7 @@ def estudiante_avances(request, estudiante_id):
     fecha_inicio, fecha_fin = _rango_fechas_de(request)
 
     filas = [{
-        'materia': e.tarea.unidad.materia.nombre,
+        'materia': f'{e.tarea.unidad.materia.nombre} ({e.tarea.unidad.materia.gestion})',
         'tarea': e.tarea.titulo,
         'tarea_url': e.tarea.url,
         'estado': e.estado or '—',
@@ -2149,7 +2047,7 @@ def estudiante_avances(request, estudiante_id):
 
     return JsonResponse({
         'estudiante': estudiante.nombre,
-        'materias_filtro': [{'id': mid, 'nombre': nombre} for mid, nombre in materias_filtro],
+        'materias_filtro': materias_filtro,
         'entregas': filas,
     })
 
@@ -2165,7 +2063,7 @@ def docente_avances(request, profesor_id):
         return JsonResponse({'error': 'No se encontró ese docente.'}, status=404)
 
     materias_qs = materias_visibles(request.user) if not es_administrador(request.user) else Materia.objects.all()
-    materias_docente = docente.materias.filter(pk__in=materias_qs).order_by('nombre')
+    materias_docente = docente.materias.filter(pk__in=materias_qs).order_by('nombre', '-gestion')
 
     materia_id = request.GET.get('materia_id')
     if materia_id:
@@ -2191,7 +2089,7 @@ def docente_avances(request, profesor_id):
         campos_a_chequear = lambda t: (t.apertura, t.cierre)
 
     filas = [{
-        'materia': t.unidad.materia.nombre,
+        'materia': f'{t.unidad.materia.nombre} ({t.unidad.materia.gestion})',
         'unidad': t.unidad.nombre,
         'tarea': t.titulo,
         'tarea_url': t.url,
@@ -2201,9 +2099,15 @@ def docente_avances(request, profesor_id):
         'archivos_tarea': _archivos_lista(t.archivos_tarea.all(), 'tarea'),
     } for t in tareas if _fecha_texto_en_rango(*campos_a_chequear(t), inicio=fecha_inicio, fin=fecha_fin)]
 
+    # Nombre + gestión en el label para distinguir materias con el mismo nombre en
+    # distintas gestiones, y "(inhabilitada)" para las que ya no están activas - antes el
+    # dropdown las mostraba todas iguales, sin forma de saber cuál era cuál (2026-11-24).
     materias_filtro = [
-        {'id': m.id, 'nombre': m.nombre}
-        for m in docente.materias.filter(pk__in=materias_qs).order_by('nombre')
+        {
+            'id': m.id,
+            'nombre': f'{m.nombre} ({m.gestion})' + ('' if m.activo else ' - inhabilitada'),
+        }
+        for m in docente.materias.filter(pk__in=materias_qs).order_by('nombre', '-gestion')
     ]
 
     return JsonResponse({
@@ -2300,45 +2204,329 @@ def materia_avances(request, materia_id):
     })
 
 
+def _entregas_pendientes_qs(materias_qs, estudiante=None):
+    """Entregas de tareas tipo 'assign' sin entregar (vencidas o abiertas, da igual - ver
+    README §11, C14), del universo que conoce el modelo de acumulación. Si ya se entregó,
+    no entra acá bajo ningún caso."""
+    filtro = Q(estado__isnull=True) | Q(estado__exact='') | Q(estado__icontains='sin entrega')
+    qs = Entrega.objects.filter(
+        filtro, tarea__tipo='assign', tarea__unidad__materia__in=materias_qs,
+    ).select_related('tarea__unidad__materia')
+    if estudiante is not None:
+        qs = qs.filter(estudiante=estudiante)
+    return qs
+
+
+def _clasificar_por_cierre(cierre_texto, ahora):
+    """dias relativos al cierre (negativo = ya venció hace esos días, positivo = vence en
+    esos días) y el grupo al que corresponde, para el modal de detalle de sobrecarga."""
+    cierre_dt = features.parse_fecha_hora(cierre_texto)
+    if cierre_dt is None:
+        return None, None
+    dias = (cierre_dt - ahora).days
+    if dias < -30:
+        grupo = 'vencidas_hace_mucho'
+    elif dias < 0:
+        grupo = 'vencidas_recientes'
+    elif dias <= 7:
+        grupo = 'por_vencer_pronto'
+    else:
+        grupo = 'por_vencer_lejos'
+    return dias, grupo
+
+
+def _inicios_parciales_de(fechas, anio):
+    """[p1_inicio, p2_inicio, p3_inicio, p4_inicio], usando el default institucional (ver
+    asegurar_config_tareas_default) para cualquier parcial que `fechas` no tenga
+    configurado - una materia cuyo profesor nunca entró a Configuración no debería
+    quedar afuera de "materias con retraso" para siempre, decisión 2026-11-24."""
+    inicios = []
+    for i in range(1, 5):
+        inicio = getattr(fechas, f'p{i}_inicio', None) if fechas else None
+        if not inicio:
+            inicio, _fin = _rango_parcial_default(i, anio)
+        inicios.append(inicio)
+    return inicios
+
+
+def _materias_con_retraso(materias_qs):
+    """Materia con alguna Unidad que todavía tiene el título placeholder que deja Moodle
+    sin editar ("UT 6: XXXX") Y cuyo número de UT ya debería tener contenido real según la
+    fecha de hoy. Usa las fechas de parciales del profesor de esa materia (o el default
+    institucional si no las configuró) y `unidades_por_parcial` (ver
+    ConfiguracionInstitucional) para saber hasta qué UT debería llegar cada parcial, y así
+    no alertar por una unidad de un parcial que todavía ni empezó."""
+    patron_placeholder = re.compile(r'^UT\s*(\d+)\s*:\s*X+\s*$', re.IGNORECASE)
+    hoy = datetime.now().date()
+    unidades_por_parcial = ConfiguracionInstitucional.actual().unidades_por_parcial or 1
+
+    materias_con_retraso = set()
+    unidades = Unidad.objects.filter(materia__in=materias_qs).select_related('materia').prefetch_related(
+        'materia__profesores__fechas_parciales'
+    )
+    for unidad in unidades:
+        coincide = patron_placeholder.match(unidad.nombre or '')
+        if not coincide:
+            continue
+        numero_ut = int(coincide.group(1))
+
+        fechas = None
+        for profesor in unidad.materia.profesores.all():
+            if hasattr(profesor, 'fechas_parciales'):
+                fechas = profesor.fechas_parciales
+                break
+        # Sin ningún profesor con FechasParciales: igual se evalúa con el default
+        # institucional del año en curso (fechas=None -> _inicios_parciales_de lo resuelve).
+
+        inicios = _inicios_parciales_de(fechas, hoy.year)
+        parcial_actual = sum(1 for inicio in inicios if inicio and inicio <= hoy)
+        if parcial_actual == 0:
+            continue  # todavía no empezó ni el primer parcial
+
+        max_ut_esperada = parcial_actual * unidades_por_parcial
+        if numero_ut <= max_ut_esperada:
+            materias_con_retraso.add(unidad.materia_id)
+
+    return len(materias_con_retraso)
+
+
+def _rangos_parciales_de(fechas, anio):
+    """[(p1_inicio, p1_fin), ..., (p4_inicio, p4_fin)], con el default institucional (ver
+    _inicios_parciales_de) para cualquier campo que `fechas` no tenga configurado."""
+    rangos = []
+    for i in range(1, 5):
+        inicio = getattr(fechas, f'p{i}_inicio', None) if fechas else None
+        fin = getattr(fechas, f'p{i}_fin', None) if fechas else None
+        inicio_default, fin_default = _rango_parcial_default(i, anio)
+        rangos.append((inicio or inicio_default, fin or fin_default))
+    return rangos
+
+
+def _materias_con_menos_tareas(materias_qs):
+    """Datos crudos para el gráfico de "materias con menos tareas asignadas" de Resumen:
+    UNA fila por materia con al menos una tarea con apertura o cierre dentro del plazo de
+    algún parcial (con el default institucional si el profesor no configuró fechas) - así
+    una tarea vieja fuera de cualquier parcial no infla ni desinfla el conteo de nadie.
+
+    Devuelve la lista CRUDA (sin promediar ni recortar a un top-N): el promedio varía
+    mucho de una carrera a otra, así que calcularlo acá mezclando todas las carreras
+    distorsionaba el resultado (decisión 2026-11-25) - el promedio, el filtro por carrera y
+    el recorte a "las N más bajas" se hacen en el frontend (resumen.html), sobre esta misma
+    lista, para que cambiar de carrera no implique otra consulta al servidor. Solo se
+    excluyen las materias en 0 (sin tareas cargadas todavía - no son "las que menos tienen",
+    son las que no se extrajeron, y mezclarlas hundía cualquier promedio cerca de cero).
+
+    Restringido a la gestión del año EN CURSO (decisión 2026-11-25): FechasParciales
+    guarda una sola fila por profesor, no una por gestión/año - sus fechas reflejan "ahora",
+    así que comparar una materia de una gestión vieja contra esas fechas subcontaría sus
+    tareas (quedarían fuera de rango aunque se hayan entregado a tiempo en su propia
+    gestión). Evaluar solo la gestión actual evita ese desfasaje sin tocar el modelo de
+    datos. Los paralelos (misma sigla, distinto grupo/turno, ej. 4 materias "SIS-EDD-203")
+    quedan separados a propósito, sin promediarlos entre sí - grupo y turno van en la
+    etiqueta para distinguirlos."""
+    hoy_anio = datetime.now().year
+    materias_qs = materias_qs.filter(gestion=hoy_anio)
+    materias = list(materias_qs.select_related('carrera').prefetch_related('profesores__fechas_parciales'))
+    conteos = {m.id: 0 for m in materias}
+
+    rangos_por_materia = {}
+    for m in materias:
+        fechas = None
+        for profesor in m.profesores.all():
+            if hasattr(profesor, 'fechas_parciales'):
+                fechas = profesor.fechas_parciales
+                break
+        rangos_por_materia[m.id] = _rangos_parciales_de(fechas, hoy_anio)
+
+    tareas = Tarea.objects.filter(unidad__materia__in=materias_qs).select_related('unidad__materia')
+    for t in tareas:
+        materia_id = t.unidad.materia_id
+        if materia_id not in conteos:
+            continue
+        fechas_tarea = [f for f in (parse_date_string(t.apertura), parse_date_string(t.cierre)) if f]
+        if not fechas_tarea:
+            continue
+        rangos = rangos_por_materia.get(materia_id, [])
+        if any(inicio <= f <= fin for f in fechas_tarea for inicio, fin in rangos):
+            conteos[materia_id] += 1
+
+    filas = []
+    for m in materias:
+        count = conteos[m.id]
+        if count <= 0:
+            continue
+        filas.append({
+            'etiqueta': ' '.join(filter(None, [m.sigla or m.nombre, m.grupo, m.turno])),
+            'nombre_completo': m.nombre,
+            'tareas': count,
+            'carrera_id': m.carrera_id,
+            'carrera_nombre': m.carrera.nombre if m.carrera else 'Sin carrera',
+        })
+    filas.sort(key=lambda f: (f['tareas'], f['etiqueta']))
+    return {'materias': filas}
+
+
+def _estudiantes_sobrecarga(materias_qs, anio=None):
+    """UNA sola fuente de verdad para "sobrecarga" (ver README §11, C14): estudiante con
+    `sobrecarga_tareas_minimas` tareas pendientes de entregar (vencidas + abiertas) o
+    más, Y en banda de riesgo alto según el modelo de acumulación. Usado tanto por
+    Resumen (KPI) como por Alertas (detalle), para que nunca muestren números distintos.
+    `anio` filtra por Materia.gestion (una materia de 2025 no debería inflar el conteo de
+    la gestión actual). Devuelve (calculada, filas): calculada=False si todavía no se
+    corrió el modelo (no mostrar nada de sobrecarga en ese caso, ni en Resumen ni en
+    Alertas)."""
+    if not PrediccionRiesgo.objects.filter(tipo_modelo=PrediccionRiesgo.ACUMULACION).exists():
+        return False, []
+
+    if anio:
+        materias_qs = materias_qs.filter(gestion=anio)
+
+    config_inst = ConfiguracionInstitucional.actual()
+    ahora = datetime.now()
+
+    # Separado en dos contadores (más comprensible que un solo "pendientes" mezclado):
+    # cuántas de sus tareas sin entregar ya vencieron vs. cuántas todavía están abiertas.
+    abiertas_por_estudiante = defaultdict(int)
+    vencidas_por_estudiante = defaultdict(int)
+    for e in _entregas_pendientes_qs(materias_qs).values_list('estudiante_id', 'tarea__cierre'):
+        estudiante_id, cierre_texto = e
+        dias, _grupo = _clasificar_por_cierre(cierre_texto, ahora)
+        if dias is None:
+            continue
+        if dias >= 0:
+            abiertas_por_estudiante[estudiante_id] += 1
+        else:
+            vencidas_por_estudiante[estudiante_id] += 1
+
+    estudiantes_riesgo_alto = set(
+        PrediccionRiesgo.objects.filter(
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, banda=PrediccionRiesgo.ALTO,
+            tarea__unidad__materia__in=materias_qs,
+        ).values_list('estudiante_id', flat=True).distinct()
+    )
+
+    # Dato cualitativo (como ya tiene "Inactividad según el modelo"): probabilidad
+    # PROMEDIO entre todas sus tareas abiertas evaluadas, y la banda de esa probabilidad -
+    # no necesariamente "alto" siempre, aunque para entrar a esta lista alcance con que
+    # UNA sola tarea puntual esté en banda alta.
+    probabilidades_por_estudiante = defaultdict(list)
+    for est_id, prob in PrediccionRiesgo.objects.filter(
+        tipo_modelo=PrediccionRiesgo.ACUMULACION, tarea__unidad__materia__in=materias_qs,
+    ).values_list('estudiante_id', 'probabilidad'):
+        probabilidades_por_estudiante[est_id].append(prob)
+
+    nombres_por_id = dict(Estudiante.objects.values_list('id', 'nombre'))
+    todos_los_ids = set(abiertas_por_estudiante) | set(vencidas_por_estudiante)
+    filas = []
+    for est_id in todos_los_ids:
+        abiertas = abiertas_por_estudiante.get(est_id, 0)
+        vencidas = vencidas_por_estudiante.get(est_id, 0)
+        total = abiertas + vencidas
+        if total < config_inst.sobrecarga_tareas_minimas or est_id not in estudiantes_riesgo_alto:
+            continue
+        probs = probabilidades_por_estudiante.get(est_id) or [0.0]
+        probabilidad_promedio = sum(probs) / len(probs)
+        filas.append({
+            'estudiante_id': est_id,
+            'estudiante__nombre': nombres_por_id.get(est_id, '—'),
+            'pendientes': total,
+            'abiertas': abiertas,
+            'vencidas': vencidas,
+            'probabilidad': round(probabilidad_promedio, 2),
+            'banda': config_inst.banda_de(probabilidad_promedio),
+        })
+    filas.sort(key=lambda f: -f['pendientes'])
+    return True, filas
+
+
 @login_required
 @requiere_rol(*ROLES_STAFF)
 def alertas_view(request):
-    # Alertas detalladas: listar materias sin actividades, tareas sin cierre y estudiantes sobrecargados
+    # Alertas detalladas: sobrecarga (modelo de acumulación), inactividad real (estática)
+    # e inactividad según el modelo. `anio` (Materia.gestion) filtra toda la pantalla -
+    # una materia de una gestión vieja no debería inflar las alertas de la actual.
     detalles = {}
+    anio = request.GET.get('anio') or ''
     try:
-        from django.db.models import Q, Count
-
         materias_qs = materias_visibles(request.user) if not es_administrador(request.user) else Materia.objects.all()
+        if anio:
+            materias_qs = materias_qs.filter(gestion=anio)
 
-        materias_sin = Materia.objects.filter(
-            unidades__tareas__isnull=True, pk__in=materias_qs
-        ).distinct()
-        detalles['materias_sin_actividades'] = list(materias_sin.values('id', 'nombre')[:200])
+        detalles['sobrecarga_calculada'], detalles['estudiantes_sobrecarga'] = _estudiantes_sobrecarga(materias_qs)
 
-        tareas_sin_cierre_qs = Tarea.objects.filter(
-            Q(cierre__isnull=True) | Q(cierre__exact=''),
-            unidad__materia__in=materias_qs,
-        )
-        detalles['tareas_sin_cierre'] = list(tareas_sin_cierre_qs.values('moodle_id', 'titulo')[:200])
+        # Inactividad estática (acceso real a Moodle, AccesoCurso) - no depende de ningún
+        # modelo, disponible apenas se corrió "4. Extraer último acceso".
+        detalles['inactivos_general'] = reportes.estudiantes_inactivos_general(materias_qs)
+        detalles['inactivos_por_materia'] = reportes.estudiantes_inactivos_por_materia(materias_qs)
 
-        # estudiantes con muchas entregas pendientes
-        threshold = 8
-        estudiantes_sobrecarga = (
-            Entrega.objects.filter(
-                Q(calificacion__isnull=True) | Q(calificacion__exact=''),
-                tarea__unidad__materia__in=materias_qs,
+        # Inactividad según el modelo (referencial, se muestra tal cual si ya se corrió).
+        estudiantes_visibles_ids = Estudiante.objects.filter(
+            entregas__tarea__unidad__materia__in=materias_qs
+        ).values_list('id', flat=True).distinct()
+        detalles['inactividad_modelo'] = list(
+            PrediccionRiesgo.objects.filter(
+                tipo_modelo=PrediccionRiesgo.INACTIVIDAD, estudiante_id__in=estudiantes_visibles_ids,
             )
-            .values('estudiante__id', 'estudiante__nombre')
-            .annotate(pendientes=Count('id'))
-            .filter(pendientes__gt=threshold)
+            .select_related('estudiante')
+            .order_by('-probabilidad')
+            .values('estudiante__nombre', 'probabilidad', 'banda')[:200]
         )
-        detalles['estudiantes_sobrecarga'] = list(estudiantes_sobrecarga)
 
     except Exception:
+        traceback.print_exc()
         detalles = {}
 
-    context = {'alertas_detalle': detalles}
+    context = {
+        'alertas_detalle': detalles,
+        'gestiones_filtro': Materia.objects.order_by('-gestion').values_list('gestion', flat=True).distinct(),
+        'anio_seleccionado': anio,
+    }
     return render(request, 'web/alertas.html', context)
+
+
+@login_required
+@requiere_rol(*ROLES_STAFF)
+@require_http_methods(['GET'])
+def sobrecarga_detalle_estudiante(request, estudiante_id):
+    """JSON para el modal "Ver tareas" de la fila de un estudiante en "Estudiantes con
+    sobrecarga": sus tareas sin entregar (vencidas + abiertas), agrupadas por cercanía de
+    fecha de cierre - pensado para poder mostrar, con datos reales, que el cálculo no
+    depende de fechas ni muy lejanas ni muy próximas."""
+    estudiante = Estudiante.objects.filter(pk=estudiante_id).first()
+    if not estudiante:
+        return JsonResponse({'error': 'No se encontró ese estudiante.'}, status=404)
+
+    materias_qs = materias_visibles(request.user) if not es_administrador(request.user) else Materia.objects.all()
+    anio = request.GET.get('anio') or ''
+    if anio:
+        materias_qs = materias_qs.filter(gestion=anio)
+
+    probabilidades_por_tarea = dict(
+        PrediccionRiesgo.objects.filter(
+            tipo_modelo=PrediccionRiesgo.ACUMULACION, estudiante=estudiante,
+        ).values_list('tarea_id', 'probabilidad')
+    )
+
+    ahora = datetime.now()
+    grupos = {'vencidas_hace_mucho': [], 'vencidas_recientes': [], 'por_vencer_pronto': [], 'por_vencer_lejos': []}
+    for e in _entregas_pendientes_qs(materias_qs, estudiante=estudiante):
+        dias, grupo = _clasificar_por_cierre(e.tarea.cierre, ahora)
+        if grupo is None:
+            continue
+        grupos[grupo].append({
+            'materia': e.tarea.unidad.materia.nombre,
+            'titulo': e.tarea.titulo,
+            'url': e.tarea.url,
+            'apertura': e.tarea.apertura or '—',
+            'cierre': e.tarea.cierre or '—',
+            'dias': dias,
+            'probabilidad': probabilidades_por_tarea.get(e.tarea_id),
+        })
+
+    for lista in grupos.values():
+        lista.sort(key=lambda f: f['dias'])
+
+    return JsonResponse({'estudiante': estudiante.nombre, 'grupos': grupos})
 
 
 
@@ -2380,8 +2568,12 @@ def predicciones_view(request):
     acum_existe, acum_filas, acum_generado_en = _info_dataset(config.CSV_DATASET_ACUMULACION)
     inact_existe, inact_filas, inact_generado_en = _info_dataset(config.CSV_DATASET_INACTIVIDAD)
 
+    config_inst = ConfiguracionInstitucional.actual()
+    ultima_prediccion = PrediccionRiesgo.objects.order_by('-calculado_en').values_list('calculado_en', flat=True).first()
+
     context = {
         'es_administrador': es_administrador(request.user),
+        'puede_gestionar': get_rol(request.user) in ROLES_GESTION,
         'acum_existe': acum_existe,
         'acum_filas': acum_filas,
         'acum_generado_en': acum_generado_en,
@@ -2390,6 +2582,10 @@ def predicciones_view(request):
         'inact_generado_en': inact_generado_en,
         'flash_detalle': flash.get('detalle'),
         'flash_error': flash.get('error'),
+        'config_inst': config_inst,
+        'ultima_prediccion': ultima_prediccion,
+        'total_predicciones_acumulacion': PrediccionRiesgo.objects.filter(tipo_modelo=PrediccionRiesgo.ACUMULACION).count(),
+        'total_predicciones_inactividad': PrediccionRiesgo.objects.filter(tipo_modelo=PrediccionRiesgo.INACTIVIDAD).count(),
     }
     return render(request, 'web/predicciones.html', context)
 
@@ -2418,6 +2614,89 @@ def predicciones_descargar_csv(request, dataset):
     )
 
 
+@login_required
+@requiere_rol(*ROLES_GESTION)
+@require_http_methods(['POST'])
+def recalcular_predicciones(request):
+    """Botón 'Recalcular predicciones' (/predicciones/): corre los 2 modelos ya
+    entrenados (services/ml/predictor.py) sobre el estado actual de la base y pisa por
+    completo las PrediccionRiesgo de cada tipo - nunca se recalculan en cada vista.
+    Disponible para Administrador y Decano, no para Docente (mismo criterio que el resto
+    de las pantallas de gestión). No usa el candado de extracción: no toca Moodle, solo
+    lee la base y escribe en ella."""
+    try:
+        from services.ml import predictor
+        config_inst = ConfiguracionInstitucional.actual()
+
+        acumulacion = predictor.predicciones_acumulacion()
+        PrediccionRiesgo.objects.filter(tipo_modelo=PrediccionRiesgo.ACUMULACION).delete()
+        PrediccionRiesgo.objects.bulk_create([
+            PrediccionRiesgo(
+                estudiante_id=estudiante_id, tarea_id=tarea_id,
+                tipo_modelo=PrediccionRiesgo.ACUMULACION,
+                probabilidad=probabilidad, banda=config_inst.banda_de(probabilidad),
+            )
+            for estudiante_id, tarea_id, probabilidad in acumulacion
+        ])
+
+        inactividad = predictor.predicciones_inactividad()
+        PrediccionRiesgo.objects.filter(tipo_modelo=PrediccionRiesgo.INACTIVIDAD).delete()
+        PrediccionRiesgo.objects.bulk_create([
+            PrediccionRiesgo(
+                estudiante_id=estudiante_id, tipo_modelo=PrediccionRiesgo.INACTIVIDAD,
+                probabilidad=probabilidad, banda=config_inst.banda_de(probabilidad),
+            )
+            for estudiante_id, probabilidad in inactividad
+        ])
+
+        return JsonResponse({
+            'action_result': {
+                'title': 'Predicciones recalculadas',
+                'detail': (
+                    f'{len(acumulacion)} tarea(s) abierta(s) evaluadas con el modelo de '
+                    f'acumulación, {len(inactividad)} estudiante(s) evaluados con el '
+                    f'modelo de inactividad.'
+                ),
+            },
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        return JsonResponse({'error': str(exc)}, status=400)
+
+
+@login_required
+@requiere_rol(*ROLES_GESTION)
+@require_http_methods(['POST'])
+def guardar_configuracion_predicciones(request):
+    """Config de bandas de riesgo (bajo/medio/alto) y del mínimo de tareas pendientes
+    para "sobrecarga" (ver ConfiguracionInstitucional) - no reentrena ni recalcula nada,
+    solo cambia cómo se traduce la probabilidad ya guardada en PrediccionRiesgo. Hay que
+    apretar "Recalcular predicciones" aparte para que el cambio de banda se note en las
+    predicciones ya guardadas."""
+    config_inst = ConfiguracionInstitucional.actual()
+    try:
+        medio = Decimal(request.POST.get('banda_riesgo_medio_desde', config_inst.banda_riesgo_medio_desde))
+        alto = Decimal(request.POST.get('banda_riesgo_alto_desde', config_inst.banda_riesgo_alto_desde))
+        minimas = int(request.POST.get('sobrecarga_tareas_minimas', config_inst.sobrecarga_tareas_minimas))
+    except (InvalidOperation, ValueError, TypeError):
+        return JsonResponse({'error': 'Valores inválidos.'}, status=400)
+
+    if not (0 <= medio <= 1 and 0 <= alto <= 1):
+        return JsonResponse({'error': 'Las bandas deben estar entre 0 y 1.'}, status=400)
+    if medio >= alto:
+        return JsonResponse({'error': 'La banda "medio" debe ser menor que la banda "alto".'}, status=400)
+    if minimas < 1:
+        return JsonResponse({'error': 'El mínimo de tareas para sobrecarga debe ser al menos 1.'}, status=400)
+
+    config_inst.banda_riesgo_medio_desde = medio
+    config_inst.banda_riesgo_alto_desde = alto
+    config_inst.sobrecarga_tareas_minimas = minimas
+    config_inst.save(update_fields=[
+        'banda_riesgo_medio_desde', 'banda_riesgo_alto_desde', 'sobrecarga_tareas_minimas',
+    ])
+    return JsonResponse({'ok': True})
+
+
 def _materias_qs_reportes(request):
     return Materia.objects.all() if es_administrador(request.user) else materias_visibles(request.user)
 
@@ -2439,6 +2718,21 @@ def reportes_view(request):
     docente_tareas = request.GET.get('docente_tareas', '') if ver_secciones_docente else ''
     docente_material = request.GET.get('docente_material', '') if ver_secciones_docente else ''
 
+    # Pestañas en vez de las 3 secciones renderizadas siempre juntas (encontrado 2026-11-24:
+    # /reportes/ pesaba 1.23MB y tardaba varios segundos, con las ~2300 filas de las 3
+    # secciones ya en el HTML apenas se entraba a la página). Ahora solo se calculan/
+    # renderizan los datos de la pestaña activa - "Tareas"/"Material" ni se consultan hasta
+    # que el usuario hace click en esa pestaña (recarga la página con ?tab=). Sin ajax: la
+    # descarga en Excel/PDF (reportes_descargar) es una vista aparte que ya recalculaba sus
+    # propios datos on-demand, así que no la toca este cambio.
+    tab = request.GET.get('tab', 'acceso')
+    if not ver_secciones_docente or tab not in ('acceso', 'tareas', 'material'):
+        tab = 'acceso'
+
+    filas_acceso = datos_reporte_acceso(materias_qs, rol_acceso, materia_acceso) if tab == 'acceso' else None
+    filas_tareas = datos_reporte_contenido(materias_qs, 'assign', docente_tareas) if tab == 'tareas' else None
+    filas_material = datos_reporte_contenido(materias_qs, 'url', docente_material) if tab == 'material' else None
+
     context = {
         'materias_disponibles': materias_qs.order_by('nombre'),
         'docentes_disponibles': Profesor.objects.filter(materias__in=materias_qs).distinct().order_by('nombre'),
@@ -2447,9 +2741,10 @@ def reportes_view(request):
         'docente_tareas': docente_tareas,
         'docente_material': docente_material,
         'ver_secciones_docente': ver_secciones_docente,
-        'filas_acceso': datos_reporte_acceso(materias_qs, rol_acceso, materia_acceso),
-        'filas_tareas': datos_reporte_contenido(materias_qs, 'assign', docente_tareas) if ver_secciones_docente else [],
-        'filas_material': datos_reporte_contenido(materias_qs, 'url', docente_material) if ver_secciones_docente else [],
+        'tab': tab,
+        'filas_acceso': filas_acceso,
+        'filas_tareas': filas_tareas,
+        'filas_material': filas_material,
     }
     return render(request, 'web/reportes.html', context)
 
@@ -2547,7 +2842,21 @@ def configuracion_view(request):
         config_inst.visitante_habilitado = not config_inst.visitante_habilitado
         config_inst.save(update_fields=['visitante_habilitado'])
         return redirect('configuracion')
+    if es_admin and request.method == 'POST' and request.POST.get('accion') == 'guardar_unidades_por_parcial':
+        # "Materias con retraso" (Resumen): cuantas Unidades (UT) cubre cada parcial - ver
+        # _materias_con_retraso en web/views.py. Institucional, igual que visitante_habilitado.
+        config_inst = ConfiguracionInstitucional.actual()
+        try:
+            valor = int(request.POST.get('unidades_por_parcial', '').strip())
+            if valor < 1:
+                raise ValueError
+            config_inst.unidades_por_parcial = valor
+            config_inst.save(update_fields=['unidades_por_parcial'])
+        except (ValueError, TypeError):
+            pass
+        return redirect('configuracion')
     visitante_habilitado = ConfiguracionInstitucional.actual().visitante_habilitado
+    unidades_por_parcial = ConfiguracionInstitucional.actual().unidades_por_parcial
 
     profesor = get_current_profesor(request)
     if profesor is None:
@@ -2565,6 +2874,7 @@ def configuracion_view(request):
             'tour': tour,
             'es_admin': es_admin,
             'visitante_habilitado': visitante_habilitado,
+            'unidades_por_parcial': unidades_por_parcial,
         }
         return render(request, 'web/configuracion.html', context)
 
@@ -2624,6 +2934,7 @@ def configuracion_view(request):
         'tour': tour,
         'es_admin': es_admin,
         'visitante_habilitado': visitante_habilitado,
+        'unidades_por_parcial': unidades_por_parcial,
     }
     return render(request, 'web/configuracion.html', context)
 
@@ -2655,6 +2966,8 @@ def extension_privacidad_view(request):
 
 
 def parse_date_string(fecha_str):
+    if not fecha_str:
+        return None
     try:
         partes = fecha_str.split(',')
 

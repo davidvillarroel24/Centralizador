@@ -18,6 +18,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
+from django.db.models import Prefetch
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from reportlab.lib import colors
@@ -25,7 +26,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
-from data.models import AccesoCurso, Estudiante, Materia, Profesor
+from data.models import AccesoCurso, Estudiante, Materia, Profesor, Tarea, Unidad
 
 _UNIDADES = (
     ('segundo', timedelta(seconds=1)),
@@ -65,6 +66,75 @@ def parsear_ultimo_acceso(texto):
 
 
 FECHA_SENTINEL_ANTIGUA = datetime.min.replace(tzinfo=timezone.utc)
+
+UMBRAL_INACTIVIDAD_ESTATICA_DIAS = 30
+
+
+def _accesos_estudiantes_con_fecha_aprox(materias_qs):
+    """[(estudiante, materia, fecha_aprox), ...] - acceso REAL (no proxy de entregas, a
+    diferencia del modelo de inactividad) de cada estudiante a cada materia, aproximando
+    la fecha igual que datos_reporte_acceso(): AccesoCurso solo trae el texto relativo que
+    mandó Moodle ("343 días 13 horas"), así que se resta ese delta a
+    AccesoCurso.actualizado (el momento en que se extrajo esa fila)."""
+    accesos = AccesoCurso.objects.filter(materia__in=materias_qs).select_related('materia')
+    estudiantes_por_id = {e.moodle_userid: e for e in Estudiante.objects.all()}
+
+    resultado = []
+    for acceso in accesos:
+        estudiante = estudiantes_por_id.get(acceso.moodle_userid)
+        if not estudiante:
+            continue  # en el padrón de Moodle pero todavía no importado como Estudiante
+        delta = parsear_ultimo_acceso(acceso.ultimo_acceso)
+        if delta is None:
+            continue
+        resultado.append((estudiante, acceso.materia, acceso.actualizado - delta))
+    return resultado
+
+
+def estudiantes_inactivos_por_materia(materias_qs, umbral_dias=UMBRAL_INACTIVIDAD_ESTATICA_DIAS):
+    """[{'estudiante_id', 'estudiante_nombre', 'materia', 'dias_inactivo'}, ...] - un
+    estudiante puede entrar seguido a una materia y no entrar hace rato a otra; esto
+    reporta cada (estudiante, materia) por separado, a diferencia de la versión "general"
+    (ver estudiantes_inactivos_general) que mira su acceso más reciente entre todas."""
+    ahora = datetime.now(timezone.utc)
+    filas = []
+    for estudiante, materia, fecha_aprox in _accesos_estudiantes_con_fecha_aprox(materias_qs):
+        dias_inactivo = (ahora - fecha_aprox).days
+        if dias_inactivo >= umbral_dias:
+            filas.append({
+                'estudiante_id': estudiante.id,
+                'estudiante_nombre': estudiante.nombre,
+                'materia': materia.nombre,
+                'dias_inactivo': dias_inactivo,
+            })
+    return filas
+
+
+def estudiantes_inactivos_general(materias_qs, umbral_dias=UMBRAL_INACTIVIDAD_ESTATICA_DIAS):
+    """Por estudiante, el acceso MÁS RECIENTE entre TODAS sus materias (puede no entrar a
+    varias pero sí a una en particular, seguido) - solo cuenta como inactivo "en general"
+    si ni siquiera esa más reciente supera el umbral."""
+    ahora = datetime.now(timezone.utc)
+    mas_reciente_por_estudiante = {}
+    for estudiante, _materia, fecha_aprox in _accesos_estudiantes_con_fecha_aprox(materias_qs):
+        actual = mas_reciente_por_estudiante.get(estudiante.id)
+        if actual is None or fecha_aprox > actual['fecha_aprox']:
+            mas_reciente_por_estudiante[estudiante.id] = {
+                'estudiante_id': estudiante.id,
+                'estudiante_nombre': estudiante.nombre,
+                'fecha_aprox': fecha_aprox,
+            }
+
+    filas = []
+    for datos in mas_reciente_por_estudiante.values():
+        dias_inactivo = (ahora - datos['fecha_aprox']).days
+        if dias_inactivo >= umbral_dias:
+            filas.append({
+                'estudiante_id': datos['estudiante_id'],
+                'estudiante_nombre': datos['estudiante_nombre'],
+                'dias_inactivo': dias_inactivo,
+            })
+    return filas
 
 
 def datos_reporte_acceso(materias_qs, rol='todos', materia_id=''):
@@ -120,19 +190,32 @@ def datos_reporte_acceso(materias_qs, rol='todos', materia_id=''):
 
 def datos_reporte_contenido(materias_qs, tipo, docente_id=''):
     """tipo='assign' -> tareas asignadas; tipo='url' -> material de apoyo. Mismo
-    agrupamiento Docente -> Materia -> Unidad para ambos."""
+    agrupamiento Docente -> Materia -> Unidad para ambos.
+
+    FIX N+1 (encontrado 2026-11-24, /reportes/ tardaba varios segundos): antes se hacía
+    prefetch_related('unidades__tareas__archivos_tarea') y después, por cada unidad,
+    `unidad.tareas.filter(tipo=tipo)` - agregarle un .filter() a un manager ya prefetcheado
+    hace que Django ignore el cache y vuelva a consultar la base, una vez por unidad (282
+    unidades x 2 tipos de reporte = miles de queries de más). Ahora el filtro por tipo (y
+    el order_by de ambos niveles) va DENTRO del Prefetch, así entra en el mismo query
+    prefetcheado de una sola vez."""
     docentes = Profesor.objects.filter(materias__in=materias_qs).distinct().order_by('nombre')
     if docente_id:
         docentes = docentes.filter(pk=docente_id)
 
+    tareas_qs = Tarea.objects.filter(tipo=tipo).order_by('titulo').prefetch_related('archivos_tarea')
+    unidades_qs = Unidad.objects.order_by('nombre').prefetch_related(
+        Prefetch('tareas', queryset=tareas_qs, to_attr='tareas_filtradas')
+    )
+
     filas = []
     for docente in docentes:
         materias = docente.materias.filter(pk__in=materias_qs).order_by('nombre').prefetch_related(
-            'unidades__tareas__archivos_tarea'
+            Prefetch('unidades', queryset=unidades_qs, to_attr='unidades_ordenadas')
         )
         for materia in materias:
-            for unidad in materia.unidades.all().order_by('nombre'):
-                for tarea in unidad.tareas.filter(tipo=tipo).order_by('titulo'):
+            for unidad in materia.unidades_ordenadas:
+                for tarea in unidad.tareas_filtradas:
                     if tipo == 'assign':
                         extra = tarea.cierre
                     else:
@@ -144,7 +227,8 @@ def datos_reporte_contenido(materias_qs, tipo, docente_id=''):
                         # si no hay, el archivo propio (ArchivoTarea) cuando el material
                         # es solo un archivo subido sin link - tarea.url queda de ultimo
                         # recurso (ej. un cuestionario, que no tiene ninguna de las dos).
-                        archivo = tarea.archivos_tarea.all()[0] if tarea.archivos_tarea.all() else None
+                        archivos = list(tarea.archivos_tarea.all())
+                        archivo = archivos[0] if archivos else None
                         extra = tarea.url_entrega or (archivo.url if archivo else None) or tarea.url
                     filas.append({
                         'docente': docente.nombre,

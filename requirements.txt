@@ -12,3 +12,5 @@ whitenoise
 gunicorn
 cryptography
 reportlab
+scikit-learn==1.6.1
+joblib

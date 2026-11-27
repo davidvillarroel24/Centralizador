@@ -2,6 +2,7 @@ import traceback
 import os
 import re
 import io
+import secrets
 import zipfile
 import json
 import requests
@@ -12,6 +13,8 @@ from django.core.management import call_command
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
@@ -41,14 +44,14 @@ REPORTES_DISPONIBLES = ('acceso', 'tareas', 'material')
 from data.models import (
     Materia, Profesor, Estudiante, Tarea, Unidad, Entrega, FechasParciales, PesosCategorias, AccesoCurso,
     ArchivoEntrega, ArchivoTarea, asegurar_config_tareas_default, ConfiguracionInstitucional,
-    PrediccionRiesgo, _rango_parcial_default,
+    PrediccionRiesgo, _rango_parcial_default, RestablecimientoContrasena,
 )
 from data.cookie_crypto import cifrar_cookie, descifrar_cookie
 from data.roles import (
     es_administrador, requiere_rol, materias_visibles, materias_visibles_decano, get_rol,
     get_or_crear_visitante_compartido,
 )
-from data.models import PerfilUsuario, Facultad, Carrera
+from data.models import PerfilUsuario, Facultad, Carrera, NOMBRE_FACULTAD_IMPORTADAS
 from django.utils import timezone as dj_timezone
 
 from collections import Counter
@@ -186,13 +189,22 @@ def register_view(request):
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '').strip()
-        if not username or not password:
+        password_confirmar = request.POST.get('password_confirmar', '').strip()
+        if not username or not password or not password_confirmar:
             error = 'Todos los campos son obligatorios.'
         elif not Profesor.objects.filter(nombre__iexact=username).exists():
             error = 'El usuario debe coincidir con un docente registrado.'
         elif User.objects.filter(username__iexact=username).exists():
             error = 'Ya existe un usuario con ese nombre. Usa inicio de sesión.'
+        elif password != password_confirmar:
+            error = 'Las contraseñas no coinciden.'
         else:
+            try:
+                validate_password(password, user=User(username=username))
+            except ValidationError as e:
+                error = ' '.join(e.messages)
+
+        if not error:
             user = User.objects.create_user(username=username)
             user.set_password(password)
             user.save()
@@ -711,10 +723,11 @@ def run_importar_participantes_web():
 @requiere_rol(*ROLES_STAFF)
 @require_http_methods(['POST'])
 def descargar_excel(request):
-    """Genera el Excel filtrado por los cursos seleccionados y los pesos del profesor
-    logueado, y lo devuelve directo como descarga (sin pasar por el disco del servidor:
-    `generar_excel` escribe a un BytesIO en memoria). Antes el boton "Generar Excel" solo
-    guardaba notas.xlsx en el servidor y había que ir a buscarlo a mano.
+    """Genera un Excel POR CADA curso seleccionado (ver generar_excel: antes era uno solo
+    con todos los cursos mezclados, confuso al revisar con más de un curso tildado a la
+    vez - decisión 2026-11-27) y lo devuelve directo como descarga, sin pasar por el disco
+    del servidor. Un solo curso -> el .xlsx directo; más de uno -> todos juntos en un .zip
+    (un archivo por materia adentro, nombrado con su sigla).
 
     Es un botón aparte del dispatcher de dashboard() (vía formaction en el template) porque
     una respuesta de archivo no encaja con el patrón Post-Redirect-Get del resto de
@@ -725,9 +738,8 @@ def descargar_excel(request):
         if not selected_ids:
             raise ValueError('Debes seleccionar al menos un curso para generar el Excel.')
         profesor = get_current_profesor(request)
-        buffer = BytesIO()
-        total, _ = extraer_transformar(selected_ids, profesor, archivo=buffer)
-        if total == 0:
+        resultados = extraer_transformar(selected_ids, profesor)
+        if not resultados:
             raise ValueError(
                 'No se encontraron estudiantes con entregas para los cursos seleccionados. '
                 'Corré primero "Importar estudiantes" y "Importar asignación" para esos cursos.'
@@ -737,12 +749,41 @@ def descargar_excel(request):
         redirect_params = [('role', role)] + [('courses', cid) for cid in [str(c) for c in selected_ids]]
         return redirect(f"{reverse('dashboard')}?{urlencode(redirect_params)}")
 
+    if len(resultados) == 1:
+        materia, _cantidad, buffer = resultados[0]
+        return FileResponse(
+            buffer,
+            as_attachment=True,
+            filename=f'notas_{_nombre_archivo_materia(materia)}.xlsx',
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        nombres_usados = set()
+        for materia, _cantidad, buffer in resultados:
+            nombre = f'notas_{_nombre_archivo_materia(materia)}.xlsx'
+            # Dos materias pueden compartir sigla (paralelos) - si ya se usó ese nombre en
+            # este zip, se desambigua con el id para no pisar un archivo con otro.
+            if nombre in nombres_usados:
+                nombre = f'notas_{_nombre_archivo_materia(materia)}_{materia.id}.xlsx'
+            nombres_usados.add(nombre)
+            zf.writestr(nombre, buffer.getvalue())
+    zip_buffer.seek(0)
+
     return FileResponse(
-        buffer,
+        zip_buffer,
         as_attachment=True,
-        filename='notas.xlsx',
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename=f'notas_{len(resultados)}_cursos.zip',
+        content_type='application/zip',
     )
+
+
+def _nombre_archivo_materia(materia):
+    """Sigla saneada para usar en un nombre de archivo (o el nombre completo si la materia
+    no tiene sigla cargada)."""
+    base = materia.sigla or materia.nombre
+    return re.sub(r'[^A-Za-z0-9]+', '-', base).strip('-') or f'materia_{materia.id}'
 
 
 @login_required
@@ -1477,19 +1518,22 @@ def resumen(request):
         'ultima_sincronizacion': None,
     }
 
-    # Alcance por rol: Administrador ve todo; Decano/Docente, solo lo suyo
-    # (materias_visibles); Visitante no ve nada salvo que filtre por facultad o carrera.
-    # Solo materias activas en los dos casos - una inhabilitada (ver materias_view) no
-    # debería inflar ningún conteo del Resumen (materias_visibles() ya lo hacía así para
-    # todos los roles salvo Administrador, que veía TODAS sin ese filtro).
+    # Alcance por rol: Administrador ve todo; Decano/Docente, solo lo suyo; Visitante, todo
+    # de solo lectura - los tres salvo Docente se pueden acotar además por facultad_id/
+    # carrera_id (ver materias_visibles). Solo materias activas en todos los casos - una
+    # inhabilitada (ver materias_view) no debería inflar ningún conteo del Resumen.
     rol = get_rol(request.user)
+    # KPIs/gráficas de alcance institucional (cuántos docentes tienen cuenta, materias con
+    # retraso, comparación entre materias) no tienen sentido para un Docente mirando sus
+    # propias materias - decisión 2026-11-27. Para Decano y Administrador siguen iguales.
+    mostrar_panel_gestion = rol in ROLES_GESTION
+    # Filtro de facultad/carrera: antes solo lo tenía el Visitante - Administrador y Decano
+    # lo pidieron también (Docente no, "ya es lo suyo") - decisión 2026-11-27.
+    mostrar_filtro_facultad_carrera = rol in ROLES_GESTION or rol == PerfilUsuario.VISITANTE
     facultad_id = request.GET.get('facultad') or None
     carrera_id = request.GET.get('carrera') or None
     anio = request.GET.get('anio') or ''
-    if rol == PerfilUsuario.ADMINISTRADOR:
-        materias_qs = Materia.objects.filter(activo=True)
-    else:
-        materias_qs = materias_visibles(request.user, facultad_id=facultad_id, carrera_id=carrera_id)
+    materias_qs = materias_visibles(request.user, facultad_id=facultad_id, carrera_id=carrera_id)
     if anio:
         materias_qs = materias_qs.filter(gestion=anio)
 
@@ -1516,19 +1560,14 @@ def resumen(request):
         kpis['estudiantes_posible_abandono'] = len(posible_abandono_ids)
         kpis['estudiantes_activos'] = len(estudiantes_ids) - len(posible_abandono_ids)
 
-        # contar tareas totalesfiltranndo por mitek etek y examen
-
-        FILTROS_ACTIVIDADES = [
-            "Examen",
-            "tek",
-        ]
-
-        filtro_tareas = Q()
-
-        for filtro in FILTROS_ACTIVIDADES:
-            filtro_tareas |= Q(titulo__icontains=filtro)
-
-        tareas_filtradas = Tarea.objects.filter(filtro_tareas, unidad__materia__in=materias_qs)
+        # "Actividades" = tareas con entrega (tipo='assign') - antes se filtraba por título
+        # ("Examen"/"tek"), un proxy poco confiable; tipo='assign' es el mismo criterio que
+        # ya usan sobrecarga (_estudiantes_sobrecarga) y "materias con menos tareas"
+        # (_materias_con_menos_tareas), para que los tres cuenten lo mismo (decisión
+        # 2026-11-27). Lo que no es 'assign' (material de apoyo, recursos, exámenes tipo
+        # 'url'/'resource'/'quiz') no es algo que un estudiante "entregue", así que no cuenta
+        # como actividad pendiente de cumplimiento.
+        tareas_filtradas = Tarea.objects.filter(tipo='assign', unidad__materia__in=materias_qs)
 
         tarea_ids = list(
             tareas_filtradas.values_list('id', flat=True)
@@ -1555,8 +1594,9 @@ def resumen(request):
         # Materias con retraso: redefinido (ver _materias_con_retraso) - unidades con
         # título placeholder ("UT 6: XXXX") que ya deberían tener contenido real según la
         # fecha de hoy y los parciales configurados, no "alguna tarea vencida sin entregar"
-        # (eso ya lo cubre "Actividades no entregadas"/Alertas).
-        kpis['materias_con_retraso'] = _materias_con_retraso(materias_qs)
+        # (eso ya lo cubre "Actividades no entregadas"/Alertas). Panel de gestión únicamente.
+        if mostrar_panel_gestion:
+            kpis['materias_con_retraso'] = _materias_con_retraso(materias_qs)
 
         ultima_actualizacion = Materia.objects.aggregate(last=Max('actualizado')).get('last')
         ultima_actualizacion = max(filter(None, [ultima_actualizacion, Profesor.objects.aggregate(last=Max('actualizado')).get('last')]))
@@ -1569,6 +1609,7 @@ def resumen(request):
         'kpis': kpis,
         'gestiones_filtro': Materia.objects.order_by('-gestion').values_list('gestion', flat=True).distinct(),
         'anio_seleccionado': anio,
+        'mostrar_panel_gestion': mostrar_panel_gestion,
     }
 
     try:
@@ -1586,20 +1627,46 @@ def resumen(request):
             'data': [pct_entregadas, pct_no_entregadas],
         }
 
-        chart_materias = _materias_con_menos_tareas(materias_qs)
+        chart_materias = _materias_con_menos_tareas(materias_qs) if mostrar_panel_gestion else {'materias': []}
 
+        # "Activos" y "Posible abandono" son dos poblaciones DISTINTAS, no un mismo listado
+        # filtrado por una bandera (bug reportado 2026-11-27: el KPI marcaba 11 posibles
+        # abandonos pero el toggle de la gráfica no mostraba ninguno) - antes "Posible
+        # abandono" solo mostraba la intersección con "sobrecargados" (normalmente vacía,
+        # un estudiante inactivo rara vez también acumula tareas pendientes activamente).
+        # Ahora "Activos" sigue siendo sobrecargados-y-no-abandono, pero "Posible abandono"
+        # es TODO estudiante marcado como tal más arriba (mismo universo que ese KPI), con
+        # sus días sin ingresar - mutuamente excluyentes entre sí, igual que el KPI.
         sobrecarga_calculada, filas_sobrecarga = _estudiantes_sobrecarga(materias_qs)
+        filas_activos = [
+            {
+                'estudiante_id': f['estudiante_id'],
+                'nombre': f['estudiante__nombre'],
+                'pendientes': f['pendientes'],
+                'posible_abandono': False,
+                'dias_inactivo': None,
+            }
+            for f in filas_sobrecarga if f['estudiante_id'] not in posible_abandono_ids
+        ]
+        nombres_por_id_abandono = dict(
+            Estudiante.objects.filter(id__in=posible_abandono_ids).values_list('id', 'nombre')
+        )
+        filas_abandono = sorted(
+            (
+                {
+                    'estudiante_id': est_id,
+                    'nombre': nombres_por_id_abandono[est_id],
+                    'pendientes': None,
+                    'posible_abandono': True,
+                    'dias_inactivo': dias_inactivo_por_estudiante.get(est_id),
+                }
+                for est_id in posible_abandono_ids
+            ),
+            key=lambda f: -(f['dias_inactivo'] or 0),
+        )
         chart_sobrecarga = {
             'calculada': sobrecarga_calculada,
-            'filas': [
-                {
-                    'nombre': f['estudiante__nombre'],
-                    'pendientes': f['pendientes'],
-                    'posible_abandono': f['estudiante_id'] in posible_abandono_ids,
-                    'dias_inactivo': dias_inactivo_por_estudiante.get(f['estudiante_id']),
-                }
-                for f in filas_sobrecarga
-            ],
+            'filas': filas_activos + filas_abandono,
         }
 
         context['chart_kpis_json'] = json.dumps(chart_kpis)
@@ -1610,10 +1677,13 @@ def resumen(request):
         context['chart_materias_json'] = json.dumps({'materias': []})
         context['chart_sobrecarga_json'] = json.dumps({'calculada': False, 'filas': []})
 
-    if rol == PerfilUsuario.VISITANTE:
-        context['es_visitante'] = True
-        context['facultades_filtro'] = Facultad.objects.order_by('nombre')
-        context['carreras_filtro'] = Carrera.objects.select_related('facultad').order_by('facultad__nombre', 'nombre')
+    context['mostrar_filtro_facultad_carrera'] = mostrar_filtro_facultad_carrera
+    if mostrar_filtro_facultad_carrera:
+        context['facultades_filtro'] = Facultad.objects.exclude(nombre=NOMBRE_FACULTAD_IMPORTADAS).order_by('nombre')
+        context['carreras_filtro'] = (
+            Carrera.objects.exclude(facultad__nombre=NOMBRE_FACULTAD_IMPORTADAS)
+            .select_related('facultad').order_by('facultad__nombre', 'nombre')
+        )
         context['facultad_seleccionada'] = facultad_id
         context['carrera_seleccionada'] = carrera_id
 
@@ -1700,8 +1770,11 @@ def docentes_view(request):
     }
     if es_admin:
         context['roles_choices'] = PerfilUsuario.ROLES
-        context['facultades_todas'] = Facultad.objects.order_by('nombre')
-        context['carreras_todas'] = Carrera.objects.select_related('facultad').order_by('facultad__nombre', 'nombre')
+        context['facultades_todas'] = Facultad.objects.exclude(nombre=NOMBRE_FACULTAD_IMPORTADAS).order_by('nombre')
+        context['carreras_todas'] = (
+            Carrera.objects.exclude(facultad__nombre=NOMBRE_FACULTAD_IMPORTADAS)
+            .select_related('facultad').order_by('facultad__nombre', 'nombre')
+        )
         context['materias_todas'] = Materia.objects.select_related('carrera').order_by('carrera__nombre', 'nombre')
 
     return render(
@@ -1753,6 +1826,82 @@ def gestionar_rol_docente(request):
         perfil.materias.clear()
 
     return JsonResponse({'ok': True, 'rol': nuevo_rol, 'rol_display': dict(PerfilUsuario.ROLES)[nuevo_rol]})
+
+
+@login_required
+@requiere_rol(PerfilUsuario.ADMINISTRADOR)
+@require_http_methods(['POST'])
+def restablecer_password_docente(request):
+    """Botón "Restablecer contraseña" en Docentes (solo Administrador), fase sin envío de
+    correo (ver README - "observado en la defensa" 2026-11-27): invalida la contraseña
+    actual del docente al instante (set_unusable_password, no puede volver a entrar con la
+    vieja) y genera un código de 6 dígitos de un solo uso, válido 30 minutos, que se le
+    muestra al Administrador para que se lo pase al docente por el medio que sea. El
+    docente lo usa en /recuperar/ para elegir una contraseña nueva."""
+    profesor_id = request.POST.get('profesor_id')
+    profesor = Profesor.objects.filter(pk=profesor_id).first()
+    if not profesor:
+        return JsonResponse({'ok': False, 'error': 'No se encontró ese docente.'}, status=404)
+    if not profesor.user:
+        return JsonResponse(
+            {'ok': False, 'error': f'{profesor.nombre} todavía no tiene una cuenta registrada en Centralizador.'},
+            status=400,
+        )
+
+    codigo = f'{secrets.randbelow(1_000_000):06d}'
+    profesor.user.set_unusable_password()
+    profesor.user.save(update_fields=['password'])
+    RestablecimientoContrasena.crear_para(profesor, codigo, generado_por=request.user)
+
+    return JsonResponse({
+        'ok': True,
+        'usuario': profesor.user.username,
+        'codigo': codigo,
+        'vigencia_minutos': int(RestablecimientoContrasena.VIGENCIA.total_seconds() // 60),
+    })
+
+
+def recuperar_password_view(request):
+    """Pantalla pública (sin login - el docente no tiene con qué entrar) donde usa el
+    código de 6 dígitos que le pasó el Administrador para elegir una contraseña nueva. Ver
+    restablecer_password_docente. El mensaje de error es el mismo para "usuario
+    inexistente" y "código incorrecto" a propósito, para no revelar qué usuarios existen."""
+    if request.user.is_authenticated:
+        return redirect('resumen')
+
+    error = None
+    mensaje = None
+    if request.method == 'POST':
+        username = request.POST.get('username', '').strip()
+        codigo = request.POST.get('codigo', '').strip()
+        nueva = request.POST.get('password', '').strip()
+        confirmar = request.POST.get('password_confirmar', '').strip()
+
+        user = User.objects.filter(username__iexact=username).first()
+        restablecimiento = getattr(getattr(user, 'profesor_perfil', None), 'restablecimiento', None)
+
+        if not user or not restablecimiento or not restablecimiento.vigente():
+            if restablecimiento and not restablecimiento.vigente():
+                error = 'El código venció o se bloqueó por demasiados intentos. Pedile al administrador uno nuevo.'
+            else:
+                error = 'Usuario o código incorrectos.'
+        elif not restablecimiento.verificar(codigo):
+            restablecimiento.registrar_intento_fallido()
+            error = 'Usuario o código incorrectos.'
+        elif nueva != confirmar:
+            error = 'Las contraseñas no coinciden.'
+        else:
+            try:
+                validate_password(nueva, user=user)
+            except ValidationError as e:
+                error = ' '.join(e.messages)
+            else:
+                user.set_password(nueva)
+                user.save(update_fields=['password'])
+                restablecimiento.delete()
+                mensaje = 'Contraseña actualizada. Ya podés iniciar sesión.'
+
+    return render(request, 'web/recuperar.html', {'error': error, 'mensaje': mensaje})
 
 
 @login_required
@@ -2338,7 +2487,10 @@ def _materias_con_menos_tareas(materias_qs):
                 break
         rangos_por_materia[m.id] = _rangos_parciales_de(fechas, hoy_anio)
 
-    tareas = Tarea.objects.filter(unidad__materia__in=materias_qs).select_related('unidad__materia')
+    # Solo 'assign' (tareas con entrega) - mismo criterio que la sobrecarga y que el KPI
+    # "Actividades" de Resumen (decisión 2026-11-27), para no comparar cargas de trabajo
+    # mezclando material de apoyo o recursos que un estudiante no entrega.
+    tareas = Tarea.objects.filter(tipo='assign', unidad__materia__in=materias_qs).select_related('unidad__materia')
     for t in tareas:
         materia_id = t.unidad.materia_id
         if materia_id not in conteos:
@@ -2532,7 +2684,7 @@ def sobrecarga_detalle_estudiante(request, estudiante_id):
 
 
 @login_required
-@requiere_rol(*ROLES_STAFF)
+@requiere_rol(*ROLES_GESTION)
 @require_http_methods(['GET', 'POST'])
 def predicciones_view(request):
     error = None
@@ -2710,13 +2862,19 @@ def reportes_view(request):
     # trabajo de un colega) - Decano/Administrador/Visitante siguen viendo las 3 secciones
     # completas. "Tareas asignadas"/"Material de apoyo" son reportes sobre OTROS docentes
     # por definicion, asi que se ocultan enteras en vez de filtrarlas.
-    es_docente = get_rol(request.user) == PerfilUsuario.DOCENTE
+    rol = get_rol(request.user)
+    es_docente = rol == PerfilUsuario.DOCENTE
     ver_secciones_docente = not es_docente
+    # Visitante es de solo lectura: ve "Tareas asignadas" (igual que Decano/Admin), pero no
+    # "Material de apoyo" (archivos/enlaces de docentes, pensado para gestión interna, no
+    # para mostrar a alguien externo) - decisión 2026-11-28.
+    mostrar_material = ver_secciones_docente and rol != PerfilUsuario.VISITANTE
+    mostrar_descargas = rol != PerfilUsuario.VISITANTE
 
     rol_acceso = 'estudiante' if es_docente else request.GET.get('rol_acceso', 'todos')
     materia_acceso = request.GET.get('materia_acceso', '')
     docente_tareas = request.GET.get('docente_tareas', '') if ver_secciones_docente else ''
-    docente_material = request.GET.get('docente_material', '') if ver_secciones_docente else ''
+    docente_material = request.GET.get('docente_material', '') if mostrar_material else ''
 
     # Pestañas en vez de las 3 secciones renderizadas siempre juntas (encontrado 2026-11-24:
     # /reportes/ pesaba 1.23MB y tardaba varios segundos, con las ~2300 filas de las 3
@@ -2726,7 +2884,8 @@ def reportes_view(request):
     # descarga en Excel/PDF (reportes_descargar) es una vista aparte que ya recalculaba sus
     # propios datos on-demand, así que no la toca este cambio.
     tab = request.GET.get('tab', 'acceso')
-    if not ver_secciones_docente or tab not in ('acceso', 'tareas', 'material'):
+    tabs_permitidas = ('acceso', 'tareas', 'material') if mostrar_material else ('acceso', 'tareas')
+    if not ver_secciones_docente or tab not in tabs_permitidas:
         tab = 'acceso'
 
     filas_acceso = datos_reporte_acceso(materias_qs, rol_acceso, materia_acceso) if tab == 'acceso' else None
@@ -2741,6 +2900,8 @@ def reportes_view(request):
         'docente_tareas': docente_tareas,
         'docente_material': docente_material,
         'ver_secciones_docente': ver_secciones_docente,
+        'mostrar_material': mostrar_material,
+        'mostrar_descargas': mostrar_descargas,
         'tab': tab,
         'filas_acceso': filas_acceso,
         'filas_tareas': filas_tareas,
@@ -2757,22 +2918,30 @@ def reportes_descargar(request, tipo, formato):
     if formato not in ('excel', 'pdf'):
         return JsonResponse({'error': 'Formato desconocido.'}, status=404)
 
-    # Mismo criterio que reportes_view: un Docente no baja reportes sobre otros docentes -
-    # esto se revalida aca por si alguien arma la URL de descarga a mano, sin pasar por el
-    # template (que ya oculta los botones de esas 2 secciones para Docente).
-    es_docente = get_rol(request.user) == PerfilUsuario.DOCENTE
+    # Mismo criterio que reportes_view: un Docente no baja reportes sobre otros docentes, y
+    # Visitante (solo lectura) no descarga nada - esto se revalida aca por si alguien arma
+    # la URL de descarga a mano, sin pasar por el template (que ya oculta esos botones).
+    rol = get_rol(request.user)
+    es_docente = rol == PerfilUsuario.DOCENTE
     if es_docente and tipo in ('tareas', 'material'):
         return JsonResponse({'error': 'No tenés acceso a ese reporte.'}, status=403)
+    if rol == PerfilUsuario.VISITANTE:
+        return JsonResponse({'error': 'El acceso de Visitante es de solo lectura, no permite descargar reportes.'}, status=403)
 
     materias_qs = _materias_qs_reportes(request)
+    # `q`: lo que haya escrito en el cuadro de búsqueda de DataTables en ese momento (ver
+    # reportes.html) - la descarga baja lo filtrado/buscado en pantalla, no el reporte
+    # entero sin filtrar (decisión 2026-11-28). Vacío si no buscó nada.
+    q = request.GET.get('q', '')
     if tipo == 'acceso':
         rol_acceso = 'estudiante' if es_docente else request.GET.get('rol_acceso', 'todos')
-        filas = datos_reporte_acceso(materias_qs, rol_acceso, request.GET.get('materia_acceso', ''))
+        filas = datos_reporte_acceso(materias_qs, rol_acceso, request.GET.get('materia_acceso', ''), q)
     else:
         filas = datos_reporte_contenido(
             materias_qs,
             'assign' if tipo == 'tareas' else 'url',
             request.GET.get('docente_tareas' if tipo == 'tareas' else 'docente_material', ''),
+            q,
         )
 
     if formato == 'excel':
@@ -2841,6 +3010,14 @@ def configuracion_view(request):
         config_inst = ConfiguracionInstitucional.actual()
         config_inst.visitante_habilitado = not config_inst.visitante_habilitado
         config_inst.save(update_fields=['visitante_habilitado'])
+        return redirect('configuracion')
+    if es_admin and request.method == 'POST' and request.POST.get('accion') == 'toggle_mensajes_detallados':
+        # Popups de resultado (SweetAlert) de extracción/importación: mensaje completo vs.
+        # resumen corto por defecto - ver mostrarResultado en base.html. Mismo patrón que
+        # toggle_visitante.
+        config_inst = ConfiguracionInstitucional.actual()
+        config_inst.mensajes_resultado_detallados = not config_inst.mensajes_resultado_detallados
+        config_inst.save(update_fields=['mensajes_resultado_detallados'])
         return redirect('configuracion')
     if es_admin and request.method == 'POST' and request.POST.get('accion') == 'guardar_unidades_por_parcial':
         # "Materias con retraso" (Resumen): cuantas Unidades (UT) cubre cada parcial - ver

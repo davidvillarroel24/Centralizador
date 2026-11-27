@@ -111,6 +111,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'data.roles.rol_usuario',
                 'web.context_processors.static_version',
+                'web.context_processors.mensajes_resultado',
             ],
         },
     },
@@ -174,7 +175,12 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# Bolivia (UTC-4, sin horario de verano) - antes 'UTC' hacía que cualquier fecha/hora
+# guardada (timezone-aware, USE_TZ=True) se mostrara en UTC en vez de la hora local, un
+# desfase de 4 horas hacia adelante en toda la app (reportado 2026-11-28, ej. "Última
+# corrida" de Predicciones). Esto no toca cómo se guarda en la base (sigue en UTC
+# internamente); solo cambia a qué hora se CONVIERTE para mostrarla.
+TIME_ZONE = 'America/La_Paz'
 
 USE_I18N = True
 

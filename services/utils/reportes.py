@@ -17,16 +17,24 @@ archivo tres veces:
 import re
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from django.db.models import Prefetch
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Alignment, Font, PatternFill
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
 from data.models import AccesoCurso, Estudiante, Materia, Profesor, Tarea, Unidad
+
+# Paleta institucional para Excel/PDF (pedida 2026-11-27): encabezado en el rojo-naranja
+# más fuerte, bandas alternadas de filas en el tono más claro, para que los reportes
+# descargados se vean consistentes con el resto de la identidad visual de la app.
+COLOR_ENCABEZADO = 'D94423'
+COLOR_BANDA_CLARA = 'FBE8DC'
+COLOR_BORDE = '0D0D0D'
 
 _UNIDADES = (
     ('segundo', timedelta(seconds=1)),
@@ -137,7 +145,20 @@ def estudiantes_inactivos_general(materias_qs, umbral_dias=UMBRAL_INACTIVIDAD_ES
     return filas
 
 
-def datos_reporte_acceso(materias_qs, rol='todos', materia_id=''):
+def _filtrar_por_busqueda(filas, q):
+    """Mismo criterio que el cuadro de búsqueda global de DataTables en la pantalla (busca
+    como texto en cualquier columna) - para que "Descargar Excel/PDF" baje lo que se está
+    viendo filtrado/buscado en ese momento, no todo el reporte sin filtrar (decisión
+    2026-11-28). Sin `q`, no filtra nada."""
+    if not q:
+        return filas
+    q = q.strip().lower()
+    if not q:
+        return filas
+    return [f for f in filas if q in ' '.join(str(v) for v in f.values() if v is not None).lower()]
+
+
+def datos_reporte_acceso(materias_qs, rol='todos', materia_id='', q=''):
     accesos = AccesoCurso.objects.filter(materia__in=materias_qs).select_related('materia')
     if materia_id:
         accesos = accesos.filter(materia_id=materia_id)
@@ -149,6 +170,14 @@ def datos_reporte_acceso(materias_qs, rol='todos', materia_id=''):
     for acceso in accesos:
         es_docente = acceso.moodle_userid in profesores_por_id
         es_estudiante = acceso.moodle_userid in estudiantes_por_id
+        if not es_docente and not es_estudiante:
+            # Aparece en el padrón de Moodle (ya se corrió "4. Extraer e importar último
+            # acceso") pero todavía no se importó como Profesor ni Estudiante en este
+            # sistema (falta correr "3. Importar estudiantes"/"Importar profesores" para
+            # esa materia). Antes se mostraba como "(sin identificar, id X)", pero eso se
+            # leía como un error grave en vez de "todavía falta un paso" - se oculta hasta
+            # que se importe (decisión 2026-11-28).
+            continue
         if rol == 'docente' and not es_docente:
             continue
         if rol == 'estudiante' and not es_estudiante:
@@ -164,14 +193,7 @@ def datos_reporte_acceso(materias_qs, rol='todos', materia_id=''):
             roles_fila.append('Estudiante')
         rol_fila = ', '.join(roles_fila) if roles_fila else '—'
 
-        if es_docente:
-            nombre = profesores_por_id[acceso.moodle_userid]
-        elif es_estudiante:
-            nombre = estudiantes_por_id[acceso.moodle_userid]
-        else:
-            # Aparece en el padron de Moodle pero todavia no se importo como Profesor ni
-            # Estudiante en este sistema (falta correr "Importar profesores/estudiantes").
-            nombre = f"(sin identificar, id {acceso.moodle_userid})"
+        nombre = profesores_por_id[acceso.moodle_userid] if es_docente else estudiantes_por_id[acceso.moodle_userid]
 
         delta = parsear_ultimo_acceso(acceso.ultimo_acceso)
         fecha_aprox = acceso.actualizado - delta if delta is not None else None
@@ -185,10 +207,10 @@ def datos_reporte_acceso(materias_qs, rol='todos', materia_id=''):
         })
 
     filas.sort(key=lambda f: f['fecha_aprox'] or FECHA_SENTINEL_ANTIGUA, reverse=True)
-    return filas
+    return _filtrar_por_busqueda(filas, q)
 
 
-def datos_reporte_contenido(materias_qs, tipo, docente_id=''):
+def datos_reporte_contenido(materias_qs, tipo, docente_id='', q=''):
     """tipo='assign' -> tareas asignadas; tipo='url' -> material de apoyo. Mismo
     agrupamiento Docente -> Materia -> Unidad para ambos.
 
@@ -238,7 +260,7 @@ def datos_reporte_contenido(materias_qs, tipo, docente_id=''):
                         'extra': extra,
                         'url': tarea.url,
                     })
-    return filas
+    return _filtrar_por_busqueda(filas, q)
 
 
 REPORTES = {
@@ -281,11 +303,18 @@ def generar_excel_reporte(tipo, filas):
 
     encabezados = [etiqueta for _clave, etiqueta in info['columnas']]
     ws.append(encabezados)
+    relleno_encabezado = PatternFill(start_color=COLOR_ENCABEZADO, end_color=COLOR_ENCABEZADO, fill_type='solid')
     for celda in ws[1]:
-        celda.font = Font(bold=True)
+        celda.font = Font(bold=True, color='FFFFFF')
+        celda.fill = relleno_encabezado
+        celda.alignment = Alignment(vertical='center')
 
+    relleno_banda = PatternFill(start_color=COLOR_BANDA_CLARA, end_color=COLOR_BANDA_CLARA, fill_type='solid')
     for fila in filas:
         ws.append([_valor_celda(fila, clave) for clave, _etiqueta in info['columnas']])
+        if ws.max_row % 2 == 0:
+            for celda in ws[ws.max_row]:
+                celda.fill = relleno_banda
 
     for columna in ws.columns:
         largo = max((len(str(c.value)) for c in columna if c.value is not None), default=10)
@@ -297,26 +326,55 @@ def generar_excel_reporte(tipo, filas):
     return buffer
 
 
+def _texto_quebrable(texto, cada=40):
+    """Un token sin espacios más largo que `cada` (típicamente una URL) nunca se corta solo
+    al ajustar el Paragraph de reportlab - se queda recto y se sale de su columna. Le mete
+    un espacio de ancho cero cada tantos caracteres para darle puntos de corte, sin cambiar
+    cómo se ve ni se copia el texto."""
+    partes = []
+    for palabra in texto.split(' '):
+        if len(palabra) > cada:
+            palabra = '​'.join(palabra[i:i + cada] for i in range(0, len(palabra), cada))
+        partes.append(palabra)
+    return ' '.join(partes)
+
+
 def generar_pdf_reporte(tipo, filas):
     info = REPORTES[tipo]
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), title=info['titulo'])
+    pagina = landscape(A4)
+    margen = 24
+    doc = SimpleDocTemplate(
+        buffer, pagesize=pagina, title=info['titulo'],
+        leftMargin=margen, rightMargin=margen, topMargin=margen, bottomMargin=margen,
+    )
     estilos = getSampleStyleSheet()
+    estilo_celda = ParagraphStyle('ReporteCelda', parent=estilos['Normal'], fontSize=8, leading=10)
+    estilo_encabezado = ParagraphStyle(
+        'ReporteEncabezado', parent=estilo_celda, textColor=colors.white, fontName='Helvetica-Bold',
+    )
 
-    encabezados = [etiqueta for _clave, etiqueta in info['columnas']]
+    columnas = info['columnas']
+    # Columnas de igual ancho, repartiendo todo el espacio disponible entre márgenes - el
+    # texto se envuelve dentro de cada celda (Paragraph) en vez de expandir la columna más
+    # allá de la página, que era lo que cortaba la primera/última columna (bug reportado
+    # 2026-11-27, ver captura: "nidad" en vez de "Unidad").
+    ancho_columna = (pagina[0] - 2 * margen) / len(columnas)
+
+    def celda(fila, clave, estilo):
+        return Paragraph(_texto_quebrable(escape(str(_valor_celda(fila, clave)))), estilo)
+
+    encabezados = [Paragraph(escape(etiqueta), estilo_encabezado) for _clave, etiqueta in columnas]
     datos = [encabezados] + [
-        [_valor_celda(fila, clave) for clave, _etiqueta in info['columnas']]
+        [celda(fila, clave, estilo_celda) for clave, _etiqueta in columnas]
         for fila in filas
     ]
 
-    tabla = Table(datos, repeatRows=1)
+    tabla = Table(datos, colWidths=[ancho_columna] * len(columnas), repeatRows=1)
     tabla.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3a2a5c')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f3f0fa')]),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(f'#{COLOR_ENCABEZADO}')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor(f'#{COLOR_BORDE}')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor(f'#{COLOR_BANDA_CLARA}')]),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
     ]))
 

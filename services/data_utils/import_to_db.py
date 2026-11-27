@@ -1,6 +1,9 @@
 from gatfh import config
 from services.data_utils import cargarjson
-from data.models import Facultad, Carrera, Nivel, Materia, Unidad, Tarea, Estudiante, Entrega, Profesor, AccesoCurso, ArchivoTarea
+from data.models import (
+    Facultad, Carrera, Nivel, Materia, Unidad, Tarea, Estudiante, Entrega, Profesor, AccesoCurso,
+    ArchivoTarea, NOMBRE_FACULTAD_IMPORTADAS,
+)
 from django.db import transaction
 import re
 
@@ -43,8 +46,8 @@ def import_tareas_from_json():
     created = {'materias': 0, 'unidades': 0, 'tareas': 0, 'skipped': 0, 'materias_url_corregida': 0}
 
     # Asegurar una carrera por defecto
-    facultad, _ = Facultad.objects.get_or_create(nombre='Importadas')
-    carrera, _ = Carrera.objects.get_or_create(facultad=facultad, nombre='Importadas')
+    facultad, _ = Facultad.objects.get_or_create(nombre=NOMBRE_FACULTAD_IMPORTADAS)
+    carrera, _ = Carrera.objects.get_or_create(facultad=facultad, nombre=NOMBRE_FACULTAD_IMPORTADAS)
 
     # cursos.json es la fuente confiable de la URL real del curso (tareas.json solo trae
     # asignatura + tareas, no la url del curso en si). Se usa tanto para crear Materias

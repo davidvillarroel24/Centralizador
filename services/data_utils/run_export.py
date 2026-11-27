@@ -1,4 +1,5 @@
 from collections import defaultdict
+from io import BytesIO
 
 import pandas as pd
 
@@ -54,40 +55,14 @@ def calcular_total_parcial(entregas_est, parcial_num, pesos):
     )
 
 
-@medir_tiempo
-def generar_excel(ids, profesor, archivo=None):
-    """Genera el Excel directo de la base de datos (Entrega/Tarea/Estudiante), filtrado
-    por los cursos seleccionados (`ids`, Materia.id) y usando los pesos por categoria del
-    `profesor` logueado (PesosCategorias). Reemplaza al pipeline viejo, que leia
-    estudiantes.json + asignacion.json completos sin filtrar por seleccion - mezclaba
-    cursos de cualquier extraccion anterior en el mismo Excel.
-
-    `archivo`: ruta en disco, un buffer tipo BytesIO (pandas acepta ambos por igual - lo
-    usa el boton web para armar la descarga directa sin tocar el disco), o None para
-    guardar en un archivo propio por profesor (notas_profesor_<id>.xlsx) y evitar que dos
-    profesores se pisen el mismo "notas.xlsx" compartido, como pasaba antes.
-
-    Requiere que "Importar estudiantes" (Entrega.nota/nota_maxima) e "Importar asignación"
-    (Tarea.categoria/Tarea.parcial) ya hayan corrido para estos cursos.
-
-    Devuelve (cantidad_de_filas, archivo)."""
-    if archivo is None:
-        archivo = f"notas_profesor_{profesor.id}.xlsx"
-
-    pesos_row = PesosCategorias.objects.filter(profesor=profesor).first()
-    pesos = {cat: getattr(pesos_row, cat, 0) if pesos_row else 0 for cat in CATEGORIAS_PESO}
-
-    entregas = (
-        Entrega.objects.filter(tarea__tipo='assign', tarea__unidad__materia_id__in=ids)
-        .select_related('tarea', 'estudiante')
-    )
-
-    por_estudiante = defaultdict(list)
-    for entrega in entregas:
-        por_estudiante[entrega.estudiante].append(entrega)
-
+def _filas_de_materia(entregas_est_por_estudiante, pesos):
+    """[{"nombre", "P1_mitek", ..., "final"}, ...] para UNA materia - extraida de
+    generar_excel para poder armar un archivo por materia en vez de uno solo mezclado
+    (decisión 2026-11-27: con más de un curso tildado, un mismo estudiante inscrito en
+    varios mezclaba sus notas de todos en una sola fila, sin poder saber de qué curso era
+    cada una)."""
     filas = []
-    for estudiante, entregas_est in por_estudiante.items():
+    for estudiante, entregas_est in entregas_est_por_estudiante.items():
         fila = {"nombre": estudiante.nombre}
         parciales_totales = []
 
@@ -103,10 +78,54 @@ def generar_excel(ids, profesor, archivo=None):
         fila["final"] = round(sum(parciales_totales) / len(parciales_totales), 2) if parciales_totales else 0
         filas.append(fila)
 
-    df = pd.DataFrame(filas)
-    df.to_excel(archivo, index=False)
-    if hasattr(archivo, "seek"):
-        archivo.seek(0)
+    filas.sort(key=lambda f: f['nombre'])
+    return filas
 
-    print(f"✅ Excel generado: {archivo} ({len(filas)} estudiante(s))")
-    return len(filas), archivo
+
+@medir_tiempo
+def generar_excel(ids, profesor):
+    """Genera UN Excel por cada curso seleccionado (`ids`, Materia.id) - antes era un solo
+    archivo con todos los cursos mezclados (una columna "materia" para distinguirlos); con
+    más de un curso tildado a la vez eso resultaba confuso para abrir/revisar, así que ahora
+    cada materia es su propio archivo (decisión 2026-11-27). Usa los pesos por categoría del
+    `profesor` logueado (PesosCategorias).
+
+    Requiere que "Importar estudiantes" (Entrega.nota/nota_maxima) e "Importar asignación"
+    (Tarea.categoria/Tarea.parcial) ya hayan corrido para estos cursos.
+
+    Devuelve [(materia, cantidad_de_filas, buffer_xlsx), ...] - una entrada por cada materia
+    de `ids` que tenga al menos una entrega de tipo 'assign' (las que no, no generan archivo
+    vacío)."""
+    pesos_row = PesosCategorias.objects.filter(profesor=profesor).first()
+    pesos = {cat: getattr(pesos_row, cat, 0) if pesos_row else 0 for cat in CATEGORIAS_PESO}
+
+    entregas = (
+        Entrega.objects.filter(tarea__tipo='assign', tarea__unidad__materia_id__in=ids)
+        .select_related('tarea__unidad__materia', 'estudiante')
+    )
+
+    materias_por_id = {}
+    por_materia_estudiante = defaultdict(lambda: defaultdict(list))
+    for entrega in entregas:
+        materia = entrega.tarea.unidad.materia
+        materias_por_id[materia.id] = materia
+        por_materia_estudiante[materia.id][entrega.estudiante].append(entrega)
+
+    # Se recorre `ids` (no las claves de por_materia_estudiante) para mantener el orden en
+    # que el usuario tildó los cursos.
+    resultados = []
+    for materia_id in ids:
+        entregas_est_por_estudiante = por_materia_estudiante.get(materia_id)
+        if not entregas_est_por_estudiante:
+            continue
+        materia = materias_por_id[materia_id]
+        filas = _filas_de_materia(entregas_est_por_estudiante, pesos)
+
+        buffer = BytesIO()
+        pd.DataFrame(filas).to_excel(buffer, index=False)
+        buffer.seek(0)
+        resultados.append((materia, len(filas), buffer))
+
+    total_filas = sum(cantidad for _materia, cantidad, _buffer in resultados)
+    print(f"✅ Excel generado: {len(resultados)} archivo(s), {total_filas} fila(s) en total")
+    return resultados

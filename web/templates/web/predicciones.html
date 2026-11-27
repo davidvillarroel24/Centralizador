@@ -12,14 +12,8 @@
     <div class="page-shell">
         {% if puede_gestionar %}
         <section class="panel">
-            <h2>Modelos de riesgo (Random Forest)</h2>
+            <h2>Modelos de riesgo</h2>
             <div class="note">
-                Corre los dos modelos ya entrenados sobre el estado actual de la base:
-                riesgo de acumulación (por cada tarea todavía abierta) y riesgo de
-                inactividad (por cada estudiante). El resultado queda guardado — no se
-                recalcula en cada visita a Alertas/Resumen, solo cuando lo volvés a correr.
-            </div>
-            <div class="note" style="margin-top:10px;">
                 {% if ultima_prediccion %}
                     Última corrida: {{ ultima_prediccion|date:"d/m/Y H:i" }} —
                     {{ total_predicciones_acumulacion }} predicción{{ total_predicciones_acumulacion|pluralize }} de acumulación,
@@ -30,20 +24,13 @@
             </div>
             <div style="margin-top:16px;">
                 <button type="button" id="btnRecalcularPredicciones" class="btn btn-secondary" style="width:auto; padding:10px 18px;">
-                    📈 Recalcular predicciones
+                    <i class="bi bi-arrow-clockwise"></i> Recalcular predicciones
                 </button>
             </div>
         </section>
 
         <section class="panel" style="margin-top:16px;">
             <h3>Configuración de bandas y sobrecarga</h3>
-            <div class="note">
-                Define a partir de qué probabilidad una predicción pasa de banda "bajo" a
-                "medio" y de "medio" a "alto", y cuántas tareas pendientes (vencidas o no)
-                necesita un estudiante, junto con riesgo alto de acumulación, para contar
-                como "sobrecarga". Cambiar esto no recalcula las predicciones ya guardadas
-                — corré "Recalcular predicciones" después si querés que se note.
-            </div>
             <form id="formConfigPredicciones" style="margin-top:12px; display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end;">
                 {% csrf_token %}
                 <div>
@@ -63,38 +50,21 @@
         </section>
         {% endif %}
 
+        {% if es_administrador %}
         <section class="panel" style="margin-top:16px;">
-            <h2>Datasets para entrenar los modelos (Random Forest)</h2>
-            <div class="note">
-                Los dos datasets se arman directo del historial de tareas y entregas que ya
-                existe en la base — no hace falta esperar nada, se puede regenerar en
-                cualquier momento con "Generar dataset" para incluir las extracciones más
-                recientes.
+            <h2>Datasets para entrenar los modelos</h2>
+            <div style="margin-top:16px;">
+                <form method="post" id="formGenerarDataset">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-secondary" style="width:auto; padding:10px 18px;">
+                        <i class="bi bi-arrow-repeat"></i> Generar dataset
+                    </button>
+                </form>
             </div>
-
-            {% if es_administrador %}
-                <div style="margin-top:16px;">
-                    <form method="post" id="formGenerarDataset">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-secondary" style="width:auto; padding:10px 18px;">
-                            🔄 Generar dataset
-                        </button>
-                    </form>
-                </div>
-            {% else %}
-                <div class="note" style="margin-top:16px;">Solo una cuenta Administrador puede generar o descargar los datasets.</div>
-            {% endif %}
         </section>
 
         <section class="panel" style="margin-top:16px;">
             <h3>Riesgo de acumulación de actividades</h3>
-            <div class="note">
-                Una fila por cada tarea ya cerrada que tenía asignada un estudiante. Y = 1 si
-                la entregó tarde o no la entregó. Usa el historial previo de ese mismo
-                estudiante (solo tareas anteriores a esa) y características de la tarea
-                (tiempo entre apertura y cierre, día y hora de cierre) como variables de
-                entrada.
-            </div>
             {% if acum_existe %}
                 <div class="note" style="margin-top:10px;">
                     Último generado: {{ acum_generado_en|date:"d/m/Y H:i" }} — {{ acum_filas }} fila{{ acum_filas|pluralize }}.
@@ -103,8 +73,8 @@
                     {% endif %}
                 </div>
                 {% if es_administrador %}
-                    <a href="{% url 'predicciones_descargar_csv' 'acumulacion' %}" class="btn btn-primary" style="width:auto; padding:10px 18px; text-decoration:none; display:inline-flex; align-items:center; margin-top:12px;">
-                        ⬇ Descargar dataset_riesgo_acumulacion.csv
+                    <a href="{% url 'predicciones_descargar_csv' 'acumulacion' %}" class="btn btn-primary" style="width:auto; padding:10px 18px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; margin-top:12px;">
+                        <i class="bi bi-download"></i> Descargar dataset_riesgo_acumulacion.csv
                     </a>
                 {% endif %}
             {% else %}
@@ -114,15 +84,6 @@
 
         <section class="panel" style="margin-top:16px;">
             <h3>Riesgo de inactividad académica</h3>
-            <div class="note">
-                Usa las fechas en que cada estudiante entregó sus tareas como eventos de
-                acceso simulados (entregar algo exige haber entrado a Moodle) para medir
-                brechas de inactividad a lo largo de su propio historial. Una fila por cada
-                entrega, salvo la última de cada estudiante. Y = 1 si pasaron 14 días o más
-                hasta la siguiente entrega. No usa el acceso en sí como variable de entrada
-                — solo el ritmo de entregas previas y de publicación de tareas del profesor
-                — para no predecir lo mismo que define la etiqueta.
-            </div>
             {% if inact_existe %}
                 <div class="note" style="margin-top:10px;">
                     Último generado: {{ inact_generado_en|date:"d/m/Y H:i" }} — {{ inact_filas }} fila{{ inact_filas|pluralize }}.
@@ -131,14 +92,15 @@
                     {% endif %}
                 </div>
                 {% if es_administrador %}
-                    <a href="{% url 'predicciones_descargar_csv' 'inactividad' %}" class="btn btn-primary" style="width:auto; padding:10px 18px; text-decoration:none; display:inline-flex; align-items:center; margin-top:12px;">
-                        ⬇ Descargar dataset_riesgo_inactividad.csv
+                    <a href="{% url 'predicciones_descargar_csv' 'inactividad' %}" class="btn btn-primary" style="width:auto; padding:10px 18px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; margin-top:12px;">
+                        <i class="bi bi-download"></i> Descargar dataset_riesgo_inactividad.csv
                     </a>
                 {% endif %}
             {% else %}
                 <div class="note" style="margin-top:10px;">Todavía no se generó este dataset.</div>
             {% endif %}
         </section>
+        {% endif %}
     </div>
 {% endblock %}
 

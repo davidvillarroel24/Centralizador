@@ -8,7 +8,9 @@
         <div class="reportes-tabs" style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;">
             <a href="?tab=acceso" class="btn {% if tab == 'acceso' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:auto; padding:9px 18px;">Último acceso</a>
             <a href="?tab=tareas" class="btn {% if tab == 'tareas' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:auto; padding:9px 18px;">Tareas asignadas</a>
+            {% if mostrar_material %}
             <a href="?tab=material" class="btn {% if tab == 'material' %}btn-primary{% else %}btn-secondary{% endif %}" style="width:auto; padding:9px 18px;">Material de apoyo</a>
+            {% endif %}
         </div>
         {% comment %}
         Pestañas en vez de las 3 secciones juntas (2026-11-24): "Tareas"/"Material" tardaban
@@ -22,12 +24,6 @@
         {% if tab == 'acceso' %}
         <section class="panel" style="margin-bottom:20px;">
             <h2>Último acceso</h2>
-            <div class="note">
-                Última conexión de docentes y/o estudiantes a Moodle, de forma general o filtrada
-                por materia. La fecha es aproximada: se calcula restando el "hace cuánto" que
-                informa Moodle (ej. "343 días 13 horas") al momento en que se corrió "3. Extraer
-                e importar último acceso" para esa materia - no es la hora exacta de la conexión.
-            </div>
             <form method="get" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:14px 0;">
                 <input type="hidden" name="tab" value="acceso">
                 {% if ver_secciones_docente %}
@@ -49,10 +45,12 @@
                         {% endfor %}
                     </select>
                 </div>
-                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
-                   href="{% url 'reportes_descargar' tipo='acceso' formato='excel' %}?rol_acceso={{ rol_acceso }}&materia_acceso={{ materia_acceso }}">⬇ Excel</a>
-                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
-                   href="{% url 'reportes_descargar' tipo='acceso' formato='pdf' %}?rol_acceso={{ rol_acceso }}&materia_acceso={{ materia_acceso }}">⬇ PDF</a>
+                {% if mostrar_descargas %}
+                <button type="button" class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   onclick="descargarReporte('tblReporteAcceso', '{% url 'reportes_descargar' tipo='acceso' formato='excel' %}?rol_acceso={{ rol_acceso }}&materia_acceso={{ materia_acceso }}', 'Generando el Excel...')"><i class="bi bi-download"></i> Excel</button>
+                <button type="button" class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   onclick="descargarReporte('tblReporteAcceso', '{% url 'reportes_descargar' tipo='acceso' formato='pdf' %}?rol_acceso={{ rol_acceso }}&materia_acceso={{ materia_acceso }}', 'Generando el PDF...')"><i class="bi bi-download"></i> PDF</button>
+                {% endif %}
             </form>
 
             <table id="tblReporteAcceso" class="display" style="width:100%;">
@@ -91,10 +89,12 @@
                         {% endfor %}
                     </select>
                 </div>
-                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
-                   href="{% url 'reportes_descargar' tipo='tareas' formato='excel' %}?docente_tareas={{ docente_tareas }}">⬇ Excel</a>
-                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
-                   href="{% url 'reportes_descargar' tipo='tareas' formato='pdf' %}?docente_tareas={{ docente_tareas }}">⬇ PDF</a>
+                {% if mostrar_descargas %}
+                <button type="button" class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   onclick="descargarReporte('tblReporteTareas', '{% url 'reportes_descargar' tipo='tareas' formato='excel' %}?docente_tareas={{ docente_tareas }}', 'Generando el Excel...')"><i class="bi bi-download"></i> Excel</button>
+                <button type="button" class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   onclick="descargarReporte('tblReporteTareas', '{% url 'reportes_descargar' tipo='tareas' formato='pdf' %}?docente_tareas={{ docente_tareas }}', 'Generando el PDF...')"><i class="bi bi-download"></i> PDF</button>
+                {% endif %}
             </form>
 
             <table id="tblReporteTareas" class="display" style="width:100%;">
@@ -132,10 +132,10 @@
                         {% endfor %}
                     </select>
                 </div>
-                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
-                   href="{% url 'reportes_descargar' tipo='material' formato='excel' %}?docente_material={{ docente_material }}">⬇ Excel</a>
-                <a class="btn btn-secondary" style="width:auto; padding:10px 16px;"
-                   href="{% url 'reportes_descargar' tipo='material' formato='pdf' %}?docente_material={{ docente_material }}">⬇ PDF</a>
+                <button type="button" class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   onclick="descargarReporte('tblReporteMaterial', '{% url 'reportes_descargar' tipo='material' formato='excel' %}?docente_material={{ docente_material }}', 'Generando el Excel...')"><i class="bi bi-download"></i> Excel</button>
+                <button type="button" class="btn btn-secondary" style="width:auto; padding:10px 16px;"
+                   onclick="descargarReporte('tblReporteMaterial', '{% url 'reportes_descargar' tipo='material' formato='pdf' %}?docente_material={{ docente_material }}', 'Generando el PDF...')"><i class="bi bi-download"></i> PDF</button>
             </form>
 
             <table id="tblReporteMaterial" class="display" style="width:100%;">
@@ -162,6 +162,25 @@
 
 {% block scripts %}
 <script>
+    // Descargar Excel/PDF de lo que está filtrado/buscado en pantalla en ese momento, no
+    // todo el reporte sin filtrar (decisión 2026-11-28): la tabla ya existe como DataTable
+    // en el DOM cuando se hace click acá (son botones de la propia pestaña activa), así que
+    // alcanza con leer su cuadro de búsqueda actual y agregarlo a la URL de descarga -
+    // reportes_descargar ya sabe aplicar ese mismo filtro de texto (ver
+    // services/utils/reportes.py::_filtrar_por_busqueda). Sin nada escrito en el buscador,
+    // no se agrega "q" y baja todo (dentro de los demás filtros ya elegidos arriba).
+    function descargarReporte(idTabla, urlBase, textoCarga) {
+        var termino = '';
+        if ($.fn.DataTable.isDataTable('#' + idTabla)) {
+            termino = $('#' + idTabla).DataTable().search();
+        }
+        var url = urlBase;
+        if (termino) {
+            url += (url.indexOf('?') === -1 ? '?' : '&') + 'q=' + encodeURIComponent(termino);
+        }
+        return descargarConSpinner(url, textoCarga);
+    }
+
     $(document).ready(function () {
         // Las tablas de este archivo tenian una fila "sin datos" con colspan metida a
         // mano en el <tbody> (ver {% templatetag openblock %} empty {% templatetag closeblock %}

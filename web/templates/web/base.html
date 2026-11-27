@@ -28,6 +28,10 @@
     {% endif %}
   </head>
   <body>
+    <div id="descargaOverlay" class="descarga-overlay">
+        <div class="descarga-overlay-spinner"></div>
+        <p class="descarga-overlay-texto" id="descargaOverlayTexto">Generando el archivo...</p>
+    </div>
     <div class="app-shell{% if not user.is_authenticated %} no-sidebar{% endif %}">
       {% if user.is_authenticated %}
       <aside class="sidebar">
@@ -57,7 +61,9 @@
             <li><a href="{% url 'docentes' %}"><i class="bi bi-person-badge"></i> Docentes</a></li>
             {% endif %}
             <li><a href="{% url 'alertas' %}"><i class="bi bi-exclamation-triangle-fill"></i> Alertas</a></li>
+            {% if rol_usuario == ROL_ADMINISTRADOR or rol_usuario == ROL_DECANO %}
             <li><a href="{% url 'predicciones' %}"><i class="bi bi-graph-up-arrow"></i> Predicciones</a></li>
+            {% endif %}
             <li><a href="{% url 'dashboard' %}"><i class="bi bi-cloud-arrow-down-fill"></i> Extraccion</a></li>
             <li><a href="{% url 'configuracion' %}"><i class="bi bi-gear-fill"></i> Configuración</a></li>
             <li><a href="{% url 'configuracion' %}?tour=1"><i class="bi bi-signpost-2"></i> Guía de uso</a></li>
@@ -525,7 +531,7 @@
                         mostrarError('No se pudo mostrar la imagen.');
                     });
                     img.src = blobUrlActual;
-                }).catch(function (err) { mostrarError(err.message); });
+                }).catch(function (err) { mostrarError(mensajeDeError(err)); });
                 return;
             }
             if (ext === 'pdf') {
@@ -537,7 +543,7 @@
                         mostrarError('No se pudo mostrar el PDF.');
                     });
                     iframe.src = blobUrlActual;
-                }).catch(function (err) { mostrarError(err.message); });
+                }).catch(function (err) { mostrarError(mensajeDeError(err)); });
                 return;
             }
             // html/css/js se muestran como código fuente (texto), no ejecutados: son
@@ -552,7 +558,7 @@
                     spinner.hidden = true;
                     cuerpo.appendChild(pre);
                     activarWrapTogglePara(pre);
-                }).catch(function (err) { mostrarError(err.message); });
+                }).catch(function (err) { mostrarError(mensajeDeError(err)); });
                 return;
             }
             if (ext === 'ipynb') {
@@ -568,7 +574,7 @@
                     cuerpo.appendChild(contenedor);
                     // Sin toolbar (zoom/ajustar línea no aplican a un notebook renderizado
                     // celda por celda) - toolbar ya arranca oculto al principio de abrir().
-                }).catch(function (err) { mostrarError(err.message); });
+                }).catch(function (err) { mostrarError(mensajeDeError(err)); });
                 return;
             }
             if (ext === 'docx') {
@@ -582,7 +588,7 @@
                             activarZoomPara(contenedor);
                         });
                     });
-                }).catch(function (err) { mostrarError(err.message || 'No se pudo generar la vista previa.'); });
+                }).catch(function (err) { mostrarError(err instanceof TypeError ? mensajeDeError(err) : (err.message || 'No se pudo generar la vista previa.')); });
                 return;
             }
             if (ext === 'xls' || ext === 'xlsx') {
@@ -628,7 +634,7 @@
                         cuerpo.appendChild(tablaWrap);
                         activarZoomPara(tablaWrap, false);
                     });
-                }).catch(function (err) { mostrarError(err.message || 'No se pudo generar la vista previa.'); });
+                }).catch(function (err) { mostrarError(err instanceof TypeError ? mensajeDeError(err) : (err.message || 'No se pudo generar la vista previa.')); });
                 return;
             }
             if (ext === 'ppt' || ext === 'pptx') {
@@ -683,12 +689,134 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
+      // Botón "ver contraseña" (login/registro/recuperar) - delegado en document para que
+      // funcione en cualquier página sin repetir el listener en cada template. El botón usa
+      // data-target con el id del input a alternar entre type="password"/"text".
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.auth-password-toggle');
+        if (!btn) return;
+        var input = document.getElementById(btn.dataset.target);
+        if (!input) return;
+        var oculto = input.type === 'password';
+        input.type = oculto ? 'text' : 'password';
+        btn.querySelector('i').className = oculto ? 'bi bi-eye-slash' : 'bi bi-eye';
+        btn.setAttribute('aria-label', oculto ? 'Ocultar contraseña' : 'Mostrar contraseña');
+      });
+
+      // Helper global: un fetch() que no llega a tener respuesta (sin conexión, servidor
+      // caído, CORS) rechaza con un TypeError cuyo .message es el texto en inglés que pone
+      // el navegador ("Failed to fetch", "NetworkError when attempting to fetch resource",
+      // etc.) - nunca personalizable desde JS. Todo mensaje de error visible en la app debe
+      // quedar en español, así que cualquier catch(err) que vaya a mostrar err.message usa
+      // esto en su lugar: traduce ese caso puntual y deja pasar los Error con mensaje propio
+      // en español (los que ya lanzamos nosotros, ej. "No se pudo abrir el archivo.").
+      function mensajeDeError(err) {
+        if (err instanceof TypeError) {
+          return 'No se pudo conectar con el servidor. Revisá tu conexión e intentá de nuevo.';
+        }
+        return (err && err.message) || 'Ocurrió un error inesperado.';
+      }
+
+      // Helper global: descarga un archivo (reporte en Excel/PDF, notas, etc.) mostrando
+      // el overlay de "cargando" mientras el servidor lo arma - antes estos eran <a href>
+      // o <button formaction> comunes, que no avisaban nada mientras se generaba (podía
+      // tardar varios segundos con una tabla grande) y el usuario no sabía si el click
+      // había funcionado. Usa fetch + blob en vez de dejar que el navegador navegue solo,
+      // para poder mostrar/ocultar el overlay en el momento exacto en que arranca/termina.
+      function descargarConSpinner(url, textoCarga) {
+        var overlay = document.getElementById('descargaOverlay');
+        var textoEl = document.getElementById('descargaOverlayTexto');
+        textoEl.textContent = textoCarga || 'Generando el archivo...';
+        overlay.style.display = 'flex';
+        return fetch(url)
+          .then(function (r) {
+            if (!r.ok) {
+              return r.json().then(function (data) {
+                throw new Error(data.error || 'No se pudo generar el archivo.');
+              }).catch(function (e) {
+                throw (e instanceof Error ? e : new Error('No se pudo generar el archivo.'));
+              });
+            }
+            var disposicion = r.headers.get('Content-Disposition') || '';
+            var coincidencia = disposicion.match(/filename="?([^";]+)"?/);
+            var nombre = coincidencia ? coincidencia[1] : 'descarga';
+            return r.blob().then(function (blob) { return { blob: blob, nombre: nombre }; });
+          })
+          .then(function (res) {
+            var urlBlob = URL.createObjectURL(res.blob);
+            var a = document.createElement('a');
+            a.href = urlBlob;
+            a.download = res.nombre;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function () { URL.revokeObjectURL(urlBlob); }, 1000);
+          })
+          .catch(function (err) {
+            if (window.Swal) {
+              Swal.fire({ icon: 'error', title: 'No se pudo descargar', text: mensajeDeError(err), confirmButtonColor: '#9b5bf6' });
+            }
+          })
+          .finally(function () {
+            overlay.style.display = 'none';
+          });
+      }
+
       // Helper global: muestra el resultado de una accion (extraccion, importacion,
       // guardado de config) como un popup de SweetAlert2 y, ademas, en la consola del
       // navegador con el detalle completo - pensado para cuando la app corre en Docker
       // y no hay forma rapida de ver los print()/logs del servidor sin entrar por SSH.
       // opts.link = {url, texto}: agrega un botón que lleva a donde se arregla el error
       // (ej. "Ir a Configuración" cuando faltan fechas de parciales o pesos).
+      // Si el popup de resultado muestra el mensaje completo o un resumen corto -
+      // ConfiguracionInstitucional.mensajes_resultado_detallados, toggle en /configuracion/
+      // (solo Administrador). Por defecto (false) se resume.
+      window.CENTRALIZADOR_MENSAJES_DETALLADOS = {{ mensajes_resultado_detallados|yesno:"true,false" }};
+
+      // Visitante es de solo lectura: cualquier link que lleve a Moodle (target="_blank") o
+      // abra una vista previa de archivo (.archivo-preview) queda bloqueado - antes
+      // intentaba abrir Moodle sin sesión real, o disparaba el fetch de vista previa con la
+      // cookie de la cuenta compartida (vencida o ajena), mostrando un error de carga
+      // confuso. Interceptado en captura (antes que cualquier otro listener, ej. el que abre
+      // AvancesPreview) para frenarlo ahí mismo, en vez de dejarlo fallar más adelante
+      // (decisión 2026-11-28). Los avances en sí (la tabla del modal) se siguen viendo
+      // igual - solo los enlaces de adentro quedan bloqueados.
+      {% if rol_usuario == ROL_VISITANTE %}
+      document.addEventListener('click', function (e) {
+        var elemento = e.target.closest('a[target="_blank"], .archivo-preview');
+        if (!elemento) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (window.Swal) {
+          Swal.fire({
+            icon: 'info',
+            title: 'Solo lectura',
+            text: 'Solo los usuarios registrados pueden abrir estos enlaces.',
+            confirmButtonColor: '#9b5bf6',
+          });
+        }
+      }, true);
+      {% endif %}
+
+      // La mayoría de los `detail` que arman las vistas de extracción/importación son una
+      // oración con un dict de Python metido adentro tal cual (ej. "... completada:
+      // {'actualizados': 13, 'creados': 0, 'omitidos': 0}.") - en vez de tener que tocar
+      // cada vista para además armar un resumen a mano, esto saca cualquier par
+      // "clave": número del texto (sea cual sea la forma del dict de esa acción en
+      // particular) y arma una lista corta con eso solo. Si no encuentra ningún par así
+      // (un mensaje que ya es simple, sin conteos), devuelve null y se muestra el texto
+      // completo igual - no tiene sentido "resumir" algo que ya es corto.
+      function resumenCorto(texto) {
+        if (!texto) return null;
+        var pares = [];
+        var regex = /['"]([a-zA-Z_][\w ]*)['"]\s*:\s*(-?\d+)/g;
+        var m;
+        while ((m = regex.exec(texto)) !== null) {
+          pares.push(m[1].trim().replace(/_/g, ' ') + ': ' + m[2]);
+        }
+        return pares.length ? pares.join(', ') : null;
+      }
+
       function mostrarResultado(opts) {
         opts = opts || {};
         if (opts.error) {
@@ -708,10 +836,16 @@
             });
           }
         } else if (opts.title || opts.detail) {
+          // El mensaje COMPLETO siempre va a la consola, se muestre resumido o no en el
+          // popup - "no perder los mensajes", solo no abrumar a un uso normal con ellos.
           console.log('[Centralizador]', opts.title || 'Resultado', '-', opts.detail || '', opts);
           if (window.Swal) {
+            var detalleAMostrar = opts.detail;
+            if (opts.detail && !window.CENTRALIZADOR_MENSAJES_DETALLADOS) {
+              detalleAMostrar = resumenCorto(opts.detail) || opts.detail;
+            }
             var lineas = [];
-            if (opts.detail) lineas.push(opts.detail);
+            if (detalleAMostrar) lineas.push(detalleAMostrar);
             if (opts.count !== null && opts.count !== undefined) lineas.push('Total: ' + opts.count);
             if (opts.errors !== null && opts.errors !== undefined) lineas.push('Errores: ' + opts.errors);
             Swal.fire({

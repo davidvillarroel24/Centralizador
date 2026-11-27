@@ -1,6 +1,6 @@
 {% extends 'web/base.html' %}
 {% block title %}Dashboard - Centralizador{% endblock %}
-{% block header %}Dashboard de extracción{% endblock %}
+{% block header %}Extracción{% endblock %}
 {% block content %}
     <div id="extraccionOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:2000; align-items:center; justify-content:center; flex-direction:column; gap:16px;">
         <div style="width:48px; height:48px; border:4px solid rgba(155,91,246,0.25); border-top-color:#9b5bf6; border-radius:50%; animation: centralizador-spin 0.8s linear infinite;"></div>
@@ -10,8 +10,8 @@
         @keyframes centralizador-spin { to { transform: rotate(360deg); } }
     </style>
     <div class="page-shell">
-        <div class="hero">
-            <div class="status-card">
+        <div style="display:flex; gap:20px; flex-wrap:wrap; align-items:stretch; margin-bottom:20px;">
+            <div class="status-card" style="flex:1 1 220px;">
                 <p class="status-label">Estado de extracción</p>
                 <p class="status-value" id="estadoExtraccionTexto">
                     {% if extraccion_en_curso %}En curso (iniciada por {{ extraccion_en_curso.usuario }}){% else %}Libre{% endif %}
@@ -19,6 +19,57 @@
                 <p class="status-label">Cursos cargados</p>
                 <p class="status-value">{{ course_count }}</p>
             </div>
+
+            <section class="panel" id="preparacion" style="flex:2 1 320px; margin-bottom:0;">
+                <h2>Antes de extraer</h2>
+                {% if preparacion.todo_ok %}
+                    <p class="note"><i class="bi bi-check-circle-fill" style="color:var(--success-text);"></i> Todo listo: elegí un curso y usá los botones de Acciones.</p>
+                {% else %}
+                    <p class="note">Completá estos pasos una vez; los botones que leen Moodle se habilitan al tener la cookie.</p>
+                {% endif %}
+                <ul class="preparacion-lista">
+                    <li class="{% if preparacion.fechas_ok %}ok{% else %}pendiente{% endif %}">
+                        <i class="bi {% if preparacion.fechas_ok %}bi-check-circle-fill{% else %}bi-exclamation-circle-fill{% endif %}"></i>
+                        <span>
+                            <strong>Fechas de tus parciales</strong> (del Centralizador, no de Moodle):
+                            deciden a qué parcial va cada tarea.
+                            {% if not preparacion.fechas_ok %}<a href="{% url 'configuracion' %}#fechas">Configurarlas</a>{% endif %}
+                        </span>
+                    </li>
+                    <li class="{% if preparacion.pesos_ok %}ok{% else %}pendiente{% endif %}">
+                        <i class="bi {% if preparacion.pesos_ok %}bi-check-circle-fill{% else %}bi-exclamation-circle-fill{% endif %}"></i>
+                        <span>
+                            <strong>Pesos por categoría</strong>: con ellos se calcula la nota de cada parcial.
+                            {% if not preparacion.pesos_ok %}<a href="{% url 'configuracion' %}#pesos">Configurarlos</a>
+                            {% elif preparacion.pesos_total != 100 %}Hoy suman {{ preparacion.pesos_total }}%. <a href="{% url 'configuracion' %}#pesos">Revisar</a>{% endif %}
+                        </span>
+                    </li>
+                    <li class="{% if preparacion.cookie_ok %}ok{% else %}pendiente{% endif %}" id="preparacionCookie">
+                        <i class="bi {% if preparacion.cookie_ok %}bi-check-circle-fill{% else %}bi-exclamation-circle-fill{% endif %}"></i>
+                        <span>
+                            <strong>Cookie de Moodle</strong>: iniciá sesión en Moodle en otra pestaña y pulsá
+                            "Extraer cookie de Moodle" (abajo). Necesitás la
+                            <a href="{% url 'configuracion' %}#extension">extensión de Chrome</a>.
+                        </span>
+                    </li>
+                </ul>
+            </section>
+
+            <section class="panel cookie-panel" id="cookie" style="flex:1 1 280px; margin-bottom:0;">
+                <h2>Cookie de Moodle</h2>
+                {% if cookie_guardada %}
+                    <p class="note" id="cookieEstado">Cookie guardada y cifrada en la base de datos (vence a las 2 horas de capturarla, o al cerrar sesión).</p>
+                {% else %}
+                    <p class="note" id="cookieEstado">Todavía no capturaste tu cookie de Moodle, o venció. Hace falta para los botones 1 a 4, que leen Moodle: iniciá sesión en Moodle en otra pestaña y pulsá el botón.</p>
+                {% endif %}
+                <button type="button" id="extraerCookieBtn" class="btn btn-primary" style="width:auto; padding:10px 18px;">
+                    <i class="bi bi-lightning-charge-fill"></i> Extraer cookie de Moodle
+                </button>
+                <p class="note" id="cookieExtensionAviso" style="display:none;">
+                    No se detectó la extensión de Chrome instalada. Instalala desde
+                    <a href="{% url 'configuracion' %}">Configuración</a> para poder capturar la cookie acá.
+                </p>
+            </section>
         </div>
 
         {% if extraccion_en_curso %}
@@ -41,59 +92,7 @@
             {% endif %}
         {% endif %}
 
-        <section class="panel" id="preparacion" style="margin-bottom: 20px;">
-            <h2>Antes de extraer</h2>
-            {% if preparacion.todo_ok %}
-                <p class="note"><i class="bi bi-check-circle-fill" style="color:var(--success-text);"></i> Todo listo: elegí un curso y usá los botones de Acciones.</p>
-            {% else %}
-                <p class="note">Completá estos pasos una vez; los botones que leen Moodle se habilitan al tener la cookie.</p>
-            {% endif %}
-            <ul class="preparacion-lista">
-                <li class="{% if preparacion.fechas_ok %}ok{% else %}pendiente{% endif %}">
-                    <i class="bi {% if preparacion.fechas_ok %}bi-check-circle-fill{% else %}bi-exclamation-circle-fill{% endif %}"></i>
-                    <span>
-                        <strong>Fechas de tus parciales</strong> (del Centralizador, no de Moodle):
-                        deciden a qué parcial va cada tarea.
-                        {% if not preparacion.fechas_ok %}<a href="{% url 'configuracion' %}#fechas">Configurarlas</a>{% endif %}
-                    </span>
-                </li>
-                <li class="{% if preparacion.pesos_ok %}ok{% else %}pendiente{% endif %}">
-                    <i class="bi {% if preparacion.pesos_ok %}bi-check-circle-fill{% else %}bi-exclamation-circle-fill{% endif %}"></i>
-                    <span>
-                        <strong>Pesos por categoría</strong>: con ellos se calcula la nota de cada parcial.
-                        {% if not preparacion.pesos_ok %}<a href="{% url 'configuracion' %}#pesos">Configurarlos</a>
-                        {% elif preparacion.pesos_total != 100 %}Hoy suman {{ preparacion.pesos_total }}%. <a href="{% url 'configuracion' %}#pesos">Revisar</a>{% endif %}
-                    </span>
-                </li>
-                <li class="{% if preparacion.cookie_ok %}ok{% else %}pendiente{% endif %}" id="preparacionCookie">
-                    <i class="bi {% if preparacion.cookie_ok %}bi-check-circle-fill{% else %}bi-exclamation-circle-fill{% endif %}"></i>
-                    <span>
-                        <strong>Cookie de Moodle</strong>: iniciá sesión en Moodle en otra pestaña y pulsá
-                        "Extraer cookie de Moodle" (abajo). Necesitás la
-                        <a href="{% url 'configuracion' %}#extension">extensión de Chrome</a>.
-                    </span>
-                </li>
-            </ul>
-        </section>
-
-        <section class="panel cookie-panel" id="cookie" style="margin-bottom: 20px;">
-            <h2>Cookie de Moodle</h2>
-            {% if cookie_guardada %}
-                <p class="note" id="cookieEstado">Cookie guardada y cifrada en la base de datos (vence a las 2 horas de capturarla, o al cerrar sesión).</p>
-            {% else %}
-                <p class="note" id="cookieEstado">Todavía no capturaste tu cookie de Moodle, o venció. Hace falta para los botones 1 a 4, que leen Moodle: iniciá sesión en Moodle en otra pestaña y pulsá el botón.</p>
-            {% endif %}
-            <button type="button" id="extraerCookieBtn" class="btn btn-primary" style="width:auto; padding:10px 18px;">
-                ⚡ Extraer cookie de Moodle
-            </button>
-            <p class="note" id="cookieExtensionAviso" style="display:none;">
-                No se detectó la extensión de Chrome instalada. Instalala desde
-                <a href="{% url 'configuracion' %}">Configuración</a> para poder capturar la cookie acá.
-            </p>
-        </section>
-
         <section class="panel role-panel" style="margin-bottom: 20px;">
-            <h2>Filtro</h2>
             <form method="get" id="formFiltrosCursos">
                 {% if mostrar_pills_rol %}
                 <input type="hidden" name="role" id="inputRoleFiltro" value="{{ role }}">
@@ -150,26 +149,22 @@
                     </div>
                     <div class="actions-grid">
                         {% if es_administrador %}
-                        <button type="button" id="btnCargarCarrerasPrompt" class="btn btn-secondary">0. Extraer e importar carreras</button>
+                        <button type="button" id="btnCargarCarrerasPrompt" class="btn btn-secondary">0: Carreras</button>
                         <button type="submit" name="action" value="cargar_carreras" id="btnCargarCarrerasReal" style="display:none;"></button>
                         <button type="submit" name="action" value="importar_carreras_completo" id="btnImportarCarrerasCompleto" style="display:none;"></button>
                         {% endif %}
                         {# requiere-cookie: llaman a Moodle; se habilitan al guardar la cookie (ver script de captura). #}
-                        <button type="submit" name="action" value="cargar_tareas" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>1. Extraer, asignar e importar tareas</button>
-                        <button type="submit" name="action" value="cargar_detalle" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>2. Extraer e importar detalle de tareas y material de apoyo</button>
-                        <button type="submit" name="action" value="ver_asignacion" class="btn btn-secondary">✏️ Revisar asignación del curso seleccionado</button>
-                        <button type="submit" name="action" value="cargar_estudiantes" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>3. Extraer e importar estudiantes</button>
-                        <button type="submit" name="action" value="cargar_ultimo_acceso" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>4. Extraer e importar último acceso</button>
-                        <button type="submit" formaction="{% url 'descargar_excel' %}" class="btn btn-primary">5. Generar Excel y descargar</button>
+                        <button type="submit" name="action" value="cargar_tareas" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>1: Tareas</button>
+                        <button type="submit" name="action" value="cargar_detalle" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>2: Detalle de tareas y material de apoyo</button>
+                        <button type="submit" name="action" value="cargar_estudiantes" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>3: Entregas de Estudiantes</button>
+                        <button type="submit" name="action" value="cargar_ultimo_acceso" class="btn btn-secondary requiere-cookie" {% if not cookie_guardada %}disabled{% endif %}>4: Último acceso de estudiante</button>
+                        <button type="submit" id="btnGenerarExcelDescarga" formaction="{% url 'descargar_excel' %}" class="btn btn-primary">5: Descargar Notas</button>
+                        <button type="submit" name="action" value="ver_asignacion" class="btn btn-secondary"><i class="bi bi-calendar-check"></i> Revisar Fechas Asignadas a las tareas</button>
                     </div>
                     <p class="note preparacion-aviso-cookie" id="avisoBotonesSinCookie" {% if cookie_guardada %}hidden{% endif %}>
                         <i class="bi bi-lock-fill"></i> Los botones 1 a 4 leen Moodle: se habilitan cuando captures tu
                         cookie de Moodle (<a href="#cookie">arriba</a>). "Revisar asignación" y "5. Generar Excel" funcionan sin ella.
                     </p>
-                    <div class="note">
-                        {% if es_administrador %}"0. Extraer e importar carreras" pregunta si hace falta recorrer Moodle de nuevo (necesita cookie guardada) o si alcanza con re-importar lo último ya extraído; en ambos casos carga Facultad/Carrera/Nivel/Profesor/Materia a la base de datos. Solo lo ve una cuenta Administrador.{% endif %}
-                        Seleccioná un curso (uno solo a la vez para "1"/"2"/"3"/"4", que llaman a Moodle) y usá "1" para traer sus tareas, asignarlas por categoría/parcial e importarlas a la base, todo en un solo paso. "2" trae, para las tareas tipo 'assign', la descripción y los archivos que subió el docente, y además el material de apoyo (enlaces/archivos/cuestionarios) de ese mismo curso (necesita que "1" ya haya corrido para el curso) — es otra vuelta completa por Moodle, usalo solo si hace falta ese detalle. "Revisar asignación" corrige la categoría o el parcial de una tarea puntual, directo en la base. "3" y "4" extraen e importan estudiantes y el padrón de último acceso del curso seleccionado — "4" trae a todos los inscritos (vía /user/index.php), a diferencia de "3" que solo ve a quien entregó algo. "5. Generar Excel" sí acepta varios cursos tildados a la vez (no llama a Moodle, solo lee de la base).
-                    </div>
                 </div>
             </section>
 
@@ -515,6 +510,59 @@
             if (modalAsignacion) modalAsignacion.style.display = 'none';
         }
 
+        // "5. Generar Excel y descargar" no tiene name="action" (no es un fetch() de los
+        // de ACCIONES_AJAX, devuelve un archivo) - antes era un submit normal del
+        // navegador, sin ningún aviso mientras el servidor lo armaba. Ahora pasa por el
+        // mismo overlay/spinner compartido que el resto de las descargas (ver
+        // window.descargarConSpinner en base.html), con POST en vez de GET porque necesita
+        // mandar los cursos tildados.
+        document.getElementById('btnGenerarExcelDescarga').addEventListener('click', function (ev) {
+            var marcados = form.querySelectorAll('input[type="checkbox"][name="courses"]:checked');
+            if (marcados.length === 0) {
+                ev.preventDefault();
+                if (window.Swal) {
+                    Swal.fire({ icon: 'warning', title: 'Elegí al menos un curso', text: 'Tildá uno o más cursos antes de generar el Excel.', confirmButtonColor: '#9b5bf6' });
+                }
+                return;
+            }
+            ev.preventDefault();
+            var overlay = document.getElementById('descargaOverlay');
+            var overlayTexto = document.getElementById('descargaOverlayTexto');
+            overlayTexto.textContent = 'Generando el Excel...';
+            overlay.style.display = 'flex';
+            var datos = new FormData(form);
+            fetch('{% url "descargar_excel" %}', {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrftoken },
+                body: datos,
+            }).then(function (r) {
+                if (!r.ok) {
+                    return r.json().catch(function () { return {}; }).then(function (data) {
+                        throw new Error(data.error || 'No se pudo generar el Excel.');
+                    });
+                }
+                var disposicion = r.headers.get('Content-Disposition') || '';
+                var coincidencia = disposicion.match(/filename="?([^";]+)"?/);
+                var nombre = coincidencia ? coincidencia[1] : 'notas.xlsx';
+                return r.blob().then(function (blob) { return { blob: blob, nombre: nombre }; });
+            }).then(function (res) {
+                var urlBlob = URL.createObjectURL(res.blob);
+                var a = document.createElement('a');
+                a.href = urlBlob;
+                a.download = res.nombre;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(function () { URL.revokeObjectURL(urlBlob); }, 1000);
+            }).catch(function (err) {
+                if (window.Swal) {
+                    Swal.fire({ icon: 'error', title: 'No se pudo descargar', text: mensajeDeError(err), confirmButtonColor: '#9b5bf6' });
+                }
+            }).finally(function () {
+                overlay.style.display = 'none';
+            });
+        });
+
         form.addEventListener('submit', function (ev) {
             var btnClickeado = ev.submitter;
             var accion = btnClickeado ? btnClickeado.value : null;
@@ -638,7 +686,7 @@
                 overlay.style.display = 'none';
                 consultarEstadoExtraccion();
                 if (window.Swal) {
-                    Swal.fire({ icon: 'error', title: 'No se pudo descargar', text: err.message, confirmButtonColor: '#9b5bf6' });
+                    Swal.fire({ icon: 'error', title: 'No se pudo descargar', text: mensajeDeError(err), confirmButtonColor: '#9b5bf6' });
                 }
             });
         }

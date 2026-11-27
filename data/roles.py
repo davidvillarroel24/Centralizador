@@ -84,11 +84,16 @@ def materias_visibles(user, facultad_id=None, carrera_id=None):
 
     - Administrador: todas.
     - Decano: la union de sus facultades/carreras/materias asignadas (materias_visibles_decano).
-    - Docente: solo las propias (Materia.profesores, via su Profesor vinculado).
+    - Docente: solo las propias (Materia.profesores, via su Profesor vinculado) - nunca se
+      acota por facultad_id/carrera_id, no tiene sentido filtrar lo que ya es "lo suyo"
+      (decisión 2026-11-27).
     - Visitante: todas, de solo lectura (ve lo mismo que Administrador en materias/
-      estudiantes/reportes) - opcionalmente acotable por facultad_id/carrera_id, igual que
-      el resto, pero sin filtrar ve la lista completa.
+      estudiantes/reportes).
     - Sin loguear / sin perfil: nada.
+
+    facultad_id/carrera_id acotan el resultado para Administrador, Decano y Visitante (en
+    Decano, DENTRO de lo que ya le corresponde) - sin elegir ninguno de los dos, cada uno ve
+    todo lo que le toca por rol, sin recortar nada.
     """
     rol = get_rol(user)
 
@@ -99,14 +104,16 @@ def materias_visibles(user, facultad_id=None, carrera_id=None):
     elif rol == PerfilUsuario.DOCENTE:
         profesor = Profesor.objects.filter(user=user).first()
         qs = profesor.materias.all() if profesor else Materia.objects.none()
+        return qs.filter(activo=True)
     elif rol == PerfilUsuario.VISITANTE:
         qs = Materia.objects.all()
-        if facultad_id:
-            qs = qs.filter(carrera__facultad_id=facultad_id)
-        elif carrera_id:
-            qs = qs.filter(carrera_id=carrera_id)
     else:
         qs = Materia.objects.none()
+
+    if facultad_id:
+        qs = qs.filter(carrera__facultad_id=facultad_id)
+    elif carrera_id:
+        qs = qs.filter(carrera_id=carrera_id)
 
     # Una materia inhabilitada (Materia.activo=False) no la ve nadie por esta via, ni
     # siquiera Administrador - es la "eliminacion logica" para casos como una materia

@@ -1,3 +1,18 @@
+/* Overlay de "cargando" compartido (base.html, window.descargarConSpinner) para cualquier
+   descarga/generación que tarde (reportes en Excel/PDF, notas, etc.) - antes cada página que
+   necesitaba esto definía su propio overlay+keyframe por separado (dashboard.html,
+   predicciones.html); este es el único reusable desde cualquier template. */
+@keyframes centralizador-spin-global { to { transform: rotate(360deg); } }
+.descarga-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); z-index: 2000;
+    align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+}
+.descarga-overlay-spinner {
+    width: 48px; height: 48px; border: 4px solid rgba(155, 91, 246, 0.25);
+    border-top-color: #9b5bf6; border-radius: 50%; animation: centralizador-spin-global 0.8s linear infinite;
+}
+.descarga-overlay-texto { color: #fff; font-size: 1.05rem; max-width: 480px; text-align: center; padding: 0 16px; }
+
 /* Modo claro es el default (sin data-theme): ver base.html, que solo pone
    data-theme="dark" si el usuario lo eligio explicitamente (toggle en
    configuracion.html), guardado en localStorage. */
@@ -24,8 +39,11 @@
     --error-border: rgba(198, 40, 40, 0.3);
     --error-text: #c62828;
     --success-text: #2e7d32;
-    --link-color: #0d6efd;
-    --link-color-visited: #6f42c1;
+    /* Mismo violeta que ya usan los botones/acentos de la app (--accent-purple-rgb), en vez
+       del azul por defecto del navegador - un link se distingue por color + negrita, no por
+       subrayado permanente (decisión 2026-11-27). */
+    --link-color: #6d28d9;
+    --link-color-visited: #6d28d9;
 }
 
 [data-theme="dark"] {
@@ -54,12 +72,13 @@
     /* Azul/violeta por defecto del navegador no contrasta bien sobre el fondo
        casi negro de este tema - naranja se ve bien y no choca con el dorado
        de acento (--accent-gold), que se usa para otra cosa (iconos, botones). */
-    --link-color: #ff9f43;
-    --link-color-visited: #ffb366;
+    --link-color: #b794f6;
+    --link-color-visited: #b794f6;
 }
 
-a { color: var(--link-color); }
+a { color: var(--link-color); text-decoration: none; font-weight: 600; }
 a:visited { color: var(--link-color-visited); }
+a:hover, a:focus-visible { text-decoration: underline; }
 
 * {
     box-sizing: border-box;
@@ -556,6 +575,17 @@ h1 {
 .auth-hint { display: block; margin-top: 4px; color: var(--text-muted); font-size: 0.78rem; }
 .auth-switch { margin-top: 18px; text-align: center; color: var(--text-secondary); }
 
+/* Botón de "ver contraseña" (ojo) superpuesto dentro del input, no al lado - así no hace
+   falta tocar el layout de ancho:100% que ya tienen los campos de auth. */
+.auth-password-wrap { position: relative; }
+.auth-password-wrap input { padding-right: 42px; }
+.auth-password-toggle {
+    position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; padding: 8px 10px;
+    color: var(--text-muted); font-size: 1rem; line-height: 1;
+}
+.auth-password-toggle:hover { color: var(--text-primary); }
+
 @media (max-width: 760px) {
     .auth-visual { display: none; }
     .auth-shell { margin: 0; border-radius: 0; min-height: 100vh; box-shadow: none; border: none; }
@@ -593,7 +623,13 @@ h1 {
 .asignacion-tabla th, .asignacion-tabla td {
     border: 1px solid rgba(var(--accent-purple-rgb),0.15); padding: 6px 8px;
 }
-.asignacion-tabla th { color: var(--accent-gold); font-weight: 600; }
+/* Encabezado fijo arriba al scrollear el cuerpo de la tabla dentro de un modal (.modal-scroll)
+   - necesita un fondo opaco propio (no hereda el de .modal-box) para que las filas que pasan
+   por debajo no se transparenten sobre el texto del encabezado. */
+.asignacion-tabla th {
+    color: var(--accent-gold); font-weight: 600;
+    position: sticky; top: 0; background: var(--bg-sidebar); z-index: 1;
+}
 
 /* Botones que necesitan cookie de Moodle: se ven apagados hasta capturarla. */
 .btn:disabled,

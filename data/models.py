@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
 
@@ -48,6 +49,50 @@ class Profesor(models.Model):
         self.moodle_cookie_cifrada = None
         self.moodle_cookie_guardada_en = None
         self.save(update_fields=['moodle_cookie_cifrada', 'moodle_cookie_guardada_en'])
+
+
+class RestablecimientoContrasena(models.Model):
+    """Código de 6 dígitos para que un docente recupere el acceso cuando el Administrador
+    le restablece la contraseña (Docentes > "Restablecer contraseña") - no depende de
+    tener un email guardado: el código se le muestra al Administrador en el momento, para
+    que se lo pase al docente por el medio que sea. Un Profesor tiene como mucho un código
+    pendiente a la vez; generar uno nuevo reemplaza cualquier anterior (OneToOne)."""
+    MAX_INTENTOS = 5
+    VIGENCIA = timedelta(minutes=30)
+
+    profesor = models.OneToOneField(Profesor, on_delete=models.CASCADE, related_name='restablecimiento')
+    codigo_hash = models.CharField(max_length=128)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    expira_en = models.DateTimeField()
+    intentos_fallidos = models.PositiveSmallIntegerField(default=0)
+    generado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
+    )
+
+    @classmethod
+    def crear_para(cls, profesor, codigo_en_claro, generado_por):
+        obj, _ = cls.objects.update_or_create(
+            profesor=profesor,
+            defaults={
+                'codigo_hash': make_password(codigo_en_claro),
+                'expira_en': timezone.now() + cls.VIGENCIA,
+                'intentos_fallidos': 0,
+                'generado_por': generado_por,
+            },
+        )
+        return obj
+
+    def vigente(self):
+        return timezone.now() < self.expira_en and self.intentos_fallidos < self.MAX_INTENTOS
+
+    def verificar(self, codigo_en_claro):
+        if not self.vigente():
+            return False
+        return check_password(codigo_en_claro, self.codigo_hash)
+
+    def registrar_intento_fallido(self):
+        self.intentos_fallidos += 1
+        self.save(update_fields=['intentos_fallidos'])
 
 
 class FechasParciales(models.Model):
@@ -155,6 +200,15 @@ def asegurar_config_tareas_default(profesor, forzar=False):
 
 
 from django.db import models
+
+
+# Facultad/Carrera "cajón de sastre" que import_tareas_from_json() crea para una Materia
+# recién importada que todavía no tiene su facultad/carrera real asignada (eso lo corrige
+# "Importar carreras" después). No es una facultad académica real - no debería ofrecerse
+# como opción en selectores pensados para elegir una facultad/carrera de verdad (filtro de
+# Resumen, alcance de un Decano), aunque las materias que todavía caen ahí sí se puedan
+# seguir viendo y gestionando individualmente en Materias (decisión 2026-11-27).
+NOMBRE_FACULTAD_IMPORTADAS = 'Importadas'
 
 
 class Facultad(models.Model):
@@ -571,6 +625,19 @@ class ConfiguracionInstitucional(models.Model):
         default=2,
         help_text='Cantidad de Unidades (UT) que cada parcial abarca, para saber si una '
                    'Unidad sin titulo real ya deberia estar cargada segun la fecha de hoy.',
+    )
+
+    # Los popups de resultado (SweetAlert) de extracción/importación mostraban siempre el
+    # mensaje completo (varias oraciones, a veces con un dict de Python crudo adentro) -
+    # mucho para un uso normal. Por defecto se muestra un resumen corto (solo los números:
+    # actualizados/creados/omitidos, etc., ver mostrarResultado en base.html); esto NO
+    # pierde el mensaje completo, que sigue siempre en la consola del navegador - solo deja
+    # verlo también en el popup para quien lo prefiera (decisión 2026-11-28).
+    mensajes_resultado_detallados = models.BooleanField(
+        default=False,
+        help_text='Mostrar el mensaje completo de cada acción en el popup, en vez del resumen '
+                   '(cantidades) que se muestra por defecto. El mensaje completo siempre queda '
+                   'disponible en la consola del navegador (F12) aunque esto esté desactivado.',
     )
 
     actualizado = models.DateTimeField(auto_now=True)

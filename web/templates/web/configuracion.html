@@ -38,12 +38,27 @@
         </section>
 
         <section class="panel" style="margin-bottom:20px;">
+            <h2>Mensajes de resultado</h2>
+            <div class="note">
+                Por defecto, el popup de cada acción muestra solo un resumen (cantidades). El
+                mensaje completo siempre queda en la consola del navegador (F12).
+            </div>
+            <form method="post" style="margin-top:10px;">
+                {% csrf_token %}
+                <input type="hidden" name="accion" value="toggle_mensajes_detallados">
+                <button type="submit" class="btn {% if mensajes_resultado_detallados %}btn-primary{% else %}btn-secondary{% endif %}"
+                        style="width:auto; padding:10px 20px; display:inline-flex; align-items:center; gap:8px;">
+                    <i class="bi {% if mensajes_resultado_detallados %}bi-toggle-on{% else %}bi-toggle-off{% endif %}"></i>
+                    {% if mensajes_resultado_detallados %}Mensaje completo - click para mostrar solo el resumen{% else %}Resumen - click para mostrar el mensaje completo{% endif %}
+                </button>
+            </form>
+        </section>
+
+        <section class="panel" style="margin-bottom:20px;">
             <h2>Unidades por parcial</h2>
             <div class="note">
-                Cuántas Unidades (UT) abarca cada parcial. Se usa para la alerta "Materias
-                con retraso" de Resumen: una Unidad que todavía tiene el título por defecto
-                sin editar ("UT 6: XXXX") solo cuenta como retraso si, según este número y
-                la fecha de hoy, ya debería tener contenido real.
+                Cuántas Unidades (UT) abarca cada parcial - usado por la alerta "Materias con
+                retraso" de Resumen.
             </div>
             <form method="post" style="margin-top:10px; display:flex; gap:12px; align-items:flex-end;">
                 {% csrf_token %}
@@ -60,10 +75,8 @@
         <section class="panel" style="margin-bottom:20px;">
             <h2>Exportar base de datos</h2>
             <div class="note">
-                Descarga un JSON con las tablas académicas (materias, docentes, tareas,
-                entregas, etc.) tal como están ahora mismo en este servidor — útil para
-                revisar casos raros (ej. materias que parecen duplicadas) comparando contra
-                otra extracción. No incluye usuarios/contraseñas, solo datos académicos.
+                Descarga un JSON con las tablas académicas tal como están ahora. No incluye
+                usuarios ni contraseñas.
             </div>
             <a href="{% url 'exportar_base_datos' %}" class="btn btn-secondary"
                style="width:auto; padding:10px 20px; display:inline-flex; align-items:center; gap:8px; margin-top:10px;">
@@ -73,10 +86,8 @@
         {% endif %}
 
         <div class="note">
-            Cada docente tiene su propia configuración (se guarda en tu perfil de Profesor) y
-            hace falta antes de extraer: el botón "1. Extraer, asignar e importar tareas" usa
-            las fechas para decidir en qué parcial cae cada tarea, y los pesos se usan para
-            calcular la nota de cada parcial ("3. Extraer estudiantes" y "5. Generar Excel").
+            Configuración propia por docente, necesaria antes de extraer. Las fechas deciden
+            el parcial de cada tarea ("1"); los pesos calculan la nota ("5. Generar Excel").
         </div>
 
         {% if saved %}
@@ -87,12 +98,9 @@
         {% endif %}
 
         <div class="note">
-            Los campos que dejes vacíos (parcial sin fechas, categoría sin peso) ya se
-            completan solos con un default institucional del año en curso (parciales
-            Feb-Abr / May-Jun / Jul-Sep / Oct-Nov, pesos Mi-Tek 10 / E-Tek 20 / Training 20
-            / Design Lab 20 / Examen 30) — no hace falta que configures nada si te sirve tal
-            cual. Lo que ya configuraste (de este año o de cualquier otro) nunca se toca
-            solo. "Restablecer y guardar" sí pisa todo con ese default del año en curso.
+            Vacío = default institucional (Feb-Abr/May-Jun/Jul-Sep/Oct-Nov; pesos
+            10/20/20/20/30). Lo ya configurado nunca se pisa solo - "Restablecer y guardar" sí
+            pisa todo con ese default.
         </div>
 
         {% if rangos_parciales %}
@@ -103,10 +111,9 @@
                 <div class="panel" id="fechas">
                     <h2>Fechas de los parciales (del Centralizador)</h2>
                     <div class="note">
-                        <strong>No son fechas de Moodle:</strong> indicá cuándo empieza y termina
-                        cada parcial; esto será para todas tus materias. Cada tarea extraída cae en el parcial cuyo
-                        rango contiene su fecha de cierre. Dejá vacío un parcial que todavía no
-                        tenga fechas definidas (hace falta al menos uno completo).
+                        <strong>No son fechas de Moodle.</strong> Cada tarea cae en el parcial cuyo
+                        rango contiene su fecha de cierre. Dejá vacío un parcial sin definir
+                        (necesitás al menos uno).
                     </div>
                     <table style="width:100%; border-collapse: collapse; margin-top: 12px;">
                         <thead>
@@ -139,10 +146,8 @@
                 <div class="panel" id="pesos">
                     <h2>Pesos por categoría</h2>
                     <div class="note">
-                        Peso (%) de cada tipo de tarea dentro de un parcial. La categoría se
-                        detecta por el título de la tarea (Mi-Tek, E-Tek, Design Lab, Examen;
-                        cualquier otra cosa cae en Training). Lo ideal es que sumen 100, pero no
-                        se fuerza por si usás solo algunas categorías.
+                        Peso (%) de cada categoría - se detecta por el título (Mi-Tek/E-Tek/Design
+                        Lab/Examen; el resto cae en Training). Ideal que sumen 100.
                     </div>
                     <table style="width:100%; border-collapse: collapse; margin-top: 12px;">
                         <thead>
@@ -195,14 +200,12 @@
         <section class="panel" id="extension" style="margin-top:20px;">
             <h2>Extensión de Chrome: captura automática de cookie</h2>
             <div class="note">
-                Captura tu cookie <code>MoodleSession</code> y, con tu confirmación, la envía
-                cifrada al servidor desde el botón "Extraer cookie de Moodle" del panel de
-                extracción - sin copiarla a mano desde las herramientas de desarrollador ni
-                mostrarla en pantalla.
+                Captura tu cookie <code>MoodleSession</code> y la envía cifrada al pulsar "Extraer
+                cookie de Moodle" en Extracción - sin copiarla a mano.
             </div>
             <a href="{% static 'web/downloads/centralizador-moodle-cookie.zip' %}?v={{ extension_version }}"
                class="btn btn-primary" style="width:auto; padding:10px 16px; display:inline-block; text-decoration:none; margin-top:10px;">
-                ⬇ Descargar extensión (.zip) — v{{ extension_version }}
+                <i class="bi bi-download"></i> Descargar extensión (.zip) — v{{ extension_version }}
             </a>
             <p class="note" style="margin-top:14px;"><strong>Instalación (modo desarrollador — todavía no está en la Chrome Web Store):</strong></p>
             <ol class="note" style="padding-left:20px;">

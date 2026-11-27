@@ -10,7 +10,7 @@ from django.utils import timezone
 from data.models import (
     Profesor, FechasParciales, PesosCategorias, asegurar_config_tareas_default,
     Facultad, Carrera, Materia, Unidad, Tarea, Estudiante, Entrega, PerfilUsuario, ArchivoTarea,
-    PrediccionRiesgo, ConfiguracionInstitucional, AccesoCurso,
+    PrediccionRiesgo, ConfiguracionInstitucional, AccesoCurso, RestablecimientoContrasena,
 )
 from services.utils import run_scraping
 
@@ -190,8 +190,18 @@ class GuiaDeUsoTests(TestCase):
 
     def test_registro_lleva_a_la_guia(self):
         Profesor.objects.create(moodle_id=616161, nombre='docente.nuevo', url='https://moodle.example/u/616161')
-        respuesta = self.client.post(reverse('register'), {'username': 'docente.nuevo', 'password': 'clave-123'})
+        respuesta = self.client.post(reverse('register'), {
+            'username': 'docente.nuevo', 'password': 'clave-123-segura', 'password_confirmar': 'clave-123-segura',
+        })
         self.assertRedirects(respuesta, f"{reverse('configuracion')}?tour=1", fetch_redirect_response=False)
+
+    def test_registro_rechaza_contrasenas_que_no_coinciden(self):
+        Profesor.objects.create(moodle_id=616162, nombre='docente.nuevo2', url='https://moodle.example/u/616162')
+        respuesta = self.client.post(reverse('register'), {
+            'username': 'docente.nuevo2', 'password': 'clave-123-segura', 'password_confirmar': 'otra-cosa',
+        })
+        self.assertEqual(respuesta.context['error'], 'Las contraseñas no coinciden.')
+        self.assertFalse(User.objects.filter(username='docente.nuevo2').exists())
 
     def test_configuracion_arranca_la_guia_si_esta_pendiente(self):
         self.client.force_login(self.user)
@@ -282,6 +292,122 @@ class LoginSinProfesorTests(TestCase):
         self.assertEqual(respuesta.json(), {'ok': True})
         profesor = Profesor.objects.get(user=user)
         self.assertIsNotNone(profesor.moodle_cookie_cifrada)
+
+
+@override_settings(STORAGES=SIN_MANIFIESTO)
+class RestablecerPasswordTests(TestCase):
+    """Recuperación de contraseña sin correo (Fase A, decisión 2026-11-27): el
+    Administrador le restablece la contraseña a un docente desde Docentes, lo que genera un
+    código de 6 dígitos que el docente usa en /recuperar/ para elegir una nueva."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(username='admin.reset', password='clave-123')
+        PerfilUsuario.objects.create(user=self.admin, rol=PerfilUsuario.ADMINISTRADOR)
+
+        self.docente_user = User.objects.create_user(username='docente.reset', password='vieja-clave-123')
+        self.profesor = Profesor.objects.create(
+            moodle_id=9001, nombre='docente.reset',
+            url='https://moodle.example/user/view.php?id=9001', user=self.docente_user,
+        )
+
+    def test_admin_restablece_password_genera_codigo_e_invalida_la_vieja(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('restablecer_password_docente'), {'profesor_id': self.profesor.id})
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(len(data['codigo']), 6)
+        self.assertTrue(data['codigo'].isdigit())
+
+        self.docente_user.refresh_from_db()
+        self.assertFalse(self.docente_user.has_usable_password())
+        self.assertTrue(RestablecimientoContrasena.objects.filter(profesor=self.profesor).exists())
+
+    def test_no_admin_no_puede_restablecer_password(self):
+        self.client.force_login(self.docente_user)
+        resp = self.client.post(reverse('restablecer_password_docente'), {'profesor_id': self.profesor.id})
+        self.assertNotEqual(resp.status_code, 200)
+
+    def test_restablecer_password_sin_cuenta_da_error(self):
+        sin_cuenta = Profesor.objects.create(
+            moodle_id=9002, nombre='sin.cuenta', url='https://moodle.example/user/view.php?id=9002',
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.post(reverse('restablecer_password_docente'), {'profesor_id': sin_cuenta.id})
+        data = resp.json()
+        self.assertFalse(data['ok'])
+
+    def _generar_codigo(self):
+        self.client.force_login(self.admin)
+        data = self.client.post(reverse('restablecer_password_docente'), {'profesor_id': self.profesor.id}).json()
+        self.client.logout()
+        return data['codigo']
+
+    def test_recuperar_con_codigo_correcto_actualiza_la_password(self):
+        codigo = self._generar_codigo()
+        resp = self.client.post(reverse('recuperar_password'), {
+            'username': 'docente.reset', 'codigo': codigo,
+            'password': 'Nueva-Clave-456!', 'password_confirmar': 'Nueva-Clave-456!',
+        })
+        self.assertIn('Contraseña actualizada', resp.context['mensaje'])
+        self.docente_user.refresh_from_db()
+        self.assertTrue(self.docente_user.check_password('Nueva-Clave-456!'))
+        self.assertFalse(RestablecimientoContrasena.objects.filter(profesor=self.profesor).exists())
+
+    def test_recuperar_con_codigo_incorrecto_no_actualiza_nada(self):
+        self._generar_codigo()
+        resp = self.client.post(reverse('recuperar_password'), {
+            'username': 'docente.reset', 'codigo': '000000',
+            'password': 'Nueva-Clave-456!', 'password_confirmar': 'Nueva-Clave-456!',
+        })
+        self.assertEqual(resp.context['error'], 'Usuario o código incorrectos.')
+        self.docente_user.refresh_from_db()
+        self.assertFalse(self.docente_user.has_usable_password())
+
+    def test_recuperar_bloquea_tras_demasiados_intentos_fallidos(self):
+        self._generar_codigo()
+        for _ in range(RestablecimientoContrasena.MAX_INTENTOS):
+            self.client.post(reverse('recuperar_password'), {
+                'username': 'docente.reset', 'codigo': '000000',
+                'password': 'x', 'password_confirmar': 'x',
+            })
+        restablecimiento = RestablecimientoContrasena.objects.get(profesor=self.profesor)
+        self.assertFalse(restablecimiento.vigente())
+
+        resp = self.client.post(reverse('recuperar_password'), {
+            'username': 'docente.reset', 'codigo': '111111',
+            'password': 'Nueva-Clave-456!', 'password_confirmar': 'Nueva-Clave-456!',
+        })
+        self.assertIn('venció', resp.context['error'])
+
+    def test_recuperar_codigo_vencido_falla(self):
+        codigo = self._generar_codigo()
+        restablecimiento = RestablecimientoContrasena.objects.get(profesor=self.profesor)
+        restablecimiento.expira_en = timezone.now() - timedelta(minutes=1)
+        restablecimiento.save(update_fields=['expira_en'])
+
+        resp = self.client.post(reverse('recuperar_password'), {
+            'username': 'docente.reset', 'codigo': codigo,
+            'password': 'Nueva-Clave-456!', 'password_confirmar': 'Nueva-Clave-456!',
+        })
+        self.assertIn('venció', resp.context['error'])
+
+    def test_recuperar_passwords_no_coinciden(self):
+        codigo = self._generar_codigo()
+        resp = self.client.post(reverse('recuperar_password'), {
+            'username': 'docente.reset', 'codigo': codigo,
+            'password': 'Nueva-Clave-456!', 'password_confirmar': 'Otra-Cosa-789!',
+        })
+        self.assertEqual(resp.context['error'], 'Las contraseñas no coinciden.')
+
+    def test_recuperar_rechaza_password_debil(self):
+        codigo = self._generar_codigo()
+        resp = self.client.post(reverse('recuperar_password'), {
+            'username': 'docente.reset', 'codigo': codigo,
+            'password': '12345678', 'password_confirmar': '12345678',
+        })
+        self.assertIsNotNone(resp.context['error'])
+        self.docente_user.refresh_from_db()
+        self.assertFalse(self.docente_user.has_usable_password())
 
 
 @override_settings(STORAGES=SIN_MANIFIESTO)

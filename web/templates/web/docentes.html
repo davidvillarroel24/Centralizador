@@ -14,7 +14,7 @@
                 <th>Assigns publicados</th>
                 <th>Perfil</th>
                 <th>Avances</th>
-                {% if roles_choices %}<th>Rol</th>{% endif %}
+                {% if roles_choices %}<th>Rol</th><th>Contraseña</th>{% endif %}
             </tr>
         </thead>
 
@@ -54,10 +54,21 @@
                                 data-carreras="{{ p.perfil_carreras_ids|join:',' }}"
                                 data-materias="{{ p.perfil_materias_ids|join:',' }}">
                             {% for valor, etiqueta in roles_choices %}{% if valor == p.rol_actual %}{{ etiqueta }}{% endif %}{% endfor %}
-                            {% if not p.rol_actual %}Docente{% endif %} ✏️
+                            {% if not p.rol_actual %}Docente{% endif %} <i class="bi bi-pencil-fill"></i>
                         </button>
                     {% else %}
                         <span class="note" style="font-size:0.85rem;">Sin cuenta registrada</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if p.user %}
+                        <button type="button" class="btn btn-secondary btn-restablecer-password"
+                                style="width:auto; padding:6px 12px; font-size:0.85rem;"
+                                data-profesor-id="{{ p.id }}" data-nombre="{{ p.nombre }}">
+                            Restablecer contraseña
+                        </button>
+                    {% else %}
+                        <span class="note" style="font-size:0.85rem;">—</span>
                     {% endif %}
                 </td>
                 {% endif %}
@@ -158,7 +169,7 @@
                     </select>
                 </div>
                 <div>
-                    <label class="note" style="display:block; margin-bottom:4px;">Filtrar por</label>
+                    <label class="note" style="display:block; margin-bottom:4px;">Fecha</label>
                     <select id="avancesCampoFecha" class="form-select-custom" style="width:100%;">
                         <option value="ambos">Apertura o cierre</option>
                         <option value="apertura">Solo apertura</option>
@@ -288,6 +299,50 @@
                 if (window.Swal) {
                     Swal.fire({ icon: 'error', title: 'Error de red', confirmButtonColor: '#9b5bf6' });
                 }
+            });
+        });
+    })();
+
+    (function () {
+        var csrftoken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+
+        document.querySelectorAll('.btn-restablecer-password').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                if (!window.Swal) return;
+                Swal.fire({
+                    icon: 'warning',
+                    title: '¿Restablecer la contraseña de ' + btn.dataset.nombre + '?',
+                    text: 'Va a quedar bloqueado de inmediato hasta que use el código de 6 dígitos para elegir una nueva.',
+                    showCancelButton: true,
+                    confirmButtonText: 'Sí, restablecer',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#9b5bf6',
+                }).then(function (resultado) {
+                    if (!resultado.isConfirmed) return;
+                    var datos = new FormData();
+                    datos.set('profesor_id', btn.dataset.profesorId);
+                    fetch('{% url "restablecer_password_docente" %}', {
+                        method: 'POST',
+                        headers: { 'X-CSRFToken': csrftoken },
+                        body: datos,
+                    }).then(function (r) { return r.json(); }).then(function (data) {
+                        if (data.ok) {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Código generado',
+                                html: 'Pasale este código a <strong>' + btn.dataset.nombre + '</strong> (usuario <code>' +
+                                    data.usuario + '</code>), vale por ' + data.vigencia_minutos + ' minutos:<br><br>' +
+                                    '<div style="font-size:2rem; font-weight:bold; letter-spacing:4px;">' + data.codigo + '</div>' +
+                                    '<br>Tiene que entrar a <code>/recuperar/</code> para elegir su nueva contraseña.',
+                                confirmButtonColor: '#9b5bf6',
+                            });
+                        } else {
+                            Swal.fire({ icon: 'error', title: 'No se pudo restablecer', text: data.error || '', confirmButtonColor: '#9b5bf6' });
+                        }
+                    }).catch(function () {
+                        Swal.fire({ icon: 'error', title: 'Error de red', confirmButtonColor: '#9b5bf6' });
+                    });
+                });
             });
         });
     })();

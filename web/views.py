@@ -18,6 +18,7 @@ from django.core.exceptions import ValidationError
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
+from django.utils import translation
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_protect
 from urllib.parse import urlencode
@@ -200,7 +201,8 @@ def register_view(request):
             error = 'Las contraseñas no coinciden.'
         else:
             try:
-                validate_password(password, user=User(username=username))
+                with translation.override('es'):
+                    validate_password(password, user=User(username=username))
             except ValidationError as e:
                 error = ' '.join(e.messages)
 
@@ -217,7 +219,11 @@ def register_view(request):
             # desde la pantalla de extracción, la primera vez que haga falta. Primero se
             # muestra la guía de uso, que empieza en Configuración.
             return redirect(url_guia_uso())
-    context = {'message': message, 'error': error, 'nombres_profesores': nombres_profesores}
+    context = {
+        'message': message,
+        'error': error,
+        'nombres_profesores': json.dumps(nombres_profesores).replace('</', '<\\/'),
+    }
     return render(request, 'web/register.html', context)
 
 
@@ -1293,6 +1299,9 @@ def dashboard(request):
                     )
                 else:
                     stop_event = extraction_lock.get_stop_event(job_id)
+                    # Se guarda al hacer click, no recien al terminar: el usuario quiere ver
+                    # cuándo arrancó su propia extracción, sea cual sea el resultado.
+                    PerfilUsuario.objects.filter(user=request.user).update(ultima_extraccion=dj_timezone.now())
                     try:
                         profesor_actual = get_current_profesor(request)
                         if action in ('extraer_carreras', 'cargar_carreras'):
@@ -1598,10 +1607,22 @@ def resumen(request):
         if mostrar_panel_gestion:
             kpis['materias_con_retraso'] = _materias_con_retraso(materias_qs)
 
-        ultima_actualizacion = Materia.objects.aggregate(last=Max('actualizado')).get('last')
-        ultima_actualizacion = max(filter(None, [ultima_actualizacion, Profesor.objects.aggregate(last=Max('actualizado')).get('last')]))
+        # ultima_extraccion se pisa a mano en dashboard() en el momento del click sobre
+        # cualquier extractor real de Moodle (no auto_now: Materia/Profesor.actualizado solo
+        # se tocan si esa extracción además crea o corrige una fila, así que no servían para
+        # esto - ver PerfilUsuario.ultima_extraccion). Administrador/Decano/Visitante ven la
+        # más reciente de cualquier cuenta (Visitante nunca extrae nada, así que lo suyo
+        # siempre estaría vacío); Docente ve únicamente la suya.
+        if rol in ROLES_GESTION or rol == PerfilUsuario.VISITANTE:
+            ultima_actualizacion = PerfilUsuario.objects.exclude(ultima_extraccion=None).aggregate(
+                last=Max('ultima_extraccion')
+            ).get('last')
+        else:
+            ultima_actualizacion = getattr(
+                PerfilUsuario.objects.filter(user=request.user).first(), 'ultima_extraccion', None
+            )
         if ultima_actualizacion:
-            kpis['ultima_sincronizacion'] = ultima_actualizacion.strftime('%Y-%m-%d %H:%M:%S')
+            kpis['ultima_sincronizacion'] = ultima_actualizacion.strftime('%d-%m-%Y %H:%M:%S')
     except Exception:
         pass
 
@@ -1892,7 +1913,8 @@ def recuperar_password_view(request):
             error = 'Las contraseñas no coinciden.'
         else:
             try:
-                validate_password(nueva, user=user)
+                with translation.override('es'):
+                    validate_password(nueva, user=user)
             except ValidationError as e:
                 error = ' '.join(e.messages)
             else:

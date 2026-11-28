@@ -810,6 +810,12 @@ class PerfilUsuario(models.Model):
 
     actualizado = models.DateTimeField(auto_now=True)
 
+    # Se pisa a mano (no auto_now) cada vez que esta cuenta hace click en un extractor real
+    # de Moodle (ver dashboard() en web/views.py) - a diferencia de Materia.actualizado/
+    # Profesor.actualizado, que solo se tocan si esa extracción además crea o corrige una
+    # fila, esto SIEMPRE registra el momento del click, sea cual sea el resultado.
+    ultima_extraccion = models.DateTimeField(null=True, blank=True)
+
     def __str__(self):
         return f"{self.user.username} ({self.get_rol_display()})"
 

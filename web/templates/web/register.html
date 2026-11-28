@@ -25,13 +25,11 @@
           {% csrf_token %}
           <div class="auth-field">
             <label for="username">Usuario (nombre de docente)</label>
-            <input id="username" name="username" type="text" list="lista-docentes" autocomplete="off" class="config-input" style="width:100%;" required>
-            <datalist id="lista-docentes">
-              {% for nombre in nombres_profesores %}
-                <option value="{{ nombre }}"></option>
-              {% endfor %}
-            </datalist>
-            <small class="auth-hint">Empieza a escribir y elegí tu nombre tal cual aparece en la lista (puede tener espacios u otros caracteres extra).</small>
+            <div class="auth-autocomplete">
+              <input id="username" name="username" type="text" autocomplete="off" autocapitalize="off" class="config-input" style="width:100%;" required>
+              <div class="auth-autocomplete-list" id="listaDocentes" hidden></div>
+            </div>
+            <small class="auth-hint">Empieza a escribir y tocá tu nombre en la lista tal cual aparece (puede tener espacios u otros caracteres extra).</small>
           </div>
           <div class="auth-field">
             <label for="password">Contraseña</label>
@@ -41,6 +39,7 @@
                 <i class="bi bi-eye"></i>
               </button>
             </div>
+            <small class="auth-hint">Mínimo 8 caracteres y que no sea solo números.</small>
           </div>
           <div class="auth-field">
             <label for="password_confirmar">Confirmar contraseña</label>
@@ -65,4 +64,48 @@
     mostrarResultado({ error: "{{ error|escapejs }}" });
 </script>
 {% endif %}
+<script>
+(function () {
+    var nombres = {{ nombres_profesores|safe }};
+    var input = document.getElementById('username');
+    var lista = document.getElementById('listaDocentes');
+
+    function escapeTexto(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function pintar(filtro) {
+        var texto = filtro.trim().toLowerCase();
+        var coincidencias = texto
+            ? nombres.filter(function (n) { return n.toLowerCase().indexOf(texto) !== -1; })
+            : nombres;
+        coincidencias = coincidencias.slice(0, 50);
+        if (!coincidencias.length) {
+            lista.hidden = true;
+            lista.innerHTML = '';
+            return;
+        }
+        lista.innerHTML = coincidencias.map(function (n) {
+            return '<div class="auth-autocomplete-item">' + escapeTexto(n) + '</div>';
+        }).join('');
+        lista.hidden = false;
+    }
+
+    input.addEventListener('focus', function () { pintar(input.value); });
+    input.addEventListener('input', function () { pintar(input.value); });
+
+    lista.addEventListener('click', function (ev) {
+        var item = ev.target.closest('.auth-autocomplete-item');
+        if (!item) return;
+        input.value = item.textContent;
+        lista.hidden = true;
+    });
+
+    document.addEventListener('click', function (ev) {
+        if (ev.target !== input && !lista.contains(ev.target)) {
+            lista.hidden = true;
+        }
+    });
+})();
+</script>
 {% endblock %}

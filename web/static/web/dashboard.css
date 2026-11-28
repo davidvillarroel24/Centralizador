@@ -586,6 +586,21 @@ h1 {
 }
 .auth-password-toggle:hover { color: var(--text-primary); }
 
+/* Lista de docentes del registro: reemplaza al <datalist> nativo, que iOS/Android
+   mayormente ignoran (no muestran sugerencias al tocar el campo en celular). */
+.auth-autocomplete { position: relative; }
+.auth-autocomplete-list {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20;
+    max-height: 220px; overflow-y: auto;
+    background: var(--input-bg); border: 1px solid var(--input-border);
+    border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+}
+.auth-autocomplete-item {
+    padding: 10px 14px; font-size: 0.9rem; cursor: pointer; color: var(--text-primary);
+}
+.auth-autocomplete-item:hover,
+.auth-autocomplete-item:active { background: var(--panel-bg); }
+
 @media (max-width: 760px) {
     .auth-visual { display: none; }
     .auth-shell { margin: 0; border-radius: 0; min-height: 100vh; box-shadow: none; border: none; }
